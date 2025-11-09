@@ -11,7 +11,9 @@ package-lock.json
 dist
 installers
 todo.txt
+external/*
 *.pdb
 *.rc
-engine/lib/*
-!engine/lib/.gitkeep
+index
+lib/*
+!lib/.gitkeep

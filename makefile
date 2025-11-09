@@ -92,20 +92,17 @@ define step
 endef
 # endif
 # -----------------------------------------------------------------------------
-# Binary Name
-# -----------------------------------------------------------------------------
-EXE := $(shell cd ../scripts && npx tsx ./src/getname.ts)$(EXE_EXT)
-# -----------------------------------------------------------------------------
 # Paths 
 # -----------------------------------------------------------------------------
-BUILD_PATH :=  ../build
-COPY_PATH := ../build
-LIC_PATH :=    ../licenses
-CONF_PATH :=   ../config.json
-INFO_PATH :=   ../info.json
+BUILD_PATH :=  ./build
+COPY_PATH := ./build
+LIC_PATH :=    ./licenses
+CONF_PATH :=   ./config.json
+INFO_PATH :=   ./info.json
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
+EXE := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)$(EXE_EXT)
 ifeq ($(OS_NAME), Windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
