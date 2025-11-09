@@ -12,6 +12,7 @@ dist
 installers
 todo.txt
 external/*
+!external/.gitkeep
 *.pdb
 *.rc
 index
