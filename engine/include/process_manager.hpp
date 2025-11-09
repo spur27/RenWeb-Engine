@@ -1,26 +1,10 @@
-#ifndef RENWEB_PROCESS_MANAGER_H
-#define RENWEB_PROCESS_MANAGER_H
-#include "info.hpp"
-// #include "webview.hpp"
-#include <memory>
+#pragma once
+
+// #include <boost/process.hpp>
 #include <map>
-#include <memory>
-#include <spdlog/spdlog.h>
-#include <boost/process.hpp>
-#include <memory>
 #include <string>
 #include <vector>
-#include <sstream>
-
-#if defined(_WIN32)
-#include <windows.h>
-#include <tlhelp32.h>
-#elif defined(__APPLE__)
-#include <Cocoa/Cocoa.h>
-#elif defined(__linux__)
-#include <gtk/gtk.h>
-#endif
-
+#include <boost/process.hpp>
 
 
 namespace RenWeb {
@@ -38,4 +22,3 @@ namespace RenWeb {
             void bringToForeground(std::string);
     };
 };
-#endif

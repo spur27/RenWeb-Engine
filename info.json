@@ -1,0 +1,14 @@
+{
+    "author": "Spur27",
+    "description": "I am an app that does things.",
+    "license": "BSL",
+    "title": "RenWeb",
+    "version": "0.0.2",
+    "repository": "https://github.com/spur27/RenWeb",
+    "category": "Utility",
+    "copyright": "Copyright © 2025 Spur27",
+    "appId": "io.github.spur27.renweb",
+    "starting_pages": [
+        "test"
+    ]
+}

@@ -1,399 +1,199 @@
-#include "../include/web_server.hpp"
+#include "web_server.hpp" 
 
-RenWeb::Session::Session(tcp::socket&& socket)
-  // Take ownership of the stream
-    : stream(std::move(socket))
+#include "file.hpp"
+#include "window_helpers.hpp"
+#include "logger.hpp"
+#include "page.hpp"
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <system_error>
+#include <fstream>
+
+using WebServer = RenWeb::WebServer;
+using File = RenWeb::File;
+using Page = RenWeb::Page;
+namespace WH = RenWeb::WindowHelpers;
+using CM = RenWeb::CallbackManager<std::string, const httplib::Request&, httplib::Response&>;
+// namespace WH = RenWeb::WindowHelpers;
+
+
+WebServer::WebServer(const unsigned short& port, const std::string& ip)
+    : method_callbacks(new CM())
+    , server()
+    , port(port)
+    , ip(ip)
 { 
-    // spdlog::trace("SESSION STARTED");
+    this->setHandles();
+    this->setMethodCallbacks();
 }
 
-RenWeb::Session::~Session() { 
-    // spdlog::trace("SESSION DESTROYED");
+WebServer::~WebServer() {
+    Log::trace("Deconstructing WebServer");
 }
 
-std::string RenWeb::Session::errorify(http::status status, std::string why) {
-return (R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * {
-            color: white;
-        }
-        html {
-            background-color: #2b282e;
-        }
-        .row {
-            display:flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 10px;
-        }
-        p {
-            font-size: 12px;
-        }
-        button {
-            background-color: #2b282e;
-        }
-        button:hover {
-            background-color: #3d3942ff;
-        }
-    </style>
-    <script defer>
-        window.onload = async () => {
-            await BIND_show();
-        };
-        document.querySelector(".reload").onclick = async () => {
-            await BIND_reloadPage();
-        };
-    </script>
-</head>
-<body>
-    <div class="row">
-        <h1 class="error_code">)") + std::to_string(static_cast<int>(status)) + std::string(R"(</h1>
-        <p>-</p>
-        <h2 class="error_message">)") + std::string(http::obsolete_reason(status)) + std::string(R"(</h2>
-    </div>
-    <p>)") + why + std::string(R"(</p>
-    <button class="reload">Reload</button>
-</body>
-</html>)");
-}
 
-void RenWeb::Session::handle_current_request() {
-    if (this->req.method() != http::verb::get && this->req.method() != http::verb::head) {
-        // return send(bad_request())
-    }
-    spdlog::info("[SERVER] Recieved \"" + std::string(this->req.method_string()) +  "\" request from \"http://" + this->stream.socket().remote_endpoint().address().to_string() + ":" + std::to_string(this->stream.socket().remote_endpoint().port()) + "\"" + " with target \"" + std::string(req.target()) + "\"");
-    switch (this->req.method()) {
-        case http::verb::get:
-        case http::verb::head:
-            this->handle_get();
-            break;
-        case http::verb::put:
-        case http::verb::post:
-            // this->handle_put();
-            // break;
-        case http::verb::delete_:
-            // this->handle_delete();
-            // break;
-        default:
-            const std::string err_msg = "\"" + std::string(this->req.method_string()) + "\"" + " Isn't a supported request.";
-            this->send_error(http::status::bad_request, err_msg);
-            break;
-    }
-}
-
-void RenWeb::Session::handle_get() {
-    spdlog::debug(std::string("[SERVER] asking for target '") + std::string(this->req.target()) + "'");
-    if (this->req.target().empty() || this->req.target()[0] != '/' || this->req.target().find("..") != beast::string_view::npos) {
-        const std::string err_msg = "\"" + std::string(this->req.target()) + "\" is not a valid GET request target.";
-        spdlog::error("[SERVER] " + err_msg);
-        return this->send_error(http::status::bad_request, err_msg);
-    } else if (RenWeb::Info::App::page.empty()) {
-      // This should never happen, but just in case...
-        spdlog::warn("[SERVER] No page is set. Resetting to default.");
-        RenWeb::Info::App::resetPageToDefault();
-    }
-    std::filesystem::path resource_path = std::filesystem::path(std::string(this->req.target()));
-    if (std::string(this->req.target()) == "/" || std::string(this->req.target()) == "\\") {
-        resource_path = std::filesystem::path("index.html");
-    } else if (std::string(this->req.target())[0] == '/' || std::string(this->req.target())[0] == '\\') {
-        resource_path = std::filesystem::path(std::string(this->req.target()).substr(1));
+std::string WebServer::getURL() {
+    if (this->server.is_running()) {
+        return "http://" + this->ip + ":" + std::to_string(this->port);
     } else {
-        resource_path = std::filesystem::path(std::string(this->req.target()));
+        Log::warn("getURL called when server isn't running. Returning empty string");
+        return "";
     }
-    if (resource_path.string().rfind("assets", 0) == 0) {
-        resource_path = std::filesystem::path(resource_path.string().substr(7));
-        std::filesystem::path custom_resource_path = std::filesystem::path(RenWeb::Info::File::dir) / "custom" / resource_path;
-        if (std::filesystem::exists(custom_resource_path)) {
-            resource_path = custom_resource_path;
-        } else {
-            resource_path = std::filesystem::path(RenWeb::Info::File::dir) / "assets" / resource_path;
+}
+
+void WebServer::start() {
+    if (this->server.is_running()) {
+        Log::error("Can't start server while it's already running.");
+        return;
+    } else if (this->server_thread.joinable()) {
+        Log::error("Can't start server while the server thread is in use.");
+        return;
+    }
+    this->server_thread = std::thread([&](){
+        for (; this->port < 65535; this->port++) {
+            try {
+                Log::trace("[SERVER] trying port " + std::to_string(this->port));
+                this->server.listen(this->ip, this->port);
+                return;
+            } catch (...) { }
         }
-    } else {
-        resource_path = std::filesystem::path(RenWeb::Info::File::dir) / "content" / RenWeb::Info::App::page / resource_path;
-    }
-    if (!std::filesystem::exists(resource_path)) {
-        spdlog::error("[SERVER] file \"" + resource_path.string() + "\" was not found.");
-        const std::string err_msg = "\"" + resource_path.string() + "\" cannot be found!";
-        return this->send_error(http::status::not_found, err_msg);
+        Log::critical("[SERVER] Exhausted all possible ports.");
+        throw std::runtime_error("Couldn't find port to start webserver on.");
+    });
+    Log::info("[SERVER] running on " + this->getURL());
+    this->server.wait_until_ready();
+}
+
+void WebServer::stop() {
+    if (!this->server.is_running()) {
+        Log::error("Can't stop server while it isn't running.");
+        return;
+    } else if (!this->server_thread.joinable()) {
+        Log::error("Can't stop server while the server thread isn't being used.");
+        return;
     }
     try {
-        beast::error_code ec;
-        http::file_body::value_type body;
-        body.open(resource_path.string().c_str(), beast::file_mode::scan, ec);
-        if (ec) throw beast::system_error(ec);
-        auto const size = body.size();
-        spdlog::debug("[SERVER] reading \"" + std::to_string(size) + "\" bytes from \"" + resource_path.string() + "\"");
-        if (this->req.method() == http::verb::head) {
-            http::response<http::empty_body> res_v{http::status::ok, req.version()};
-            res_v.set(http::field::server, std::string_view(std::to_string(static_cast<int>(http::field::version))));
-            res_v.set(http::field::content_type, this->MIME(resource_path.string()));
-            res_v.content_length(size);
-            res_v.keep_alive(req.keep_alive());
-            return this->send(std::move(res_v));
+        if (this->server.is_running()) {
+            this->server.wait_until_ready();
+            this->server.stop();
         }
-        http::response<http::file_body> res_v{
-            std::piecewise_construct,
-            std::make_tuple(std::move(body)),
-            std::make_tuple(http::status::ok, req.version())};
-        res_v.set(http::field::server, std::string_view(std::to_string(static_cast<int>(http::field::version))));
-        res_v.set(http::field::content_type, this->MIME(resource_path.string()));
-        res_v.content_length(size);
-        res_v.keep_alive(req.keep_alive());
-        return this->send(std::move(res_v));
-    } catch (const beast::system_error& e) {
-        spdlog::error("[SERVER] " + std::string(e.what()));
-        this->send_error(http::status(e.code().value()), e.what());
+        if (this->server_thread.joinable()) {
+            this->server_thread.join();
+        }
     } catch (const std::exception& e) {
-        spdlog::error("[SERVER] " + std::string(e.what()));
-        this->send_error(http::status::internal_server_error, e.what());
+        Log::error(e.what());
     }
-}
-void RenWeb::Session::handle_put() {
-
-}
-void RenWeb::Session::handle_delete() {}
-void RenWeb::Session::get_file() {}
-
-void RenWeb::Session::send_error(http::status status, std::string why) {
-    http::response<http::string_body> res_v = {status, this->req.version()};
-    res_v.set(http::field::server, std::string_view(std::to_string(static_cast<int>(http::field::version))));
-    res_v.set(http::field::content_type, "text/html");
-    res_v.keep_alive(req.keep_alive());
-    res_v.body() = this->errorify(status, why);
-    res_v.prepare_payload();
-    return this->send(std::move(res_v));
+    Log::trace("Deconstructing WebServer");
 }
 
-template<bool isRequest, class Body, class Fields>
-void RenWeb::Session::send(http::message<isRequest, Body, Fields>&& msg) {
-    // The lifetime of the message has to extend
-    // for the duration of the async operation so
-    // we use a shared_ptr to manage it.
-    auto sp = std::make_shared<http::message<isRequest, Body, Fields>>(std::move(msg));
-
-    // Store a type-erased version of the shared
-    // pointer in the class to keep it alive.
-    this->res = sp;
-
-    // Write the response
-    http::async_write(
-        this->stream,
-        *sp,
-        beast::bind_front_handler(
-            &Session::on_write,
-            shared_from_this(),
-            sp->need_eof()));
-}
-
-
-void RenWeb::Session::do_read() {
-    // Make the request empty
-    this->req = {};
-    //Set the timeout
-    // this->stream.expires_after(std::chrono::seconds(30));
-    // Read a request
-    http::async_read(this->stream, this->buffer, this->req,
-        beast::bind_front_handler(
-                &Session::on_read,
-                shared_from_this()));
-}
-
-void RenWeb::Session::on_read(beast::error_code ec, std::size_t bytes_transferred) {
-    boost::ignore_unused(bytes_transferred);
-    if (ec == http::error::end_of_stream) {
-        return this->close();
-    } else if (ec) {
-        throw boost::system::system_error(ec);
-    }
-    this->handle_current_request();
-}
-
-void RenWeb::Session::on_write(bool close, beast::error_code ec, std::size_t bytes_transferred) {
-    boost::ignore_unused(bytes_transferred);
-    if (ec) {
-        throw boost::system::system_error(ec);
-    } else if (close) {
-        // The response likely indicated the "Connection: close" semantic
-        return this->close();
-    }
-    // Delete the response
-    this->res = nullptr;
-    // Read another request
-    this->do_read();
-}
-
-void RenWeb::Session::close() {
-    try {
-        // Send TCP shutdown
-        this->stream.socket().shutdown(tcp::socket::shutdown_send);
-    } catch (const std::exception& e) {
-        spdlog::error(e.what());
-    }
-}
-
-void RenWeb::Session::run() {
-    // Dispatch a task to read from the stream
-    net::dispatch(this->stream.get_executor(),
-        beast::bind_front_handler(&RenWeb::Session::do_read, shared_from_this()));
-}
-
-/*static*/ std::string RenWeb::Session::MIME(std::string target) {
-    auto const ext = std::filesystem::path(target).extension().string();
-    if(ext == ".htm")  return "text/html";
-    else if(ext == ".html") return "text/html";
-    else if(ext == ".php")  return "text/html";
-    else if(ext == ".css")  return "text/css";
-    else if(ext == ".txt")  return "text/plain";
-    else if(ext == ".js")   return "application/javascript";
-    else if(ext == ".json") return "application/json";
-    else if(ext == ".xml")  return "application/xml";
-    else if(ext == ".swf")  return "application/x-shockwave-flash";
-    else if(ext == ".flv")  return "video/x-flv";
-    else if(ext == ".png")  return "image/png";
-    else if(ext == ".jpe")  return "image/jpeg";
-    else if(ext == ".jpeg") return "image/jpeg";
-    else if(ext == ".jpg")  return "image/jpeg";
-    else if (ext == ".gif")  return "image/gif";
-    else if (ext == ".bmp")  return "image/bmp";
-    else if (ext == ".ico")  return "image/vnd.microsoft.icon";
-    else if(ext == ".tiff") return "image/tiff";
-    else if(ext == ".tif")  return "image/tiff";
-    else if (ext == ".svg")  return "image/svg+xml";
-    else if (ext == ".svgz") return "image/svg+xml";
-    else return "application/text";
-}
-
-// ----------------------------------------- //
-// ----------------------------------------- //
-// ----------------------------------------- //
-// ----------------------------------------- //
-
-RenWeb::Listener::Listener(net::io_context& ioc_v, tcp::endpoint base_endpoint_v)
-    : ioc(ioc_v)
-    , acceptor(net::make_strand(ioc_v)) 
-{
-    spdlog::debug("[SERVER SETUP] Starting listener construction");
-    for (unsigned short port_offset = 0; port_offset < MAX_NUM_PORTS_TO_TRY; port_offset++) {
+void WebServer::setHandles() {
+    this->server.set_logger([&](const httplib::Request& req, const httplib::Response& res) {
+        Log::info("[SERVER] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
+    });
+    this->server.set_error_logger([&](const httplib::Error& err, const httplib::Request* req) {
+        (void)req;
+        Log::error("[SERVER] " + httplib::to_string(err));
+    });
+    this->server.set_error_handler([&](const httplib::Request& req, httplib::Response& res) {
+        (void)req;
+        auto fmt = "<p>Error Status: <span style='color:red;'>%d</span></p>";
+        char buf[BUFSIZ];
+        snprintf(buf, sizeof(buf), fmt, res.status);
+        res.set_content(buf, "text/html");    
+    });
+    this->server.set_exception_handler([](const auto& req, auto& res, std::exception_ptr ep) {
+        (void)req;
+        auto fmt = "<h1>Error 500</h1><p>%s</p>";
+        char buf[BUFSIZ];
         try {
-            const unsigned short current_port = std::min<unsigned short>(65535, base_endpoint_v.port() + port_offset);
-            tcp::endpoint endpoint_v = {base_endpoint_v.address(), current_port};
-            this->url = "http://" + endpoint_v.address().to_string() + ":" + std::to_string(endpoint_v.port());
-            spdlog::info("[SERVER SETUP] Opening on \"" + this->url + "\"");
-            this->acceptor.open(endpoint_v.protocol());
-            this->acceptor.set_option(net::socket_base::reuse_address(true));
-            spdlog::debug("[SERVER SETUP] Binding...");
-            this->acceptor.bind(endpoint_v);
-            spdlog::debug("[SERVER SETUP] Listening...");
-            this->acceptor.listen(net::socket_base::max_listen_connections);        
-            return;
-        } catch (const boost::system::system_error& e) {
-            if (e.code() == net::error::address_in_use) {
-                spdlog::warn("[SERVER SETUP] Port \""+std::to_string(base_endpoint_v.port()+port_offset) + "\" is busy. Trying \"" + std::to_string(std::min<unsigned short>(65535, base_endpoint_v.port()+port_offset+1)) + "\"");
-                this->acceptor.cancel();
-                this->acceptor.close();
-            } else {
-                throw e;
+            std::rethrow_exception(ep);
+        } catch (const std::exception &e) {
+            Log::error(std::string("[SERVER]") + e.what());
+            snprintf(buf, sizeof(buf), fmt, e.what());
+        }
+        res.set_content(buf, "text/html");
+        res.status = httplib::StatusCode::InternalServerError_500;
+    });
+    this->server.set_file_request_handler([](const httplib::Request &req, httplib::Response &res) {
+        Log::debug("Sending (" + std::to_string(res.body.length()) + ") " + req.target);
+    });
+}
+
+void WebServer::setMethodCallbacks() {
+    this->server.Get(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        std::filesystem::path base_dir(File::getDir());
+        std::filesystem::path target_dir = (req.target == "/")
+            ? "index.html"
+            : WH::formatPath(req.target.substr(1));  
+            std::array<std::filesystem::path, 4> search_paths = {
+                base_dir / "custom" / target_dir,
+                base_dir / "content" / Page::getPage() / target_dir,
+                base_dir / target_dir,
+                base_dir / "backup" / target_dir
+            };
+        for (const auto& path : search_paths) {
+            if (std::filesystem::exists(path)) {
+                this->sendFile(req, res, path);
+                return;
             }
         }
+    });
+    this->server.Put(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
+    });
+    this->server.Post(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
+    });
+    this->server.Patch(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
+    });
+    this->server.Delete(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        this->sendStatus(req, res, httplib::StatusCode::NotFound_404, "Resource not found at target " + req.target);
+    });
+}
+
+void WebServer::sendStatus(const httplib::Request& req, httplib::Response& res, const httplib::StatusCode& code, const std::string& desc) {
+    (void)req;
+    // res.status = code;
+    std::stringstream body;
+    body << "<p><strong>" << code << "</strong> - " << httplib::status_message(code) << "</p>";
+    if (!desc.empty()) {
+        body << "<p>" << desc << "</p>";
     }
-    throw std::runtime_error("[SERVER SETUP] can't find an open port! Tried " + std::to_string(MAX_NUM_PORTS_TO_TRY) + " ports starting from \"" + std::to_string(base_endpoint_v.port() - MAX_NUM_PORTS_TO_TRY) + "\"");
+    res.set_content(body.str(), "text/html");
 }
 
-std::string RenWeb::Listener::getURL() {
-    if (!this->url.empty()) {
-        return this->url;
-    } else {
-      // This should never happen.
-        const std::string err_msg = "URL is somehow empty!";
-        spdlog::critical(err_msg);
-        throw std::runtime_error(err_msg);
+void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, const std::filesystem::path& path) {
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs) {
+        Log::critical("No ifs");
+        this->sendStatus(req, res, httplib::StatusCode::NotFound_404, "Resource not found at target " + req.target + " at path " + path.string());
+        return;
     }
-}
-
-RenWeb::Listener::~Listener() {
-    spdlog::debug("[SERVER TAKEDOWN] Starting Listener deconstruction");
-    spdlog::debug("[SERVER TAKEDOWN] Stopping listener acceptor");
-    this->acceptor.cancel();
-    this->acceptor.close();
-    spdlog::debug("[SERVER TAKEDOWN] Done with Listener deconstruction");
-}
-
-void RenWeb::Listener::run() {
-    // Start accepting connections
-    spdlog::debug("[SERVER SETUP] Running listener...");
-    this->do_accept();
-}
-
-void RenWeb::Listener::do_accept() {
-    // Give a new connection its own strand
-    this->acceptor.async_accept(
-        net::make_strand(this->ioc),
-        beast::bind_front_handler(
-            &RenWeb::Listener::on_accept,
-                    shared_from_this()));
-}
-
-void RenWeb::Listener::on_accept(beast::error_code ec,tcp::socket socket) {
+    std::error_code ec;
+    // auto file_size = std::filesystem::file_size(path, ec);
     if (ec) {
-        throw boost::system::system_error(ec);
+        Log::critical("No ifs");
+        res.status = 500;
+        this->sendStatus(req, res, httplib::StatusCode::PreconditionFailed_412, ec.message());
+        return;
     }
-    std::make_shared<RenWeb::Session>(std::move(socket))->run();
-    this->do_accept();
+    res.set_content_provider(
+        this->getMimeType(path),  // Content type
+        [ifs = std::make_shared<std::ifstream>(path, std::ios::binary)]
+        (size_t offset, httplib::DataSink &sink) {
+            if (!ifs || !*ifs) return false;
+            ifs->seekg(offset);
+            std::array<char, 4096> buffer;
+            ifs->read(buffer.data(), buffer.size());
+            std::streamsize bytes_read = ifs->gcount();
+            if (bytes_read > 0) {
+                sink.write(buffer.data(), static_cast<size_t>(bytes_read));
+                return true;
+            }
+            return false;
+        }
+    );
 }
-
-// ----------------------------------------- //
-// ----------------------------------------- //
-// ----------------------------------------- //
-// ----------------------------------------- //
-/*static*/ bool RenWeb::WebServer::isURI(std::string maybe_uri) {
-    // "\\b((?:https?|ftp|file)://[-a-zA-Z0-9+&@#/%?=~_|!:, .;]*[-a-zA-Z0-9+&@#/%=~_|])"
-    const boost::regex url_regex(
-        "^(http://|https://|file://).*",
-        boost::regex::icase);
-    return boost::regex_match(maybe_uri, url_regex);
-}
-
-std::string RenWeb::WebServer::getURL() {
-    if (this->listener != nullptr) {
-        return this->listener->getURL();
-    } else {
-      // This will only happen if the constructor doesn't actually create a listener.
-        const std::string err_msg = "Can't get url--no listener is set! Something broke in the constructor.";
-        spdlog::critical(err_msg);
-        throw std::runtime_error(err_msg);
-    }
-}
-
-RenWeb::WebServer::WebServer(unsigned short thread_cnt_v, unsigned short port_v, std::string ip_v)
-    : ioc(thread_cnt_v)
-{
-    spdlog::debug("[SERVER SETUP] making IOC listener");
-    this->listener = std::make_shared<RenWeb::Listener>(this->ioc, tcp::endpoint{net::ip::make_address(ip_v), port_v});
-    this->listener->run();
-    this->threads.reserve(thread_cnt_v);
-    for (unsigned short i = thread_cnt_v; i > 0; --i) {
-        spdlog::trace("[SERVER SETUP] Starting IOC thread " + std::to_string(thread_cnt_v-i+1));
-        this->threads.emplace_back([this]{this->ioc.run();});
-    }
-}
-
-RenWeb::WebServer::~WebServer() {
-    spdlog::debug("[SERVER TAKEDOWN] Starting Web Server deconstruction");
-    spdlog::debug("[SERVER TAKEDOWN] Stopping IOC");
-    this->ioc.stop();
-    spdlog::debug("[SERVER TAKEDOWN] Stopping threads");
-    unsigned short current_thread_index = 1;
-    for (auto& i : this->threads) {
-        i.interrupt();
-        spdlog::trace("[SERVER TAKEDOWN] Interrupted thread \"" + std::to_string(current_thread_index) + "\". Joining...");
-        i.join();
-        current_thread_index++;
-    }
-    this->threads.clear();
-    spdlog::debug("[SERVER TAKEDOWN] Done with Web Server deconstruction");
-}
-
+// https://github.com/yhirose/cpp-httplib

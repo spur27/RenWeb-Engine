@@ -42,11 +42,11 @@ const deb = () => {
     const linux_installer_dir = Path.join(installer_dir, "linux");
     const icon_path = Path.join(project_root_dir, "engine", "resource", `app.ico`);
     const debian_path = Path.join(linux_installer_dir, "debian");
-    const debian_package_path = Path.join(debian_path,  info.simple_name);
-    const debian_lib_path = Path.join(debian_package_path, "usr", "local", "lib", info.simple_name);
+    const debian_package_path = Path.join(debian_path,  info.simple_title);
+    const debian_lib_path = Path.join(debian_package_path, "usr", "local", "lib", info.simple_title);
     const debian_app_path = Path.join(debian_package_path, "usr", "share", "applications");
     const debian_dir_path = Path.join(debian_package_path, "DEBIAN");
-    const debian_icon_path = Path.join(debian_package_path, "usr", "share", "icons", `${info.simple_name}.ico`);
+    const debian_icon_path = Path.join(debian_package_path, "usr", "share", "icons", `${info.simple_title}.ico`);
     const debian_bin_path = Path.join(debian_package_path, "usr", "local", "bin");
     if (existsSync(linux_installer_dir)) {
         logger.warn(`Linux installer dir already exist at '${linux_installer_dir}'. Clearing...`);
@@ -64,35 +64,35 @@ const deb = () => {
     mkdirSync(debian_lib_path, { recursive: true });
     mkdirSync(debian_dir_path);
     writeFileSync(Path.join(debian_dir_path, "control"), 
-        `Package: ${info.simple_name}\nVersion: ${info.version}\nArchitecture: all\nMaintainer: ${info.author}\nDescription: ${info.description}\n`
+        `Package: ${info.simple_title}\nVersion: ${info.version}\nArchitecture: all\nMaintainer: ${info.author}\nDescription: ${info.description}\n`
     );
     mkdirSync(debian_app_path, { recursive: true });
-    writeFileSync(Path.join(debian_app_path, `${info.simple_name}.desktop`), 
+    writeFileSync(Path.join(debian_app_path, `${info.simple_title}.desktop`), 
 `[Desktop Entry]
 Encoding=UTF-8
 Version=${info.version}
 Comment=${info.description}
 Type=Application
 Terminal=false
-Exec=/usr/local/lib/${info.simple_name}/${info.simple_name}
-Name=${info.name}
-Icon=/usr/local/lib/${info.simple_name}/resource/app.ico`
+Exec=/usr/local/lib/${info.simple_title}/${info.simple_title}
+Name=${info.title}
+Icon=/usr/local/lib/${info.simple_title}/resource/app.ico`
     )
     mkdirSync(debian_bin_path, { recursive: true });
-    writeFileSync(Path.join(debian_bin_path, info.simple_name), `exec ${Path.join("/", "usr", "local", "lib", info.simple_name, info.simple_name).toString()} "$@"`);
-    execSync(`chmod +x ${Path.join(debian_bin_path, info.simple_name).toString()}`);
+    writeFileSync(Path.join(debian_bin_path, info.simple_title), `exec ${Path.join("/", "usr", "local", "lib", info.simple_title, info.simple_title).toString()} "$@"`);
+    execSync(`chmod +x ${Path.join(debian_bin_path, info.simple_title).toString()}`);
     // chmodSync(Path.join(debian_path, "renweb", "usr", "local", "bin", "renweb"), 755);
     cpSync(Path.join(project_root_dir, "build"), debian_lib_path, { recursive: true });
     try {
-        execSync(`dpkg-deb --build ${debian_package_path} ${Path.join(linux_installer_dir, `${info.simple_name}-${info.version}.${os_machine}.deb`)}`, { stdio: 'inherit' });
+        execSync(`dpkg-deb --build ${debian_package_path} ${Path.join(linux_installer_dir, `${info.simple_title}-${info.version}.${os_machine}.deb`)}`, { stdio: 'inherit' });
     } catch (e) {
         logger.critical(e);
     }
     rmSync(debian_path, { recursive: true });
-    let output = createWriteStream(Path.join(linux_installer_dir, `${info.simple_name}-${info.version}.${os_machine}.zip`));
+    let output = createWriteStream(Path.join(linux_installer_dir, `${info.simple_title}-${info.version}.${os_machine}.zip`));
     let archive = archiver('zip');
     output.on('close', () => {
-        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_name}-${info.version}.${os_machine}.zip`);
+        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_title}-${info.version}.${os_machine}.zip`);
     });
     archive.on('error', (err: Error) => {throw err});
     archive.pipe(output);
@@ -131,11 +131,11 @@ const rpm = () => {
     mkdirSync(rpm_srpms);
 
     // copy icon to SOURCES
-    cpSync(icon_path, Path.join(rpm_sources, `${info.simple_name}.ico`));
+    cpSync(icon_path, Path.join(rpm_sources, `${info.simple_title}.ico`));
 
     try {
         execSync(
-        `tar czf ${Path.join(rpm_sources, `${info.simple_name}-${info.version}.tar.gz`)} --transform "s,^,${info.simple_name}-${info.version}/," -C ${project_root_dir} build`,
+        `tar czf ${Path.join(rpm_sources, `${info.simple_title}-${info.version}.tar.gz`)} --transform "s,^,${info.simple_title}-${info.version}/," -C ${project_root_dir} build`,
         { stdio: 'inherit' }
         );
     } catch (e) {
@@ -143,14 +143,14 @@ const rpm = () => {
         return;
     }
 
-    writeFileSync(Path.join(rpm_specs, `${info.simple_name}.spec`),
-`Name:          ${info.simple_name}
+    writeFileSync(Path.join(rpm_specs, `${info.simple_title}.spec`),
+`Name:          ${info.simple_title}
 Version:        ${info.version}
 Release:        1%{?dist}
 Summary:        ${info.description}
 License:        ${info.license}
 # URL:          
-Source0:        ${info.simple_name}-${info.version}.tar.gz
+Source0:        ${info.simple_title}-${info.version}.tar.gz
 BuildArch:      ${os_machine}
 Requires:       /bin/sh
 
@@ -170,72 +170,72 @@ ${info.description}
 if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
     if [ -n "$USER_HOME" ]; then
-        rm -rf "$USER_HOME/.local/share/${info.simple_name}"
-        rm -f  "$USER_HOME/.local/share/applications/${info.simple_name}.desktop"
-        rm -f  "$USER_HOME/.local/share/icons/${info.simple_name}.ico"
-        rm -f  "%{buildroot}/usr/share/applications/${info.simple_name}.desktop"
+        rm -rf "$USER_HOME/.local/share/${info.simple_title}"
+        rm -f  "$USER_HOME/.local/share/applications/${info.simple_title}.desktop"
+        rm -f  "$USER_HOME/.local/share/icons/${info.simple_title}.ico"
+        rm -f  "%{buildroot}/usr/share/applications/${info.simple_title}.desktop"
     fi
 fi
 
 %install
 # system-wide reference copy
-mkdir -p %{buildroot}/usr/share/${info.simple_name}
-cp -r build/* %{buildroot}/usr/share/${info.simple_name}/
+mkdir -p %{buildroot}/usr/share/${info.simple_title}
+cp -r build/* %{buildroot}/usr/share/${info.simple_title}/
 
 # launcher in PATH
 mkdir -p %{buildroot}/usr/bin
-cat > %{buildroot}/usr/bin/${info.simple_name} <<'EOF'
+cat > %{buildroot}/usr/bin/${info.simple_title} <<'EOF'
 #!/usr/bin/env bash
 # Ensure local copy exists
-if [ ! -d "$HOME/.local/share/${info.simple_name}" ]; then
+if [ ! -d "$HOME/.local/share/${info.simple_title}" ]; then
     mkdir -p "$HOME/.local/share"
-    cp -r /usr/share/${info.simple_name} "$HOME/.local/share/"
+    cp -r /usr/share/${info.simple_title} "$HOME/.local/share/"
 fi
-exec "$HOME/.local/share/${info.simple_name}/${info.simple_name}" "$@"
+exec "$HOME/.local/share/${info.simple_title}/${info.simple_title}" "$@"
 EOF
-chmod +x %{buildroot}/usr/bin/${info.simple_name}
+chmod +x %{buildroot}/usr/bin/${info.simple_title}
 
 %post
 if [ "$SUDO_USER" != "root" ] && [ -n "$SUDO_USER" ]; then
     USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
     if [ -n "$USER_HOME" ]; then
-        mkdir -p "$USER_HOME/.local/share/${info.simple_name}"
-        cp -rn /usr/share/${info.simple_name}/* "$USER_HOME/.local/share/${info.simple_name}/"
-        chown -R "$SUDO_USER":"$SUDO_USER" "$USER_HOME/.local/share/${info.simple_name}"
+        mkdir -p "$USER_HOME/.local/share/${info.simple_title}"
+        cp -rn /usr/share/${info.simple_title}/* "$USER_HOME/.local/share/${info.simple_title}/"
+        chown -R "$SUDO_USER":"$SUDO_USER" "$USER_HOME/.local/share/${info.simple_title}"
         mkdir -p %{buildroot}/usr/share/applications
-        cat > %{buildroot}/usr/share/applications/${info.simple_name}.desktop <<EOF
+        cat > %{buildroot}/usr/share/applications/${info.simple_title}.desktop <<EOF
         [Desktop Entry]
         Encoding=UTF-8
         Version=${info.version}
         Comment=${info.description}
         Type=Application
         Terminal=false
-        Exec=/usr/bin/${info.simple_name}
-        Name=${info.name}
-        Icon=$USER_HOME/.local/share/${info.simple_name}/resource/app.ico
+        Exec=/usr/bin/${info.simple_title}
+        Name=${info.title}
+        Icon=$USER_HOME/.local/share/${info.simple_title}/resource/app.ico
         EOF
     fi
 fi
 
 %files
-/usr/bin/${info.simple_name}
-/usr/share/${info.simple_name}
+/usr/bin/${info.simple_title}
+/usr/share/${info.simple_title}
 
 %changelog
 `);
 
     try {
-        execSync(`rpmbuild --define "_topdir ${rpm_path}" -bb ${Path.join(rpm_specs, `${info.simple_name}.spec`)}`, { stdio: 'inherit' });
+        execSync(`rpmbuild --define "_topdir ${rpm_path}" -bb ${Path.join(rpm_specs, `${info.simple_title}.spec`)}`, { stdio: 'inherit' });
     } catch (e) {
         logger.critical(e);
     }
     cpSync(Path.join(rpm_rpms, os_machine), linux_installer_dir, { recursive: true });
     rmSync(rpm_path, {recursive: true});
 
-    let output = createWriteStream(Path.join(linux_installer_dir, `${info.simple_name}-${info.version}.${os_machine}.zip`));
+    let output = createWriteStream(Path.join(linux_installer_dir, `${info.simple_title}-${info.version}.${os_machine}.zip`));
     let archive = archiver('zip');
     output.on('close', () => {
-        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_name}-${info.version}.${os_machine}.zip`);
+        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_title}-${info.version}.${os_machine}.zip`);
     });
     archive.on('error', (err: Error) => {throw err});
     archive.pipe(output);
@@ -256,7 +256,7 @@ const windows = () => {
 writeFileSync(Path.join(nsis_dir, 'setup_wizard.nsi'),
 `
 ;--------------------------------
-; ${info.name} NSIS Setup Wizard
+; ${info.title} NSIS Setup Wizard
 ;--------------------------------
 
 ${(existsSync(Path.join(project_root_dir, 'engine', 'resource', 'app.ico')))
@@ -274,9 +274,9 @@ ${(existsSync(Path.join(project_root_dir, 'engine', 'resource', 'app.ico')))
 Var MAIN_EXE 
 Var CREATE_DESKTOP_SHORTCUT
 
-Name "${info.name}"
-OutFile "${info.simple_name}-installer.exe"
-InstallDir "$LOCALAPPDATA\\${info.name}"
+Name "${info.title}"
+OutFile "${info.simple_title}-installer.exe"
+InstallDir "$LOCALAPPDATA\\${info.title}"
 RequestExecutionLevel user
 !insertmacro MUI_PAGE_WELCOME
 ${(existsSync(Path.join(project_root_dir, 'engine', 'resource', 'LICENSE.txt')))
@@ -285,8 +285,8 @@ ${(existsSync(Path.join(project_root_dir, 'engine', 'resource', 'LICENSE.txt')))
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom DesktopShortcutPage DesktopShortcutPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\\${info.simple_name}.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Run ${info.name}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\\${info.simple_title}.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Run ${info.title}"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_LANGUAGE "English"
@@ -309,26 +309,26 @@ FunctionEnd
 
 ; ----------------------------
 Section "Install"
-  StrCpy $MAIN_EXE "${info.simple_name}.exe"
+  StrCpy $MAIN_EXE "${info.simple_title}.exe"
 
   SetOutPath "$INSTDIR"
 
   File /r "../../../build\\*.*"
 
-  CreateDirectory "$SMPROGRAMS\\${info.name}"
+  CreateDirectory "$SMPROGRAMS\\${info.title}"
   \${If} $CREATE_DESKTOP_SHORTCUT == \${BST_CHECKED}
-    CreateShortCut "$DESKTOP\\${info.name}.lnk" "$INSTDIR\\$MAIN_EXE" "" "" "" SW_SHOWNORMAL "" "${info.author}.${info.name_no_whitespace}"
+    CreateShortCut "$DESKTOP\\${info.title}.lnk" "$INSTDIR\\$MAIN_EXE" "" "" "" SW_SHOWNORMAL "" "${info.simple_author}.${info.simple_title}"
   \${EndIf}
 
-  CreateShortCut "$SMPROGRAMS\\${info.name}\\${info.name}.lnk" "$INSTDIR\\$MAIN_EXE" "" "" "" SW_SHOWNORMAL "" "${info.author}.${info.name_no_whitespace}"
+  CreateShortCut "$SMPROGRAMS\\${info.title}\\${info.title}.lnk" "$INSTDIR\\$MAIN_EXE" "" "" "" SW_SHOWNORMAL "" "${info.simple_author}.${info.simple_title}"
 
   WriteUninstaller "$INSTDIR\\uninstall.exe"
 
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}" "DisplayName" "${info.name}"
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}" "DisplayVersion" "${info.version}"
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}" "Publisher" "${info.author}"
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}" "UninstallString" "$INSTDIR\\uninstall.exe"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}" "DisplayName" "${info.title}"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}" "DisplayVersion" "${info.version}"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}" "Publisher" "${info.author}"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}" "UninstallString" "$INSTDIR\\uninstall.exe"
 
 SectionEnd
 ; ----------------------------
@@ -338,12 +338,12 @@ Section "Uninstall"
   RMDir /r "$INSTDIR"
 
   ; Remove shortcuts
-  Delete "$DESKTOP\\${info.name}.lnk"
-  Delete "$SMPROGRAMS\\${info.name}\\${info.name}.lnk"
-  RMDir "$SMPROGRAMS\\${info.name}"
+  Delete "$DESKTOP\\${info.title}.lnk"
+  Delete "$SMPROGRAMS\\${info.title}\\${info.title}.lnk"
+  RMDir "$SMPROGRAMS\\${info.title}"
 
   ; Remove registry uninstall info
-  DeleteRegKey HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.name_no_whitespace}"
+  DeleteRegKey HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${info.simple_title}"
 
 SectionEnd
 ; ----------------------------
@@ -352,12 +352,12 @@ SectionEnd
 `
 );
     execSync("makensis ../installers/windows/nsis/setup_wizard.nsi", { stdio: 'inherit' });
-    renameSync(Path.join(nsis_dir, `${info.simple_name}-installer.exe`), Path.join(windows_installer_dir, `${info.simple_name}-installer.exe`));
+    renameSync(Path.join(nsis_dir, `${info.simple_title}-installer.exe`), Path.join(windows_installer_dir, `${info.simple_title}-installer.exe`));
     rmSync(nsis_dir, { recursive: true });
-    let output = createWriteStream(Path.join(windows_installer_dir, `${info.simple_name}-${info.version}.${os_machine}.zip`));
+    let output = createWriteStream(Path.join(windows_installer_dir, `${info.simple_title}-${info.version}.${os_machine}.zip`));
     let archive = archiver('zip');
     output.on('close', () => {
-        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_name}-${info.version}.${os_machine}.zip`);
+        logger.info(`Saved ${archive.pointer()} bytes to ./linux/${info.simple_title}-${info.version}.${os_machine}.zip`);
     });
     archive.on('error', (err: Error) => {throw err});
     archive.pipe(output);

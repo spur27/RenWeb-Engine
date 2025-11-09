@@ -1,15 +1,23 @@
-[submodule "engine/external/webview"]
-	path = engine/external/webview
-	url = https://github.com/webview/webview.git
-[submodule "engine/external/spdlog"]
-	path = engine/external/spdlog
-	url = https://github.com/gabime/spdlog.git
+[submodule "engine/external/boost"]
+	path = engine/external/boost
+	url = https://github.com/boostorg/boost.git
+	branch = boost-1.82.0
+	ignore = dirty
 [submodule "engine/external/json"]
 	path = engine/external/json
 	url = https://github.com/nlohmann/json.git
-[submodule "engine/external/termcolor"]
-	path = engine/external/termcolor
-	url = https://github.com/ikalnytskyi/termcolor.git
+[submodule "engine/external/cpp-httplib"]
+	path = engine/external/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git
+[submodule "engine/external/spdlog"]
+	path = engine/external/spdlog
+	url = https://github.com/gabime/spdlog.git
 [submodule "engine/external/portable-file-dialogs-mod"]
 	path = engine/external/portable-file-dialogs-mod
-	url = git@github.com:spur27/portable-file-dialogs-mod.git
+	url = https://github.com/spur27/portable-file-dialogs-mod.git
+[submodule "engine/external/webview"]
+	path = engine/external/webview
+	url = https://github.com/webview/webview.git
+[submodule "engine/external/whereami-hpp"]
+	path = engine/external/whereami-hpp
+	url = https://github.com/spur27/whereami-hpp.git

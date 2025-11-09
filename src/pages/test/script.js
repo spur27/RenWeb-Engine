@@ -1,28 +1,38 @@
-import {sync, Log, Util, Window, FS} from '../../dist/lib/renweb/index.js'
+import {
+    sync, 
+    Log, 
+    FS,
+    Misc,
+    Page,
+    System,
+    Settings,
+    General,
+    Util
+ } from '../../dist/lib/renweb/index.js'
+
+
 document.addEventListener("keydown", async (e) => {
     if (e.ctrlKey) {
         if (e.key === 'q') {
             await Log.debug("CTRL + q was pressed.");
-            await Window.close();
+            await Page.terminate();
             return;
         } else if (e.key === 'r') {
             await Log.debug("CTRL + r was pressed.");
-            await Window.reloadPage();
+            await Page.reloadPage();
             return;
         } else if (e.key === 's') {
             await Log.debug("CTRL + s was pressed.");
-            await Window.saveSettings();
+            await Settings.setSettings();
             return;
         }
     }
 });
+
 console.log = (async (msg) => await Log.debug(msg));
-window.onresize = async () => {
-    await Window.updateSize();
-}
 window.onload = async () => {
     await Log.info("Window content has been loaded.");
-    await Window.show();
+    await Page.show(true);
 }
 document.querySelector(".log_trace").onclick = async () => {
     await Log.trace(document.querySelector(".log_msg").value);
@@ -185,106 +195,319 @@ document.querySelector(".choose_files").onclick = async () => {
     }
 };
 
-async function getSettings() {
-    const settings = await Window.getSettings();
-    // await Log.debug(settings);
-    document.querySelector(".settings_output").value = JSON.stringify(settings, null, 2);
-    return settings;
-}
-
-document.querySelector(".get_settings").onclick = async () => {
-    await Log.debug(`Getting settings...`);
-    await getSettings();
-};
-document.querySelector(".set_settings").onclick = async () => {
-    await Log.debug(`Setting settings...`);
-    const settings = JSON.parse(document.querySelector(".settings_output").value);
-    await Log.debug(settings);
-    await Window.setSettings(settings);
-};
-document.querySelector(".refresh_settings").onclick = async () => {
-    await Log.debug(`Refreshing settings...`);
-    await Window.refreshSettings();
-};
-document.querySelector(".save_settings").onclick = async () => {
-    await Log.debug(`Saving settings...`);
-    await Window.saveSettings();
-};
-document.querySelector(".reset_settings").onclick = async () => {
-    await Log.debug(`Resetting settings...`);
-    await Window.resetSettingsToDefaults();
+document.querySelector(".is_focus").onclick = async () => {
+    await Log.debug(`Is focus...`);
+    const res = await Misc.isFocus();
+    if (res) {
+        document.querySelector(".is_focus").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".is_focus").style.backgroundColor = "red";
+    }
 };
 
-
-document.querySelector(".reload").onclick = async () => {
-    await Log.debug(`Reloading...`);
-    await Window.reloadPage();
+document.querySelector(".reset_title").onclick = async () => {
+    await Log.debug(`Resetting Title...`);
+    await Page.resetTitle();
 };
-document.querySelector(".close").onclick = async () => {
-    await Log.debug(`Closing...`);
-    await Window.close();
+document.querySelector(".change_title").onclick = async () => {
+    await Log.debug(`Changing Title...`);
+    const title = document.querySelector(".title_input").value;
+    await Log.critical(title);
+    await Page.changeTitle(title);
 };
-document.querySelector(".minimize").onclick = async () => {
-    await Log.debug(`Minimizing...`);
-    await Window.minimize();
+document.querySelector(".reload_page").onclick = async () => {
+    await Log.debug(`Reloading page...`);
+    await Page.reloadPage();
 };
-document.querySelector(".maximize").onclick = async () => {
-    await Log.debug(`Maximizing...`);
-    await Window.maximize();
+document.querySelector(".terminate").onclick = async () => {
+    await Log.debug(`Terminating...`);
+    await Page.terminate();
 };
-document.querySelector(".fullscreen").onclick = async () => {
-    await Log.debug(`Fullscreen...`);
-    await Window.fullscreen();
+document.querySelector(".navigate_page").onclick = async () => {
+    const page_name = document.querySelector(".page_input").value;
+    await Log.debug(`Navigating to "${page_name}"`);
+    Page.navigatePage(page_name);
 };
-
+document.querySelector(".open_uri").onclick = async () => {
+    const uri = document.querySelector(".page_input").value;
+    await Log.debug(`Opening uri "${uri}"`);
+    Page.openURI(uri);
+};
 document.querySelector(".open_window").onclick = async () => {
-    const window_name = document.querySelector(".open_window_msg").value;
+    const window_name = document.querySelector(".page_input").value;
     const single = document.querySelector(".single").checked;
     await Log.debug(`Opening window "${window_name}"`);
-    Window.openWindow(window_name, {single: single});
+    Page.openWindow(window_name, {single: single});
+};
+
+document.querySelector(".get_pid").onclick = async () => {
+    await Log.debug(`Getting PID...`);
+    const pid = await System.getPID();
+    document.querySelector(".systems_output").textContent = `PID is ${pid}`;
+};
+document.querySelector(".get_os").onclick = async () => {
+    await Log.debug(`Getting OS...`);
+    const os = await System.getOS();
+    document.querySelector(".systems_output").textContent = `OS is ${os}`;
 };
 
 document.querySelector(".send_notif_1").onclick = async () => {
-    await Util.sendNotif("test body");
+    await System.sendNotif("NOTIF 1", "I am a summary");
 };
-
 document.querySelector(".send_notif_2").onclick = async () => {
-    await Util.sendNotif("afweoifjaowie", "Test Summary");
+    await System.sendNotif("NOTIF 2", "This one has a custom icon", `${await Util.getApplicationDirPath()}/resource/test.png`);
 };
 
-document.querySelector(".send_notif_3").onclick = async () => {
-    await Util.sendNotif("awfijawsoife", "awfoejfaow", `${await Util.getApplicationDirPath()}/resource/test.png`);
+document.querySelector(".get_config").onclick = async () => {
+    await Log.debug(`Getting Config...`);
+    const config = await Settings.getConfig();
+    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
+};
+document.querySelector(".save_config").onclick = async () => {
+    await Log.debug(`Saving Config...`);
+    await Settings.saveConfig();
+    const config = await Settings.getSettings();
+    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
+};
+document.querySelector(".reset_settings_to_defaults").onclick = async () => {
+    await Log.debug(`Resetting settings to defaults...`);
+    await Settings.resetSettingsToDefaults();
+};
+document.querySelector(".set_config_property").onclick = async () => {
+    await Log.debug(`Setting Config Property...`);
+    const property = document.querySelector(".property_name").value;
+    const value = document.querySelector(".property_value").value;
+    await Log.info(`Setting property "${property}" to value "${value}"`);
+    await Settings.setConfigProperty(property, value);
+    const config = await Settings.getSettings();
+    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
 };
 
-document.querySelector(".open_uri_1").onclick = async () => {
-    await Log.info(`Attempting to open "https://www.youtube.com/watch?v=dQw4w9WgXcQ"`);
-    await Util.openURI("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+document.querySelector(".get_size").onclick = async () => {
+    await Log.debug(`Getting Size...`);
+    const size = await General.getSize();
+    Log.critical(JSON.stringify(size, null, 2));
+    document.querySelector(".size_output").textContent = `Width: ${size.width}; Height: ${size.height}`;
+};
+document.querySelector(".set_size").onclick = async () => {
+    await Log.debug(`Setting Size...`);
+    const width = Number.parseInt(document.querySelector(".size_width").value, 10);
+    const height = Number.parseInt(document.querySelector(".size_height").value, 10);
+    await General.setSize(width, height);
+    const size = await General.getSize();
+    document.querySelector(".size_output").textContent = `Width: ${size.width}; Height: ${size.height}`;
 };
 
-document.querySelector(".open_uri_2").onclick = async () => {
-    await Log.info(`Attempting to open "file://${await Util.getApplicationDirPath()}/log.txt"`);
-    await Util.openURI(`file://${await Util.getApplicationDirPath()}/log.txt`);
+document.querySelector(".get_position").onclick = async () => {
+    await Log.debug(`Getting Position...`);
+    const pos = await General.getPosition();
+    document.querySelector(".position_output").textContent = `x: ${pos.x}; y: ${pos.y}`;
+};
+document.querySelector(".set_position").onclick = async () => {
+    await Log.debug(`Setting Position...`);
+    const x = Number.parseInt(document.querySelector(".position_x").value, 10);
+    const y = Number.parseInt(document.querySelector(".position_y").value, 10);
+    await General.setPosition(x, y);
+    const pos = await General.getPosition();
+    document.querySelector(".position_output").textContent = `x: ${pos.x}; y: ${pos.y}`;
 };
 
-document.querySelector(".open_uri_3").onclick = async () => {
-    await Log.info(`Attempting to open "${await Util.getApplicationDirPath()}/log.txt"`);
-    await Util.openURI(`${await Util.getApplicationDirPath()}/log.txt`);
+document.querySelector(".get_decorated").onclick = async () => {
+    await Log.debug(`Getting Decorated...`);
+    const res = await General.getDecorated();
+    if (res) {
+        document.querySelector(".get_decorated").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_decorated").style.backgroundColor = "red";
+    }
 };
-// Anything with paths needs to figure out the path as an array rather than a string to provide the appropriate log
-// 1) change everything with strings to do the array bs
-// 2) add C++ path checker for all paths
-document.querySelector(".open_uri_4").onclick = async () => {
-    await Log.info(`Attempting to open "${await Util.getApplicationDirPath()}"`);
-    await Util.openURI(`${await Util.getApplicationDirPath()}`);
+document.querySelector(".set_decorated").onclick = async () => {
+    await Log.debug(`Setting Decorated...`);
+    const decorated = document.querySelector(".is_decorated").checked;
+    await General.setDecorated(decorated);
+    const res = await General.getDecorated();
+    if (res) {
+        document.querySelector(".get_decorated").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_decorated").style.backgroundColor = "red";
+    }
 };
+
+document.querySelector(".get_resizable").onclick = async () => {
+    await Log.debug(`Getting Resizable...`);
+    const res = await General.getResizable();
+    if (res) {
+        document.querySelector(".get_resizable").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_resizable").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_resizable").onclick = async () => {
+    await Log.debug(`Setting Resizable...`);
+    const resizable = document.querySelector(".is_resizable").checked;
+    await General.setResizable(resizable);
+    const res = await General.getResizable();
+    if (res) {
+        document.querySelector(".get_resizable").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_resizable").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_keepabove").onclick = async () => {
+    await Log.debug(`Getting KeepAbove...`);
+    const res = await General.getKeepAbove();
+    if (res) {
+        document.querySelector(".get_keepabove").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_keepabove").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_keepabove").onclick = async () => {
+    await Log.debug(`Setting KeepAbove...`);
+    const keepabove = document.querySelector(".is_keepabove").checked;
+    await General.setKeepAbove(keepabove);
+    const res = await General.getKeepAbove();
+    if (res) {
+        document.querySelector(".get_keepabove").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_keepabove").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_minimize").onclick = async () => {
+    await Log.debug(`Getting minimize...`);
+    const res = await General.getMinimize();
+    if (res) {
+        document.querySelector(".get_minimize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_minimize").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_minimize").onclick = async () => {
+    await Log.debug(`Setting Minimize...`);
+    const minimize = document.querySelector(".is_minimize").checked;
+    await General.setMinimize(minimize);
+    const res = await General.getKeepAbove();
+    if (res) {
+        document.querySelector(".get_minimize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_minimize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_maximize").onclick = async () => {
+    await Log.debug(`Getting maximize...`);
+    const res = await General.getMaximize();
+    if (res) {
+        document.querySelector(".get_maximize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_maximize").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_maximize").onclick = async () => {
+    await Log.debug(`Setting Minimize...`);
+    const maximize = document.querySelector(".is_maximize").checked;
+    await General.setMaximize(maximize);
+    const res = await General.getMaximize();
+    if (res) {
+        document.querySelector(".get_maximize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_maximize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_fullscreen").onclick = async () => {
+    await Log.debug(`Getting Fullscreen...`);
+    const res = await General.getFullscreen();
+    if (res) {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_fullscreen").onclick = async () => {
+    await Log.debug(`Setting Fullscreen...`);
+    const fullscreen = document.querySelector(".is_fullscreen").checked;
+    await General.setFullscreen(fullscreen);
+    const res = await General.getFullscreen();
+    if (res) {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_taskbar_show").onclick = async () => {
+    await Log.debug(`Getting Taskbar Show...`);
+    const res = await General.getTaskbarShow();
+    if (res) {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
+    }
+};
+document.querySelector(".set_taskbar_show").onclick = async () => {
+    await Log.debug(`Setting Taskbar Show...`);
+    const taskbkar_show = document.querySelector(".is_taskbar_show").checked;
+    await General.setTaskbarShow(taskbkar_show);
+    const res = await General.getTaskbarShow();
+    if (res) {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_opacity").onclick = async () => {
+    await Log.debug(`Getting Opacity...`);
+    const opacity = await General.getOpacity();
+    document.querySelector(".opacity_output").textContent = opacity.toFixed(2).toString();
+};
+document.querySelector(".set_opacity").onclick = async () => {
+    await Log.debug(`Setting Opacity...`);
+    const opacity = Number.parseFloat(document.querySelector(".opacity_input").value);
+    await General.setOpacity(opacity);
+    const res = await General.getOpacity();
+    document.querySelector(".opacity_output").textContent = res.toFixed(2).toString();
+};
+
+
+// document.querySelector(".send_notif_1").onclick = async () => {
+//     await Util.sendNotif("test body");
+// };
+
+
+// document.querySelector(".open_uri_1").onclick = async () => {
+//     await Log.info(`Attempting to open "https://www.youtube.com/watch?v=dQw4w9WgXcQ"`);
+//     await Util.openURI("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+// };
+
+// document.querySelector(".open_uri_2").onclick = async () => {
+//     await Log.info(`Attempting to open "file://${await Util.getApplicationDirPath()}/log.txt"`);
+//     await Util.openURI(`file://${await Util.getApplicationDirPath()}/log.txt`);
+// };
+
+// document.querySelector(".open_uri_3").onclick = async () => {
+//     await Log.info(`Attempting to open "${await Util.getApplicationDirPath()}/log.txt"`);
+//     await Util.openURI(`${await Util.getApplicationDirPath()}/log.txt`);
+// };
+// // Anything with paths needs to figure out the path as an array rather than a string to provide the appropriate log
+// // 1) change everything with strings to do the array bs
+// // 2) add C++ path checker for all paths
+// document.querySelector(".open_uri_4").onclick = async () => {
+//     await Log.info(`Attempting to open "${await Util.getApplicationDirPath()}"`);
+//     await Util.openURI(`${await Util.getApplicationDirPath()}`);
+// };
 
 
 
 (async () => {
-    const path = await Util.getApplicationDirPath();
+    const path = await FS.getApplicationDirPath();
     document.querySelector(".read_file_msg").value = path;
     document.querySelector(".write_file_msg").value = path;
     document.querySelector(".new_file_msg").value = path;
     document.querySelector(".read_file_msg").value = path;
-    await getSettings();
+    // await getSettings();
 })();

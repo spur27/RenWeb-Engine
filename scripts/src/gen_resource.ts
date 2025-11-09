@@ -57,9 +57,9 @@ BEGIN
             VALUE "CompanyName",      "${info.author}"
             VALUE "FileDescription",  "${info.description}"
             VALUE "FileVersion",      "${info.version}"
-            VALUE "InternalName",     "${info.simple_name}.exe"
-            VALUE "OriginalFilename", "${info.simple_name}.exe"
-            VALUE "ProductName",      "${info.name}"
+            VALUE "InternalName",     "${info.simple_title}.exe"
+            VALUE "OriginalFilename", "${info.simple_title}.exe"
+            VALUE "ProductName",      "${info.title}"
             VALUE "ProductVersion",   "${info.version}"
         END
     END

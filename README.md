@@ -52,7 +52,6 @@ The RenWeb engine relies on the following:
 - <a href="https://github.com/webview/webview">webview</a> (*submodule*)
 - <a href="https://github.com/gabime/spdlog">spdlog</a> (*submodule*)
 - <a href="https://github.com/nlohmann/json">nlohmann's JSON library</a> (*submodule*)
-- <a href="https://github.com/ikalnytskyi/termcolor">ikalnytskyi's termcolor library</a> (*submodule*)
 - <a href="https://www.boost.org/">Boost libraries</a>
 - <a href="https://en.cppreference.com/w/cpp/standard_library.html">Standard libraries</a>
 
@@ -304,11 +303,13 @@ To edit the build script, you can find it at <a href="./scripts//src/build.ts">.
 - Switch to tsx
 
 ## Credits
-- This repository depends on <a href="https://github.com/nlohmann/json">nlohmann's JSON</a> as a submodule and is licensed under the <a href="./engine/external/json/LICENSE.MIT">MIT License</a>.
+- This repository depends on <a href="https://github.com/boostorg/boost">the boost libraries</a> as a submodule and is licensed under the <a href="./engine/external/boost/LICENSE.MIT">MIT License</a>.
+- This repository depends on <a href="https://github.com/nlohmann/json">nlohmann's JSON</a> as a submodule and is licensed under the <a href="./engine/external/boost/LICENSE_1_0.txt">BSL License</a>.
+- This repository depends on <a href="https://github.com/yhirose/cpp-httplib">yhirose's cpp-httplib</a> as a submodule and is licensed under the <a href="./engine/external/cpp-httplib/LICENSE">MIT License</a>.
 - This repository depends on a modified version of the <a href="https://github.com/samhocevar/portable-file-dialogs">samhocevar's Portable File Dialog</a> titled <a href="https://github.com/spur27/portable-file-dialogs-mod">Portable File Dialog Mod</a> as a submodule and is distributed under the <a href="./engine/external/portable-file-dialogs-mod/COPYING">original custom license</a>.
 - This repository depends on <a href="https://github.com/gabime/spdlog">gabime's spdlog</a> as a submodule and is licensed under <a href="./engine/external/spdlog/LICENSE">MIT License</a>.
-- This repository depends on <a href="https://github.com/ikalnytskyi/termcolor">ikalnytskyi's termcolor</a> as a submodule and is licensed under <a href="./engine/external/termcolor/LICENSE">a custom license</a>.
 - This repository depends on <a href="https://github.com/webview/webview">webview's webview</a> as a submodule and is licensed under <a href="./engine/external/webview/LICENSE">MIT License</a>.
+- This repository depends on a modified version of the <a href="https://github.com/gpakosz/whereami">gpakosz's whereami</a> titled <a href="https://github.com/spur27/whereami-hpp">whereami-hpp</a> as a submodule and is distributed under the <a href="./engine/external/whereami-hpp/LICENSE.MIT">MIT License</a>.
 
 ## License
 Boost Software License - Version 1.0 - August 17th, 2003

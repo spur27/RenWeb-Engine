@@ -1,78 +1,33 @@
-#ifndef RENWEB_HTML_H
-#define RENWEB_HTML_H
-#include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/dll.hpp>
-#include <string>
-#include <spdlog/spdlog.h>
-#include <fstream>
-#include <nlohmann/json.hpp>
-#include <exception>
-#include <istream>
-#include <stdexcept>
-#include <webview/types.h>
+#pragma once
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
+#define INFO_FILE_NAME "info.json"
 
-// DONT RENAME OR REMOVE DEFINES!!
-// You can still change the define values and add new defines
-#define RENWEB_INFO_DEFAULT_PAGE "test"
-#define RENWEB_INFO_DEFAULT_NAME "RenWeb" 
-#define RENWEB_INFO_DEFAULT_VERSION "0.0.2"
-#define RENWEB_INFO_DEFAULT_DESCRIPTION "I am an app that does things."
-#define RENWEB_INFO_DEFAULT_LICENSE "Default License"
-#define RENWEB_INFO_DEFAULT_AUTHOR "Default Author"
-#define RENWEB_INFO_DEFAULT_HINT WEBVIEW_HINT_NONE
-#define RENWEB_INFO_DEFAULT_WIDTH 720
-#define RENWEB_INFO_DEFAULT_HEIGHT 480
-#define RENWEB_INFO_DEFAULT_SAVE_RESIZE_DIMENSIONS true
-#define RENWEB_INFO_DEFAULT_DECORATED true
-#define RENWEB_INFO_DEFAULT_RESIZABLE true
-#define RENWEB_INFO_DEFAULT_KEEP_ABOVE false
-
-
-using json = nlohmann::json;
-
+#include "json_file.hpp"
 
 namespace RenWeb {
-    namespace Info {
-        /*static*/ class File {
-            private: 
-            public:
-                static inline std::string name 
-                    = boost::dll::program_location().filename().string();
-                static inline std::string dir 
-                    = boost::dll::program_location().parent_path().string();
-                static inline std::string path 
-                    = boost::dll::program_location().string();
-                static void refresh();
-        };
-        /*static*/ class App {
-            private:
-            public:
-                inline static std::string page = RENWEB_INFO_DEFAULT_PAGE;
-                inline static std::string name = RENWEB_INFO_DEFAULT_NAME;
-                inline static std::string version = RENWEB_INFO_DEFAULT_VERSION;
-                inline static std::string description = RENWEB_INFO_DEFAULT_DESCRIPTION;
-                inline static std::string license = RENWEB_INFO_DEFAULT_LICENSE;
-                inline static std::string author = RENWEB_INFO_DEFAULT_AUTHOR;
-                inline static webview_hint_t hint = RENWEB_INFO_DEFAULT_HINT;
-                inline static unsigned int width = RENWEB_INFO_DEFAULT_WIDTH;
-                inline static unsigned int height = RENWEB_INFO_DEFAULT_HEIGHT;
-                inline static bool save_resize_dimensions = RENWEB_INFO_DEFAULT_SAVE_RESIZE_DIMENSIONS;
-                inline static bool decorated = RENWEB_INFO_DEFAULT_DECORATED;
-                inline static bool resizable = RENWEB_INFO_DEFAULT_RESIZABLE;
-                inline static bool keep_above = RENWEB_INFO_DEFAULT_KEEP_ABOVE;
-                static void refresh(json&&);
-                static void loadFromConfigFile();
-                static void resetPageToDefault();
-                static void resetToDefaults();
-                static void save();
-                static json get();
-                static void set(json&&); 
-        };
+    class Info : public RenWeb::JSONFile {
+        public:
+            static std::filesystem::path getPath();
+        private:
+            inline static json info_json = RenWeb::JSONFile::getFile(Info::getPath());
+            Info();
+        public:
+            static json getInfoFile();
+            static const json& getInfo();
+            static void saveInfoToFile(const json& config =RenWeb::Info::info_json);
+          // --------
+            template <typename T>
+            static T getProperty(const std::string& key) {
+                return RenWeb::JSONFile::getProperty<T>(RenWeb::Info::info_json, key);
+            }
+            template <typename T>
+            static T getProperty(const std::string& key, const T& fallback) {
+                return RenWeb::JSONFile::getProperty<T>(RenWeb::Info::info_json, key, fallback);
+            }
+          // --------
+            template <typename T>
+            static void setSetting(const std::string& key, T setting) {
+                RenWeb::JSONFile::setProperty<T>(RenWeb::Info::info_json, key, setting);
+            }
     };
 };
-#endif

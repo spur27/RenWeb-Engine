@@ -1,73 +1,106 @@
-#include "../include/window.hpp"
-#include "../include/window_binds_helper.hpp"
-#include <boost/process/environment.hpp>
+#include "../include/window_binds.hpp"
 
-using namespace RenWeb;
-using namespace RenWeb::BindingHelpers;
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <cctype>
+#include "file.hpp"
+#include "logger.hpp"
+#include "page.hpp"
+#include "window_helpers.hpp"
+#include "window_functions.hpp"
+#include "process_manager.hpp"
+#include "web_server.hpp"
+#include "window.hpp"
 
-RenWeb::Window* RenWeb::Window::bindAll() {
-    RenWeb::Window* w = this;
-  // LOGGING
-    this->bindFunction("BIND_logTrace", [](const std::string& req) -> std::string {
+using WB = RenWeb::WindowBinds;
+using File = RenWeb::File;
+using Page = RenWeb::Page;
+using namespace RenWeb::WindowHelpers;
+
+WB::WindowBinds(RenWeb::__Window__* window_ref) { 
+    this->window_ref = window_ref;
+    this->bindBaseFunctions()
+        ->bindGetSetFunctions();
+}
+WB::~WindowBinds() {
+  Log::trace("Deconstructing WindowBinds");
+}
+WB* WB::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
+    this->window_ref->bind(fn_name, fn);
+    spdlog::trace("Bound " + fn_name);
+    return this;
+}
+WB* WB::bindBaseFunctions() {
+    WB* wb = this;
+    if (wb->window_ref == nullptr) {
+        throw std::runtime_error("WindowBinds recieved a nullptr for __Window__ reference.");
+    }
+// -----------------------------------
+// ------------- LOGGING -------------
+// -----------------------------------
+    this->bindFunction("BIND_log_trace", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::trace("[CLIENT] " + msg);
+            Log::trace("[CLIENT] " + msg);
             return "null";
         })
-        ->bindFunction("BIND_logDebug", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_log_debug", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::debug("[CLIENT] " + msg);
+            Log::debug("[CLIENT] " + msg);
             return "null";
         })
-        ->bindFunction("BIND_logInfo", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_log_info", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::info("[CLIENT] " + msg);
+            Log::info("[CLIENT] " + msg);
             return "null";
         })
-        ->bindFunction("BIND_logWarn", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_log_warn", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::warn("[CLIENT] " + msg);
+            Log::warn("[CLIENT] " + msg);
             return "null";
         })
-        ->bindFunction("BIND_logError", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_log_error", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::error("[CLIENT] " + msg);
+            Log::error("[CLIENT] " + msg);
             return "null";
         })
-        ->bindFunction("BIND_logCritical", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_log_critical", [](const std::string& req) -> std::string {
             // (msg: Uint8array)
             std::string msg = jsonUint8arrToString(json::parse(req)[0]);
-            spdlog::critical("[CLIENT] " + msg);
+            Log::critical("[CLIENT] " + msg);
             return "null";
         })
-  // FILE SYSTEM
-        ->bindFunction("BIND_readFile", [](const std::string& req) -> std::string {
+// ---------------------------------------
+// ------------- FILE SYSTEM -------------
+// ---------------------------------------
+        ->bindFunction("BIND_read_file", [](const std::string& req) -> std::string {
             // (path: string)
             std::filesystem::path path (formatPath(jsonUint8arrToString(json::parse(req)[0])));
             if (!std::filesystem::exists(path)) {
-                spdlog::error("No file exists at " + path.string());
+                Log::error("No file exists at " + path.string());
                 return "null";
             }
             else if (std::filesystem::is_directory(path)) {
-                spdlog::error("readFile can't read directory contents. Use ls for that.");
+                Log::error("readFile can't read directory contents. Use ls for that.");
                 return "null";
             }
             std::ifstream file(path, std::ios::binary); // open in binary mode
             if (!file.good()) {
-                spdlog::error("Failed to open file for reading: " + path.string());
+                Log::error("Failed to open file for reading: " + path.string());
                 return "null";
             }
             std::vector<char> buffer(std::istreambuf_iterator<char>(file), {});
             file.close();
-            spdlog::debug("Read " + std::to_string(buffer.size()) + " bytes from " + path.string());
+            Log::debug("Read " + std::to_string(buffer.size()) + " bytes from " + path.string());
             json uint8arr(buffer);
             return uint8arr.dump();
         })
-        ->bindFunction("BIND_writeFile", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_write_file", [](const std::string& req) -> std::string {
             // (path: string, contents: Uint8array, settings: {append: boolean=false})
             json params = json::parse(req);     
             std::filesystem::path path (jsonUint8arrToString(params[0]));
@@ -81,23 +114,23 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             }
             std::filesystem::path parent_path = path.parent_path();
             if (std::filesystem::is_directory(path)) {
-                spdlog::error(std::string("Can't write to a directory ") + path.string());
+                Log::error(std::string("Can't write to a directory ") + path.string());
                 return "false";
             } else if (!std::filesystem::exists(parent_path)) {
-                spdlog::error(std::string("Directory '") + parent_path.string() + "' doesn't exist.");
+                Log::error(std::string("Directory '") + parent_path.string() + "' doesn't exist.");
                 return "false";
             }
             std::ofstream file(path, mode);
             if (file.bad()) {
-                spdlog::error(std::string("Bad file ") + path.string());
-                return "false";
+                Log::error(std::string("Bad file ") + path.string());
+                return "falseusing";
             }
             if (uint8array.empty()) {
-                spdlog::debug("Input content empty. Attempting empty write");
+                Log::debug("Input content empty. Attempting empty write");
             }
             file.write(uint8array.data(), uint8array.size());
             file.close();
-            spdlog::debug(((append) ? "Appended " : "Wrote ") + std::to_string(uint8array.size()) + " bytes to " + path.string());
+            Log::debug(((append) ? "Appended " : "Wrote ") + std::to_string(uint8array.size()) + " bytes to " + path.string());
             return "true";
         })
         ->bindFunction("BIND_exists", [](const std::string& req) -> std::string {
@@ -105,22 +138,22 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             std::filesystem::path path (jsonUint8arrToString(json::parse(req)[0]));
             return (std::filesystem::exists(path)) ? "true" : "false";
         })
-        ->bindFunction("BIND_isDir", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_is_dir", [](const std::string& req) -> std::string {
             // (path: string)
             std::filesystem::path path (jsonUint8arrToString(json::parse(req)[0]));
             return (std::filesystem::is_directory(path)) ? "true" : "false";
         })
-        ->bindFunction("BIND_mkDir", [](const std::string& req) -> std::string {
+        ->bindFunction("BIND_mk_dir", [](const std::string& req) -> std::string {
             // (path: string)
             std::filesystem::path path (jsonUint8arrToString(json::parse(req)[0]));
             if (std::filesystem::exists(path)) {
-                spdlog::error("File/dir already exists at '" + path.string() + "'");
+                Log::error("File/dir already exists at '" + path.string() + "'");
                 return "false";
             }
             std::error_code ec;
             std::filesystem::create_directory(path, ec);
             if (ec) {
-                spdlog::error(ec.message());
+                Log::error(ec.message());
                 return "false";
             } else {
                 return "true";
@@ -133,7 +166,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             bool recursive = (params[1]["recursive"].is_boolean() && (params[1]["recursive"].dump() == "true")) ? true : false;
             std::error_code ec;
             if (!std::filesystem::exists(path)) {
-                spdlog::error("Cannot delete file/dir that doesn't exist: " + path.string());
+                Log::error("Cannot delete file/dir that doesn't exist: " + path.string());
                 return "false";
             } else if (std::filesystem::is_directory(path)) {
                 if (recursive) {
@@ -142,7 +175,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
                     std::filesystem::remove(path, ec);
                 }
                 if (ec) {
-                    spdlog::error(ec.message());
+                    Log::error(ec.message());
                     return "false";
                 } else {
                     return "true";
@@ -150,7 +183,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             }
             std::filesystem::remove(path, ec);
             if (ec) {
-                spdlog::error(ec.message());
+                Log::error(ec.message());
                 return "false";
             } else {
                 return "true";
@@ -160,7 +193,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             // (path: string)
             std::filesystem::path path (jsonUint8arrToString(json::parse(req)[0]));
             if (!std::filesystem::is_directory(path)) {
-                spdlog::error("Path entered to ls wasn't a dir: " + path.string());
+                Log::error("Path entered to ls wasn't a dir: " + path.string());
                 return "null";
             }
             std::error_code ec;
@@ -169,7 +202,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
                 array.push_back(strToUint8arrVec(formatPath(entry.path().string())));
             }
             if (ec) {
-                spdlog::error(ec.message());
+                Log::error(ec.message());
                 return "null";
             } else {
                 return array.dump();
@@ -183,10 +216,10 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             bool overwrite = (params[2]["overwrite"].is_boolean() && (params[2]["overwrite"].dump() == "true")) ? true : false;
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
-                spdlog::error("Can't rename path that doesn't exist: " + orig_path.string());
+                Log::error("Can't rename path that doesn't exist: " + orig_path.string());
                 return "null";
             } else if (std::filesystem::exists(new_path) && !overwrite) {
-                spdlog::error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
+                Log::error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
                 return "null";
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
@@ -195,13 +228,13 @@ RenWeb::Window* RenWeb::Window::bindAll() {
                     std::filesystem::remove(new_path, ec);
                 }
                 if (ec) {
-                    spdlog::error(ec.message());
+                    Log::error(ec.message());
                     return "false";
                 }
             }
             std::filesystem::rename(orig_path, new_path, ec);
             if (ec) {
-                spdlog::error(ec.message());
+                Log::error(ec.message());
                 return "false";
             } else {
                 return "true";
@@ -215,10 +248,10 @@ RenWeb::Window* RenWeb::Window::bindAll() {
             bool overwrite = (params[2]["overwrite"].is_boolean() && (params[2]["overwrite"].dump() == "true")) ? true : false;
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
-                spdlog::error("Can't copy path that doesn't exist: " + orig_path.string());
+                Log::error("Can't copy path that doesn't exist: " + orig_path.string());
                 return "null";
             } else if (std::filesystem::exists(new_path) && !overwrite) {
-                spdlog::error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
+                Log::error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
                 return "null";
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
@@ -227,7 +260,7 @@ RenWeb::Window* RenWeb::Window::bindAll() {
                     std::filesystem::remove(new_path, ec);
                 }
                 if (ec) {
-                    spdlog::error(ec.message());
+                    Log::error(ec.message());
                     return "false";
                 }
             }
@@ -237,192 +270,224 @@ RenWeb::Window* RenWeb::Window::bindAll() {
                 std::filesystem::copy(orig_path, new_path, ec);
             }
             if (ec) {
-                spdlog::error(ec.message());
+                Log::error(ec.message());
                 return "false";
             } else {
                 return "true";
             }
         })
-        ->bindFunction("BIND_chooseFiles",[w](const std::string& req) -> std::string {
+        ->bindFunction("BIND_choose_files",[wb](const std::string& req) -> std::string {
             // ({multiple: boolean, dirs: boolean, (patterns | mimes): [name: string, rules: string[]]})
-            bool multi = jsonToStr(json::parse(req)[0]) == "true";
-            bool dirs = jsonToStr(json::parse(req)[1]) == "true";
-            std::vector<std::string> filtration_vec = {};
-            json filtration = json::parse(req)[2];
-            if (filtration.is_array()) {
-                for (auto& i : filtration) {
-                    filtration_vec.push_back(jsonUint8arrToString(i));
+            json params = json::parse(req);
+            try {
+                bool multi = params[0].get<bool>();
+                bool dirs = params[1].get<bool>();
+                std::vector<std::string> filtration_vec = {};
+                json filtration = params[2];
+                if (filtration.is_array()) {
+                    for (auto& i : filtration) {
+                        filtration_vec.push_back(jsonUint8arrToString(i));
+                    }
                 }
+                json initial_path = json::parse(req)[3];
+                std::string initial_path_str = File::getDir();
+                if (initial_path.is_string()) {
+                    initial_path_str = jsonToStr(initial_path);
+                }
+                json num_vec_vec = json::array();
+                for (auto i : wb->window_ref->fns->openChooseFilesDialog(multi, dirs, filtration_vec, initial_path_str)) {
+                    num_vec_vec.push_back(json(strToUint8arrVec(i)));
+                }
+                return num_vec_vec.dump();
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
             }
-            json initial_path = json::parse(req)[3];
-            std::string initial_path_str = RenWeb::Info::File::dir;
-            if (initial_path.is_string()) {
-                initial_path_str = jsonToStr(initial_path);
-            }
-            json num_vec_vec = json::array();
-            for (auto i : w->openChooseFilesDialog(multi, dirs, filtration_vec, initial_path_str)) {
-                num_vec_vec.push_back(json(strToUint8arrVec(i)));
-            }
-            return num_vec_vec.dump();
+            return json::array().dump();
         })
-  // SETTINGS
-        ->bindFunction("BIND_saveSettings", [](const std::string& req) -> std::string {
+// ----------------------------------
+        ->bindFunction("BIND_get_application_dir_path", [](const std::string& req) -> std::string {
             // ()
-            boost::ignore_unused(req);
-            RenWeb::Info::App::save();
-            return "null";
+            (void)req;
+            return json{strToUint8arrVec(File::getDir())}[0].dump();
         })
-        ->bindFunction("BIND_refreshSettings", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->refreshSettings();
-            return "null";
+// ---------------------------------
+// ------------- STATE -------------
+// ---------------------------------
+        ->bindFunction("BIND_is_focus",[wb](const std::string& req) -> std::string {
+            (void)req;
+            return (wb->window_ref->fns->isFocus())
+                ? "true"
+                : "false";
         })
-        ->bindFunction("BIND_reloadPage", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->reloadPage();
-            return "null";
-        })
-        ->bindFunction("BIND_setSettings", [](const std::string& req) -> std::string {
-            // (settings: (Settings & {})
-            json settings = json::parse(req)[0];
-            if (settings.is_object()) {
-                RenWeb::Info::App::set(std::move(settings));
-            } else {
-                spdlog::error(std::string("An object is required to set settings. Recieved ") + settings.type_name());
-            }
-            return "null";
-        })
-        ->bindFunction("BIND_getSettings", [](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            return RenWeb::Info::App::get().dump(2);
-        })
-        ->bindFunction("BIND_resetSettingsToDefaults", [](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            RenWeb::Info::App::resetToDefaults();
-            // w->refreshSettings();
-            return "null";
-        })
-        ->bindFunction("BIND_updateSize", [w](const std::string& req) -> std::string {
-            // (force: boolean=false)
+// --------------------------------------
+// ------------- AUGMENTERS -------------
+// --------------------------------------
+        ->bindFunction("BIND_show",[wb](const std::string& req) -> std::string {
             json params = json::parse(req);
-            bool forced = (params[0].is_boolean() && (params[0].dump() == "true")) ? true : false;
-            w->updateSize(forced);
+            bool is_window_shown = params[0].get<bool>();
+            wb->window_ref->fns->show(is_window_shown);
             return "null";
         })
-        ->bindFunction("BIND_close", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->terminateWindow();
-            return "null";
-        })
-        ->bindFunction("BIND_openWindow", [w](const std::string& req) -> std::string {
-            // (uri: string="_", settings: {single: boolean=false})
+// --------------------------------------
+        ->bindFunction("BIND_change_title",[wb](const std::string& req) -> std::string {
             json params = json::parse(req);
-            std::string uri = jsonUint8arrToString(params[0]);
-            bool single = (params[1]["single"].is_boolean() && (params[1]["single"].dump() == "true")) ? true : false;
-            if (uri.empty() || (uri == "_")) {
-                spdlog::debug(std::string("Attempting to start duplicate process. Single? ") + ((single) ? "true" : "false"));
-                uri = RenWeb::Info::App::page;
+            std::string title = WindowHelpers::jsonUint8arrToString(params[0]);
+            wb->window_ref->fns->changeTitle(title);
+            return "null";
+        })
+// --------------------------------------
+        ->bindFunction("BIND_reset_title",[wb](const std::string& req) -> std::string {
+            (void)req;
+            wb->window_ref->fns->resetTitle();
+            return "null";
+        })
+// --------------------------------------
+        ->bindFunction("BIND_reload_page",[wb](const std::string& req) -> std::string {
+            (void)req;
+            wb->window_ref->fns->reloadPage();
+            return "null";
+        })
+// --------------------------------------
+        ->bindFunction("BIND_navigate_page",[wb](const std::string& req) -> std::string {
+            json params = json::parse(req);
+            try {
+                std::string new_page = WindowHelpers::jsonUint8arrToString(params[0]);
+                wb->window_ref->fns->navigatePage(new_page);
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
             }
-            if (single) {
-                if (!w->process_manager.hasProcess(uri)) {
-                    spdlog::debug("Attempting to start single process for uri '" + uri + "'");
-                    w->process_manager.startProcess(uri);
+            return "null";
+        })
+// --------------------------------------
+        ->bindFunction("BIND_terminate",[wb](const std::string& req) -> std::string {
+            (void)req;
+            wb->window_ref->fns->terminate();
+            return "null";
+        })
+        ->bindFunction("BIND_open_window", [wb](const std::string& req) -> std::string {
+            json params = json::parse(req);
+            try {
+                std::string uri = WindowHelpers::jsonUint8arrToString(params[0]);
+                bool is_single = params[1].get<bool>();
+                wb->window_ref->fns->openWindow(uri, is_single);
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
+            }
+            return "null";
+        })
+// -------------------------------------
+        ->bindFunction("BIND_open_URI", [wb](const std::string& req) -> std::string {
+            json params = json::parse(req);
+            try {
+                std::string resource = WindowHelpers::jsonUint8arrToString(params[0]);
+                wb->window_ref->fns->openURI(resource);
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
+            }
+            return "null";
+        })
+// ----------------------------------
+// ------------- SYSTEM -------------
+// ----------------------------------
+        ->bindFunction("BIND_get_PID", [](const std::string& req) -> std::string {
+            // ()
+            (void)req;
+            std::stringstream str;
+            str << boost::this_process::get_id();
+            return str.str();
+        })
+// ----------------------------------
+        ->bindFunction("BIND_get_OS", [](const std::string& req) -> std::string {
+            (void)req;
+            #if defined(_WIN32)
+                return strToJsonStr("Windows");
+            #elif defined(__APPLE__)
+                return strToJsonStr("Apple");
+            #elif defined(__linux__)
+                return strToJsonStr("Linux");
+            #endif
+        })
+// -------------------------------------
+        ->bindFunction("BIND_send_notif", [wb](const std::string& req) -> std::string {
+            json params = json::parse(req);
+            try {
+                std::string title = WindowHelpers::jsonUint8arrToString(params[0]);
+                std::string message = WindowHelpers::jsonUint8arrToString(params[1]);
+                if (params[2].is_null()) {
+                    wb->window_ref->fns->sendNotif(title, message);
                 } else {
-                    spdlog::debug("Process of name '" + uri + "' is already running. Bringing it to foreground...");
-                    w->process_manager.bringToForeground(uri);
+                    std::string icon_path_from_resource = WindowHelpers::jsonUint8arrToString(params[2]);
+                    wb->window_ref->fns->sendNotif(title, message, icon_path_from_resource);
                 }
-            } else {
-                spdlog::debug("Attempting to start process for uri '" + uri + "'");
-                w->process_manager.startProcess(uri);
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
             }
             return "null";
         })
-        ->bindFunction("BIND_minimize", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->minimize();
+// ------------------------------------
+// ------------- SETTINGS -------------
+// ------------------------------------
+        ->bindFunction("BIND_get_config", [wb](const std::string& req) -> std::string {
+            (void)req;
+            json config(Page::getPageConfig());
+            return config.dump();
+        })
+// ------------------------------------
+        ->bindFunction("BIND_save_config", [wb](const std::string& req) -> std::string {
+            (void)req;
+            wb->window_ref->fns->saveState();
             return "null";
         })
-        ->bindFunction("BIND_maximize", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->maximize();
+// ------------------------------------
+        ->bindFunction("BIND_load_config", [wb](const std::string& req) -> std::string {
+            (void)req;
+            wb->window_ref->fns->setState(Page::getPageConfig());
             return "null";
         })
-        ->bindFunction("BIND_fullscreen", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->fullscreen();
-            return "null";
-        })
-        ->bindFunction("BIND_hide", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->hide();
-            return "null";
-        })
-        ->bindFunction("BIND_show", [w](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            w->show();
-            return "null";
-        })
-  // SYSTEM
-        ->bindFunction("BIND_getPID", [](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            return std::to_string(boost::this_process::get_id());
-        })
-        ->bindFunction("BIND_getOS", [](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-#if defined(_WIN32)
-            return strToJsonStr("Windows");
-#elif defined(__APPLE__)
-            return strToJsonStr("Apple");
-#elif defined(__linux__)
-            return strToJsonStr("Linux");
-#endif
-        })
-        ->bindFunction("BIND_getApplicationDirPath", [](const std::string& req) -> std::string {
-            // ()
-            boost::ignore_unused(req);
-            return json{strToUint8arrVec(RenWeb::Info::File::dir)}[0].dump();
-        })
-        ->bindFunction("BIND_sendNotif", [w](const std::string& req) -> std::string {
-            // ()
+// ------------------------------------
+        ->bindFunction("BIND_set_config_property", [wb](const std::string& req) -> std::string {
             json params = json::parse(req);
-            if (!params[2].is_null()) {
-                w->sendNotif(jsonUint8arrToString(params[0]), jsonUint8arrToString(params[1]), formatPath(jsonUint8arrToString(params[2])));
-            } else if (!params[1].is_null()) {
-                w->sendNotif(jsonUint8arrToString(params[0]), jsonUint8arrToString(params[1]));
-            } else if (!params[0].is_null()) {
-                w->sendNotif(jsonUint8arrToString(params[0]));
-            } else {
-                spdlog::error("No notification body given.");
-            }
+            std::string key = jsonUint8arrToString(params[0]);
+            Page::setProperty(key, params[1]);
             return "null";
         })
-        ->bindFunction("BIND_openURI", [w](const std::string& req) -> std::string {
-            // ()
-            json params = json::parse(req);
-            std::string resource = jsonUint8arrToString(params[0]);
-            if (RenWeb::WebServer::isURI(resource)) {
-                for (size_t i = 0; i < resource.length(); i++) {
-                    if (resource[i] == '\\') resource[i] = '/';
-                }
-                w->openURI(resource);
-            } else {
-                w->openURI(formatPath(resource));
-            }
+// ------------------------------------
+        ->bindFunction("BIND_reset_to_defaults", [](const std::string& req) -> std::string {
+            (void)req;
+            Page::resetPageToDefaults();
             return "null";
         });
     return this;
 }
-
-
+WB* WB::bindGetSetFunctions() {
+    WB* wb = this;
+    for (const auto& key : this->window_ref->fns->getNames()) {
+        this->bindFunction("BIND_get_" + key, [key, wb](const std::string& req) -> std::string {
+            (void)req;
+            try {
+                const json json_v = wb->window_ref->fns->get(key);
+                if (json_v.is_string()) 
+                    return json(jsonUint8arrToString(json_v)).dump();
+                else
+                    return json_v.dump();
+            } catch (const std::exception& e) {
+                Log::error(std::string("[CLIENT] ") + e.what());
+                return json(strToUint8arrVec(e.what())).dump();
+            }
+        })
+        ->bindFunction("BIND_set_" + key, [key, wb](const std::string& req) -> std::string {
+            try {
+                wb->window_ref->fns->set(key, json::parse(req)[0]);
+            } catch (const std::exception& e) {
+                return json(strToUint8arrVec(e.what())).dump();
+            }
+            return "null";
+        });
+    }
+    return this;
+}
+WB* WB::unbindFunction(const std::string& fn_name) {
+    this->window_ref->unbind(fn_name);
+    spdlog::trace("Unbound " + fn_name);
+    return this;
+}

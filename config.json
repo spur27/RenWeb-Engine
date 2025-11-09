@@ -1,0 +1,20 @@
+{
+  "test_react": {
+    "decorated": true,
+    "size": {
+      "width": 720,
+      "height": 480
+    },
+    "keepabove": false,
+    "resizable": true
+  },
+  "test": {
+    "decorated": true,
+    "size": {
+      "width": 720,
+      "height": 480
+    },
+    "keepabove": false,
+    "resizable": true
+  }
+}

@@ -13,3 +13,5 @@ installers
 todo.txt
 *.pdb
 *.rc
+engine/lib/*
+!engine/lib/.gitkeep

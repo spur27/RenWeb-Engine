@@ -1,97 +1,50 @@
-// Adapted from HTTP server, asynchronous ex ample found here: https://github.com/boostorg/beast
-
-#ifndef RENWEB_WEB_SERVER_H
-#define RENWEB_WEB_SERVER_H
-#include "info.hpp"
-// #include "webview.hpp"
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/address.hpp>
-#include <boost/asio/ip/address_v4.hpp>
-#include <boost/asio/thread_pool.hpp>
-#include <boost/beast/core/error.hpp>
-#include <boost/beast/core/string_type.hpp>
-#include <boost/beast/http/message.hpp>
-#include <boost/beast/http/string_body.hpp>
-#include <boost/regex.hpp>
-#include <map>
-#include <memory>
-#include <spdlog/spdlog.h>
-#include <boost/process.hpp>
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/asio.hpp>
-#include <boost/url.hpp>
-#include <boost/thread.hpp>
-#include <memory>
-#include <string>
-#include <sstream>
-#include <string_view>
+#pragma once
 
 #define MAX_NUM_PORTS_TO_TRY 64
+#define BUFFER_SIZE 16 * 1024
 
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace net = boost::asio;
-using json = nlohmann::json;
-using tcp = boost::asio::ip::tcp;
+#include <filesystem>
+#include <string>
+#include <httplib.h>
+#include "managers.hpp"
+
 
 namespace RenWeb {
-    class Session : public std::enable_shared_from_this<Session> {
-        private:
-            beast::tcp_stream stream;
-            beast::flat_buffer buffer;
-            http::request<http::string_body> req;
-            std::shared_ptr<void> res;
-            template<bool isRequest, class Body, class Fields>
-                void send(http::message<isRequest, Body, Fields>&&); 
-            void send_error(http::status, std::string); 
-            void handle_current_request();
-          // APIs
-            void handle_get();
-            void handle_put();
-            void handle_delete();
-          // Responses
-            void get_file();
-            http::response<http::string_body> get_bad_request();
-            http::response<http::string_body> get_not_found();
-            http::response<http::string_body> get_server_error();
-
-            std::string errorify(http::status, std::string);
-            void do_read();
-            void on_read(beast::error_code ec, std::size_t bytes_transferred);
-            void on_write(bool close, beast::error_code ec, std::size_t bytes_transferred);
-            void close();
-        public:
-            Session(tcp::socket&&);
-            ~Session();
-            void run();
-            static std::string MIME(std::string);
-    };
-    class Listener : public std::enable_shared_from_this<Listener> {
-        private:
-            net::io_context& ioc;
-            tcp::acceptor acceptor;
-            void do_accept();
-            void on_accept(beast::error_code, tcp::socket);
-            std::string url;
-        public:
-            void run();
-            std::string getURL();
-            Listener(net::io_context&, tcp::endpoint);
-            ~Listener();
-    }; 
-    class WebServer {
-        private:
-            net::io_context ioc;
-            std::vector<boost::thread> threads;
-            std::shared_ptr<RenWeb::Listener> listener = nullptr;
-            // std::make_shared<RenWeb::Web::Listener>;
-        public:
-            std::string getURL();
-            static bool isURI(std::string);
-            WebServer(unsigned short, unsigned short, std::string="127.0.0.1");
-            ~WebServer();
-    };
+    template<typename Key, typename... Args>
+    class CallbackManager;
 }
 
-#endif
+namespace RenWeb {
+    class WebServer {
+        public:
+            WebServer(
+                const unsigned short& port, 
+                const std::string& ip
+            );
+            ~WebServer();
+            std::string getURL();
+            void start();
+            void stop();
+        private:
+            std::unique_ptr<RenWeb::CallbackManager<std::string, const httplib::Request&, httplib::Response&>> method_callbacks;
+            httplib::Server server;
+            std::thread server_thread;
+            unsigned short port;
+            const std::string ip;
+            void setHandles();
+            void setMethodCallbacks();
+            void sendFile(
+                const httplib::Request& req, 
+                httplib::Response& res,
+                const std::filesystem::path& path
+            );
+            void sendStatus(
+                const httplib::Request& req, 
+                httplib::Response& res, 
+                const httplib::StatusCode& code,
+                const std::string& desc =""
+            );
+            std::string getMimeType(const std::filesystem::path& file);
+            static std::map<std::string, std::string> mime_types;
+    };
+}

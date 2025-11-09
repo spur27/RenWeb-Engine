@@ -7,85 +7,62 @@ import { execSync } from 'child_process';
 
 
 export type Info = {
-    name: string,
-    simple_name: string,
-    name_no_whitespace: string,
-    version: string,
+    author: string,
+    simple_author: string,
     description: string,
     license: string,
-    author: string
+    title: string,
+    simple_title: string,
+    version: string,
+    repository?: string,
+    category: string,
+    copyright?: string,
+    app_id: string,
+    starting_pages: string[],
 };
 
 export function getInfo(): Info {
     const project_root_dir = Path.join(import.meta.dirname, "../../");
-    let info_cpp: string = "";
-    const info_cpp_path = Path.join(project_root_dir, "engine", "include", "info.hpp");
+    const info_json = Path.join(project_root_dir, "info.json");
     const logger = new Logger("GetInfo", false, LogLevel.TRACE, Chalk.bold.magenta);
     const default_info: Info = {
-        name: "RenWeb",
-        simple_name: "renweb",
-        name_no_whitespace: "RenWeb",
-        version: "0.0",
+        author: "DefaultAuthor",
+        simple_author: "default-author",
         description: "I am a default description",
-        license: "Default Licesne",
-        author: "DefaultAuthor"
+        license: "MIT",
+        title: "RenWeb",
+        simple_title: "renweb",
+        version: "0.0.0",
+        category: "Utility",
+        app_id: `io.github.DefaultAuthor.renweb`,
+        starting_pages: ["example"]
     };
     try {
-        info_cpp = readFileSync(info_cpp_path, "utf8");
+        const info_json_v = JSON.parse(readFileSync(info_json, 'utf8'));
+        if (info_json_v == null) {
+            return default_info;
+        } else {
+            return  {
+                author: info_json_v["author"] ?? default_info["author"],
+                simple_author: info_json_v["author"]?.trim()?.replaceAll(/\s/g, "-")?.toLowerCase() ?? default_info["simple_author"],
+                description: info_json_v["description"] ?? default_info["description"],
+                license: info_json_v["license"] ?? default_info["license"],
+                title: info_json_v["title"] ?? default_info["title"],
+                simple_title: info_json_v["title"]?.trim()?.replaceAll(/\s/g, "-")?.toLowerCase() ?? default_info["simple_title"],
+                version: info_json_v["version"] ?? default_info["version"],
+                repository: info_json_v["repository"] ?? default_info["repository"],
+                category: info_json_v["category"] ?? default_info["category"],
+                copyright: info_json_v["copyright"] ?? default_info["copyright"],
+                app_id: info_json_v["app_id"] ?? default_info["app_id"],
+                starting_pages: info_json_v["starting_pages"] ?? default_info["starting_pages"]
+            }
+        }
     } catch (e) {
-        logger.critical(e);
+        logger.error(e);
         return default_info;
     }
-    const info: Info = {
-        name: ((regex_arr: (RegExpMatchArray | null)): string => {
-            if (regex_arr == null || (regex_arr as RegExpMatchArray)[1] == null) {
-                logger.error(`#define RENWEB_INFO_DEFAULT_NAME not found in "${info_cpp_path}". Setting to "${default_info.name}"`);
-                return default_info.name;
-            } else {
-                return (regex_arr as RegExpMatchArray)[1] as string; 
-            }
-        })(info_cpp.match(/#define\sRENWEB_INFO_DEFAULT_NAME\s\"(.*)\"/)),
-        simple_name: "",
-        name_no_whitespace: "",
-        version: ((regex_arr: (RegExpMatchArray | null)): string => {
-            if (regex_arr == null || (regex_arr as RegExpMatchArray)[1] == null) {
-                logger.error(`#define RENWEB_INFO_DEFAULT_VERSION not found in "${info_cpp_path}". Setting to "${default_info.version}"`);
-                return default_info.version;
-            } else {
-                return (regex_arr as RegExpMatchArray)[1] as string; 
-            }
-        })(info_cpp.match(/#define\sRENWEB_INFO_DEFAULT_VERSION\s\"(.*)\"/)),
-        description: ((regex_arr: (RegExpMatchArray | null)): string => {
-            if (regex_arr == null || (regex_arr as RegExpMatchArray)[1] == null) {
-                logger.error(`#define RENWEB_INFO_DEFAULT_DESCRIPTION not found in "${info_cpp_path}". Setting to "${default_info.description}"`);
-                return default_info.description;
-            } else {
-                return (regex_arr as RegExpMatchArray)[1] as string; 
-            }
-        })(info_cpp.match(/#define\sRENWEB_INFO_DEFAULT_DESCRIPTION\s\"(.*)\"/)),
-        license: ((regex_arr: (RegExpMatchArray | null)): string => {
-            if (regex_arr == null || (regex_arr as RegExpMatchArray)[1] == null) {
-                logger.error(`#define RENWEB_INFO_DEFAULT_LICENSE not found in "${info_cpp_path}". Setting to "${default_info.license}"`);
-                return default_info.license;
-            } else {
-                return (regex_arr as RegExpMatchArray)[1] as string; 
-            }
-        })(info_cpp.match(/#define\sRENWEB_INFO_DEFAULT_LICENSE\s\"(.*)\"/)),
-        author: ((regex_arr: (RegExpMatchArray | null)): string => {
-            if (regex_arr == null || (regex_arr as RegExpMatchArray)[1] == null) {
-                logger.error(`#define RENWEB_INFO_DEFAULT_AUTHOR not found in "${info_cpp_path}". Setting to "${default_info.author}"`);
-                return default_info.author;
-            } else {
-                return (regex_arr as RegExpMatchArray)[1] as string; 
-            }
-        })(info_cpp.match(/#define\sRENWEB_INFO_DEFAULT_AUTHOR\s\"(.*)\"/)),
-    } as Info;
-    info.simple_name = info.name.trim().replaceAll(/\s/g, "-").toLowerCase();
-    info.name_no_whitespace = info.name.trim().replaceAll(/\s/g, "");
-    return info;
 }
 
-//
 export function getLinuxPMType(): string {
     try {
         if (execSync("dpkg --version")) {

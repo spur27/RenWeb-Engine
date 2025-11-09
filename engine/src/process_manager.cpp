@@ -1,34 +1,41 @@
 #include "../include/process_manager.hpp"
 
-RenWeb::ProcessManager::ProcessManager() {
+#include "logger.hpp"
+#include "file.hpp"
+#include <string>
+
+using PM = RenWeb::ProcessManager;
+using File = RenWeb::File;
+
+PM::ProcessManager() {
     // this->main_web_page.reset(new RenWeb::Webview(this->info->getAppName()));
-    spdlog::trace("Process Manager object constructed.");
+    Log::trace("Process Manager object constructed.");
 }
 
-RenWeb::ProcessManager::~ProcessManager() {
+PM::~ProcessManager() {
     // Takedown logger (shouldn't have to do anything)
     // Setup cache, config, custom, html
     // delete this->main_window;
     this->killProcesses();
-    spdlog::trace("Process Manager object deconstructed.");
+    Log::trace("Process Manager object deconstructed.");
 }
 
-void RenWeb::ProcessManager::startProcess(std::string web_page_name) {
+void PM::startProcess(std::string web_page_name) {
     if (this->sub_processes.find(web_page_name) == this->sub_processes.cend()) {
         this->sub_processes.insert(std::make_pair(web_page_name, std::vector<boost::process::child>()));
     }
-    this->sub_processes[web_page_name].push_back(boost::process::child(boost::dll::program_location().generic_string(), "-P", web_page_name, "-l", std::to_string(spdlog::get_level()), boost::process::std_out > stdout, boost::process::std_err > stderr, boost::process::std_in < stdin));
+    this->sub_processes[web_page_name].push_back(boost::process::child(File::getPath().string(), "-P", web_page_name, "-l", std::to_string(Log::log_level), boost::process::std_out > stdout, boost::process::std_err > stderr, boost::process::std_in < stdin));
     //DEBUG
     this->printProcesses();
 }
 
-int RenWeb::ProcessManager::cleanProcesses() {
+int PM::cleanProcesses() {
     int removed_process_count = 0;
     for (auto& [web_page_name, vector_v] : this->sub_processes) {
         this->sub_processes[web_page_name].erase(std::remove_if(vector_v.begin(), vector_v.end(), [&removed_process_count](boost::process::child& proc) -> bool {
             const bool process_status = !proc.running();
             if (process_status) {
-                spdlog::info("Removing process...");
+                Log::info("Removing process...");
                 removed_process_count++;
             }
             return process_status;
@@ -36,7 +43,7 @@ int RenWeb::ProcessManager::cleanProcesses() {
     }
     for (auto iter = this->sub_processes.begin(); iter != this->sub_processes.end();) {
         if (iter->second.empty()) {
-            spdlog::info("Process vector for \"" + iter->first + "\" is empty. Deleting from map...");
+            Log::info("Process vector for \"" + iter->first + "\" is empty. Deleting from map...");
             iter = this->sub_processes.erase(iter);
         } else {
             iter++;
@@ -46,7 +53,7 @@ int RenWeb::ProcessManager::cleanProcesses() {
 }
 
 
-void RenWeb::ProcessManager::printProcesses() {
+void PM::printProcesses() {
     std::stringstream result("###Processes###\n");
     for (auto& [web_page_name, vector_v] : this->sub_processes) {
         if (vector_v.empty()) {
@@ -64,15 +71,20 @@ void RenWeb::ProcessManager::printProcesses() {
             result << "\t\t[" << std::to_string(i) << "]: " << std::to_string(vector_v[i].id()) << " " << status << "\n";
         }
     }
-    spdlog::info(result.str());
+    Log::info(result.str());
 }
 
-void RenWeb::ProcessManager::killProcesses() {
+void PM::killProcesses() {
     for (auto& [webpage_name, vector_v] : this->sub_processes) {
         for (auto& proc : vector_v) {
             if (proc.running()) {
-                spdlog::info("Killing " + std::to_string(proc.id()) + " of document \"" + webpage_name + "\"");
+                Log::info("Killing " + std::to_string(proc.id()) + " of document \"" + webpage_name + "\"");
+#if defined(_WIN32)
+                Log::critical("killProcesses is UNIMPLEMENTED for windows");
                 proc.terminate();
+#else
+                kill(proc.id(), SIGTERM);
+#endif
                 proc.join();
             }
         }
@@ -80,7 +92,7 @@ void RenWeb::ProcessManager::killProcesses() {
     this->sub_processes.clear();
 }
 
-bool RenWeb::ProcessManager::hasProcess(std::string process_name) {
+bool PM::hasProcess(std::string process_name) {
     if (this->sub_processes.find(process_name) == this->sub_processes.end()) return false;
     for (auto& [proc_name, proc_vec] : this->sub_processes) {
         for (auto& proc : proc_vec) {
@@ -90,13 +102,13 @@ bool RenWeb::ProcessManager::hasProcess(std::string process_name) {
     return false;
 }
 
-void RenWeb::ProcessManager::bringToForeground(std::string process_name) {
+void PM::bringToForeground(std::string process_name) {
 #if defined(__linux__)
-    spdlog::warn("Cannot work on linux as gtk is being used (can't raise windows using wayland). Doing nothing...");
+    Log::warn("Cannot work on linux as gtk is being used (can't raise windows using wayland). Doing nothing...");
     return;
 #endif
     if (this->sub_processes.find(process_name) == this->sub_processes.end()) {
-        spdlog::error("No process of name \"" + process_name + "\" exists! Can't bring to foreground.");
+        Log::error("No process of name \"" + process_name + "\" exists! Can't bring to foreground.");
         return;
     }
     std::vector<boost::process::child>& proc_vec = this->sub_processes[process_name]; 
@@ -110,10 +122,10 @@ void RenWeb::ProcessManager::bringToForeground(std::string process_name) {
         }
     }
     if (proc == nullptr) {
-        spdlog::error("No process of name \"" + process_name + "\" exists! Can't bring to foreground.");
+        Log::error("No process of name \"" + process_name + "\" exists! Can't bring to foreground.");
         return;
     } else if (multiple_processes) {
-        spdlog::warn("Multiple processes of \"" + process_name + "\" are open. Changing first one found to foreground.");
+        Log::warn("Multiple processes of \"" + process_name + "\" are open. Changing first one found to foreground.");
     }
     // pid_t child_pid = proc->id();
     try {
@@ -136,7 +148,7 @@ void RenWeb::ProcessManager::bringToForeground(std::string process_name) {
         ShowWindow(data.hwnd, ((IsIconic(data.hwnd) ? SW_RESTORE : SW_SHOW)));
         SetForegroundWindow(data.hwnd);
     } else {
-        spdlog::error("No window context");
+        Log::error("No window context");
     }
 #elif defined(__APPLE__)
     // macOS: Use AppleScript to bring process with PID to front
@@ -148,24 +160,9 @@ void RenWeb::ProcessManager::bringToForeground(std::string process_name) {
     // NSDictionary* errorInfo = nil;
     // [appleScript executeAndReturnError:&errorInfo];
     // [appleScript release];
-    spdlog::critical("bringToForefround is UNIMPLEMENTED");
+    Log::critical("bringToForefround is UNIMPLEMENTED");
 #endif
     } catch (const std::exception& e) {
-        spdlog::error(e.what());
+        Log::error(e.what());
     }
 }
-
-
-
-// void RenWeb::App::run(std::string html_doc_name_v) {
-//     spdlog::info("Running app~");
-//     this->main_window->start();
-//     spdlog::info("Stopping app~");
-//     for (auto& [key, val] : this->child_processes) {
-//         RenWeb::App::removeChild(key);
-//     }
-//     this->child_processes.clear();
-//     delete this;
-// }
-
-

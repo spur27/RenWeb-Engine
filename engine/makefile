@@ -99,7 +99,10 @@ EXE := $(shell cd ../scripts && npx tsx ./src/getname.ts)$(EXE_EXT)
 # Paths 
 # -----------------------------------------------------------------------------
 BUILD_PATH :=  ../build
-LIC_PATH :=    ../LICENSE
+COPY_PATH := ../build
+LIC_PATH :=    ../licenses
+CONF_PATH :=   ../config.json
+INFO_PATH :=   ../info.json
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
@@ -107,12 +110,18 @@ ifeq ($(OS_NAME), Windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
 	$(addprefix /I, $(wildcard external/*/include)) \
-	$(addprefix /I, external/webview/core/include)
+	$(addprefix /I, $(wildcard external/boost/libs/*/include)) \
+	$(addprefix /I, $(wildcard external/boost/libs/*/*/include)) \
+	$(addprefix /I, $(wildcard external/boost/libs/*/*/*/include)) \
+	$(addprefix /I, external/webview/core/include) 
 else 
 EXTERN_INC_PATHS := \
 	$(addprefix -I, $(wildcard external/*/)) \
 	$(addprefix -I, $(wildcard external/*/include)) \
-	$(addprefix -I, external/webview/core/include)
+	$(addprefix -I, $(wildcard external/boost/libs/*/include)) \
+	$(addprefix -I, $(wildcard external/boost/libs/*/*/include)) \
+	$(addprefix -I, $(wildcard external/boost/libs/*/*/*/include)) \
+	$(addprefix -I, external/webview/core/include) 
 endif
 RC_PATH :=    ./src/.build/app.res
 # -----------------------------------------------------------------------------
@@ -125,7 +134,7 @@ ifeq ($(OS_NAME), Apple)
 	LIBS := -ldl 
 endif
 ifeq ($(OS_NAME), Linux)
-	LIBS := -lboost_system -lboost_url -lboost_thread -lboost_filesystem -lboost_program_options -ldl
+	LIBS := -Llib/boost/stage/lib -lboost_program_options -ldl
 endif
 # -----------------------------------------------------------------------------
 # Dynamic Linked Libraries
@@ -141,9 +150,9 @@ endif
 SRCS := $(wildcard $(SRC_PATH)/*.cpp)
 OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 # -----------------------------------------------------------------------------
-# Build darget
+# Build target
 # -----------------------------------------------------------------------------
-all: $(BUILD_PATH)/$(EXE)
+all: $(BUILD_PATH)/$(EXE) copy-license copy-config copy-info
 # -----------------------------------------------------------------------------
 # RULE: Link all object files into executable
 # -----------------------------------------------------------------------------
@@ -195,14 +204,6 @@ $(OBJ_PATH):
 	$(call step,Object Path,Making path at $@)
 	mkdir -p $@
 	$(call step,Object Path [DONE],Making path at $@)
-# -----------------------------------------------------------------------------
-# RULE: Copy license
-# -----------------------------------------------------------------------------
-# BROKEN
-$(LIC_PATH):
-	$(call step,Copy License(s), Copying License at $@)
-	cp $@ $(BUILD_PATH)/LICENSE
-	$(call step,Copy License(s) [DONE] Copying License at $@)
 
 # -----------------------------------------------------------------------------
 # COMMAND: Remove build files and exe
@@ -210,7 +211,6 @@ $(LIC_PATH):
 clean:
 	$(call step,Cleaning)
 	find $(BUILD_PATH) -mindepth 1 \
-	-not -name 'config.json' \
 	-not -path '$(BUILD_PATH)/assets/*' \
 	-not -path '$(BUILD_PATH)/assets' \
 	-not -path '$(BUILD_PATH)/content/*' \
@@ -229,10 +229,11 @@ run: $(BUILD_PATH)/$(EXE)
 	$(call step,Running [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Test the program
+# additional settings: --leak-check=full --show-leak-kinds=all
 # -----------------------------------------------------------------------------
 test: $(BUILD_PATH)/$(EXE)
 	$(call step,Testing)
-	ulimit -n 20000 && valgrind ./$(BUILD_PATH)/$(EXE) -l0
+	ulimit -n 20000 && valgrind  ./$(BUILD_PATH)/$(EXE) -l0
 	$(call step,Testing [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Info about the makefile
@@ -265,7 +266,32 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help
+.PHONY: all clean run help copy-license copy-config copy-info
+# -----------------------------------------------------------------------------
+# PHONY TARGET: Copy license
+# -----------------------------------------------------------------------------
+copy-license:
+	$(call step,Copy License(s), Copying License at $@)
+	mkdir -p $(COPY_PATH)
+	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
+	$(call step,Copy License(s) [DONE] Copying License at $@)
+# -----------------------------------------------------------------------------
+# PHONY TARGET: Copy config
+# -----------------------------------------------------------------------------
+copy-config:
+	$(call step,Copy Config(s), Copying Config at $@)
+	mkdir -p $(COPY_PATH)
+	cp $(CONF_PATH) $(COPY_PATH)/config.json
+	$(call step,Copy Config(s) [DONE] Copying Config at $@)
+# -----------------------------------------------------------------------------
+# PHONY TARGET: Copy info
+# -----------------------------------------------------------------------------
+copy-info:
+	$(call step,Copy Info(s), Copying Info at $@)
+	mkdir -p $(COPY_PATH)
+	cp $(INFO_PATH) $(COPY_PATH)/info.json
+	$(call step,Copy Info(s) [DONE] Copying Info at $@)
+
 # -----------------------------------------------------------------------------
 # Includes
 # -----------------------------------------------------------------------------
