@@ -16,7 +16,16 @@
 # -		32-bit x86 macOS (if needed):  CROSS_COMPILE := i386-apple-darwin-
 # -		64-bit x86 macOS (native): 	   CROSS_COMPILE := x86_64-apple-darwin-
 # -----------------------------------------------------------------------------
-CROSS_COMPILE :=
+TOOLCHAIN :=
+ifdef TOOLCHAIN
+	CROSS_COMPILE := $(TOOLCHAIN)-
+	SYSROOT := --sysroot=/usr/$(TOOLCHAIN)
+else
+	CROSS_COMPILE :=
+	SYSROOT :=
+endif
+ARCH := amd64
+# --sysroot=/usr/$(TOOLCHAIN)
 # -----------------------------------------------------------------------------
 # Target type
 # -----------------------------------------------------------------------------
@@ -47,11 +56,11 @@ else
 	EXE_EXT :=
 	OBJ_EXT := .o
 	CXX := $(CROSS_COMPILE)g++
-	CXXFLAGS := -MMD -MP
+	CXXFLAGS := -MMD -MP -D_GNU_SOURCE
 	ifeq ($(TARGET), debug)
-		CXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
+		CXXFLAGS += $(SYSROOT) -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
 	else
-		CXXFLAGS += -O3 -flto -s
+		CXXFLAGS += $(SYSROOT) -O3 -flto=auto -s
 	endif
     ifeq ($(UNAME_S),Linux)
         OS_NAME := Linux
@@ -102,7 +111,9 @@ INFO_PATH :=   ./info.json
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
-EXE := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)$(EXE_EXT)
+EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)
+EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
+EXE := $(EXE_NAME)-$(EXE_VERSION)-$(ARCH)$(EXE_EXT)
 ifeq ($(OS_NAME), Windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
@@ -137,9 +148,17 @@ endif
 # Dynamic Linked Libraries
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME),Linux)
-	PKG_CONFIG := pkg-config
-	PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
-	PKG_LIBS   := $(shell $(PKG_CONFIG) --libs gtk+-3.0   webkit2gtk-4.1)
+    ifdef TOOLCHAIN
+        PKG_CONFIG := $(TOOLCHAIN)-pkg-config
+        PKG_CONFIG_PATH := /usr/$(TOOLCHAIN)/lib/pkgconfig:/usr/$(TOOLCHAIN)/share/pkgconfig
+        PKG_CONFIG_LIBDIR := /usr/$(TOOLCHAIN)/lib/pkgconfig
+        PKG_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
+        PKG_LIBS   := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
+    else
+        PKG_CONFIG := pkg-config
+        PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
+        PKG_LIBS   := $(shell $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
+    endif
 endif
 # -----------------------------------------------------------------------------
 # Source and Object files
@@ -149,7 +168,7 @@ OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 # -----------------------------------------------------------------------------
 # Build target
 # -----------------------------------------------------------------------------
-all: $(BUILD_PATH)/$(EXE) copy-license copy-config copy-info
+all: $(BUILD_PATH)/$(EXE) copy-license copy-info
 # -----------------------------------------------------------------------------
 # RULE: Link all object files into executable
 # -----------------------------------------------------------------------------
@@ -207,14 +226,7 @@ $(OBJ_PATH):
 # -----------------------------------------------------------------------------
 clean:
 	$(call step,Cleaning)
-	find $(BUILD_PATH) -mindepth 1 \
-	-not -path '$(BUILD_PATH)/assets/*' \
-	-not -path '$(BUILD_PATH)/assets' \
-	-not -path '$(BUILD_PATH)/content/*' \
-	-not -path '$(BUILD_PATH)/content' \
-	-not -path '$(BUILD_PATH)/resource/*' \
-	-not -path '$(BUILD_PATH)/resource' \
-	-exec rm -rf {} +
+	rm -f $(BUILD_PATH)/$(EXE)
 	rm -rf $(OBJ_PATH)/*
 	$(call step,Cleaning [DONE])
 # -----------------------------------------------------------------------------
@@ -263,7 +275,7 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help copy-license copy-config copy-info
+.PHONY: all clean run help copy-license copy-info
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy license
 # -----------------------------------------------------------------------------
@@ -272,14 +284,6 @@ copy-license:
 	mkdir -p $(COPY_PATH)
 	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
 	$(call step,Copy License(s) [DONE] Copying License at $@)
-# -----------------------------------------------------------------------------
-# PHONY TARGET: Copy config
-# -----------------------------------------------------------------------------
-copy-config:
-	$(call step,Copy Config(s), Copying Config at $@)
-	mkdir -p $(COPY_PATH)
-	cp $(CONF_PATH) $(COPY_PATH)/config.json
-	$(call step,Copy Config(s) [DONE] Copying Config at $@)
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy info
 # -----------------------------------------------------------------------------

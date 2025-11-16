@@ -16,16 +16,6 @@ jobs:
       with:
         submodules: recursive
 
-    - name: npm install UI packages
-      run: npm i
-
-    - name: npm install script packages
-      run: npm i
-      working-directory: ./scripts
-
-    - name: Build pages
-      run: npm run script:build
-
     - name: install dependencies
       run: |
           sudo apt-get update
@@ -36,12 +26,8 @@ jobs:
             libgtk-3-0 \
             libwebkit2gtk-4.1-0 \
             pkg-config \
-            libboost-all-dev \
-            libnotify-dev
+            libboost-all-dev
 
     - name: make
       run: make
       working-directory: ./engine
-
-    - name: Generate installers
-      run: npm run script:installers skip

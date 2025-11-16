@@ -17,23 +17,11 @@ jobs:
       run: |
         dnf install -y curl git gcovr 
         curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
-        dnf install -y nodejs
 
     - name: checkout
       uses: actions/checkout@v3
       with:
         submodules: recursive
-
-
-    - name: npm install UI packages
-      run: npm i
-
-    - name: npm install script packages
-      run: npm i
-      working-directory: ./scripts
-
-    - name: Build pages
-      run: npm run script:build
 
     - name: install dependencies
       run: |
@@ -48,14 +36,8 @@ jobs:
             gtk3 \
             webkit2gtk4.1 \
             pkgconf-pkg-config \
-            boost-devel \
-            boost-url \
-            libnotify-devel
+            boost-all 
 
     - name: make
       run: make
       working-directory: ./engine
-
-    - name: Generate installers
-      run: npm run script:installers skip
-
