@@ -1,39 +1,28 @@
 #pragma once
 
-#define CONFIG_FILE_NAME "config.json"
+#include "json.hpp"
+#include <boost/json.hpp>
+#include <boost/json/serialize.hpp>
+#include <memory>
+#include <string>
 
-#include "json_file.hpp"
+namespace json = boost::json;
 
 namespace RenWeb {
-    class Config : public RenWeb::JSONFile {
-        public:
-            static std::filesystem::path getPath();
+    class Config : public RenWeb::JSON {
         private:
-            inline static json config = RenWeb::JSONFile::getFile(Config::getPath());
-        protected:
-            Config();
+            const std::string DEFAULTS_KEY = "__defaults__";
         public:
-            static json getConfigFile();
-            static const json& getConfig();
-            static void saveConfigToFile(const json& config);
-            static void resetToDefault(const std::string& page_name);
-          // --------
-            template <typename T>
-            static T getProperty(const std::string& page, const std::string& key) {
-                return RenWeb::JSONFile::getProperty<T>(RenWeb::Config::config.at(page), key);
-            }
-            template <typename T>
-            static T getProperty(const std::string& page, const std::string& key, const T& fallback) {
-                return RenWeb::JSONFile::getProperty<T>(RenWeb::Config::config.at(page), key, fallback);
-            }
-          // --------
-            template <typename T>
-            static void setProperty(const std::string& page, const std::string& key, T setting) {
-                RenWeb::JSONFile::setProperty<T>(RenWeb::Config::config.at(page), key, setting);
-            }
-            template <typename T>
-            static void setProperty(const std::string& page, T setting) {
-                RenWeb::JSONFile::setProperty<T>(RenWeb::Config::config, page, setting);
-            }
+            std::string current_page = "";
+
+            Config(std::shared_ptr<ILogger> logger, const std::string& current_page);
+            Config(std::shared_ptr<ILogger> logger, const std::string& current_page, std::shared_ptr<File> file);
+            // ~Config();
+
+            json::value getProperty(const std::string& key) const override;
+            void setProperty(const std::string& key, const json::value& value) override;
+            json::value getDefaultProperty(const std::string& key) const;
+            void setDefaultProperty(const std::string& key, const json::value& value);
+            const json::value& getJson() const override;
     };
 };

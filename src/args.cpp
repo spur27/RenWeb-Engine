@@ -1,32 +1,32 @@
 #include "../include/args.hpp"
 
-#include <chrono>
-#include <cstdio>
+
+#include <boost/json.hpp>
 #include <iostream>
-#include <boost/process.hpp>
-#include "boost/program_options/value_semantic.hpp"
-#include <thread>
-#include "file.hpp"
+#include <memory>
+#include "../include/json.hpp"
+#include "../include/locate.hpp"
+#include "../include/managers/callback_manager.hpp"
+#include "../include/managers/process_manager.hpp"
+#include "app.hpp"
 #include "info.hpp"
-#include "page.hpp"
-#include "logger.hpp"
-#include "window.hpp"
 
-using CM = RenWeb::CallbackManager<std::string, boost::any>;
-using Args = RenWeb::Args;
-using File = RenWeb::File;
-using Info = RenWeb::Info;
-using Page = RenWeb::Page;
+using namespace RenWeb;
+using ArgsCM = RenWeb::CallbackManager<std::string, void, boost::any>;
+using PM = RenWeb::ProcessManager<int>;
+namespace json = boost::json;
 
-Args::Args()
-    : arg_callbacks(std::unique_ptr<CM>(new CM())) 
+Args::Args(int argc, char** argv)
+    : arg_callbacks(std::unique_ptr<ArgsCM>(new ArgsCM())) 
 {
-    this->addDefaultArgs();
+    this->argc = argc;
+    this->argv = argv;
+    this->addDefaults();
 }
 
 Args::~Args() { }
 
-Args* Args::addArg(
+Args* Args::add(
     const std::string& names,
     const boost::program_options::value_semantic* val,
     const std::string& description,
@@ -40,133 +40,158 @@ Args* Args::addArg(
 }
 
 
-Args* Args::addDefaultArgs() {
+Args* Args::addDefaults() {
     return this
-    ->addArg(
+    ->add(
         "help,h",
         boost::program_options::bool_switch()->default_value(false),
         "Displays help info)",
-        [&](boost::any bool_switch)
+        [this](boost::any bool_switch)
         {
-
             if (boost::any_cast<bool>(bool_switch)) {
                 std::cout << this->desc << std::endl;
                 exit(1);
             }
         })
-    ->addArg(
+    ->add(
         "version,v",
         boost::program_options::bool_switch()->default_value(false),
         "Displays version info)",
-        [&](boost::any bool_switch)
+        [this](boost::any bool_switch)
         {
             if (boost::any_cast<bool>(bool_switch)) {
-                std::string title = Info::getProperty<std::string>("title", "UNKNOWN TITLE");
-                std::string version = Info::getProperty<std::string>("version", "?.?.?");
+                auto info = Info::getInfoFile();
+                if (!info->exists()) {
+                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
+                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                    exit(2);
+                }
+                json::value title = JSON::peek(info.get(), "title");
+                json::value version = JSON::peek(info.get(), "version");
                 std::cout 
-                    << title
+                    << (title.is_string() ? std::string(title.as_string()) : Info::UNKNOWN_TITLE)
                     << " ("
-                    << version
+                    << (version.is_string() ? std::string(version.as_string()) : Info::UNKNOWN_VERSION)
                     << ")"
                     << std::endl;
                 exit(1);
             }
         })
-    ->addArg(
-        "log_silent,s",
+    ->add(
+        "log-silent,ls",
         boost::program_options::bool_switch()->default_value(false),
         "Sets whether log prints to console",
-        [&](boost::any log_level)
+        [this](boost::any log_silent)
         {
-            Log::log_silent = boost::any_cast<bool>(log_level);
-            Log::refresh();
+            this->opts["log_silent"] = boost::any_cast<bool>(log_silent) ? "true" : "false";
         })
-    ->addArg(
-        "log_level,l",
+    ->add(
+        "log-level,ll",
         boost::program_options::value<unsigned int>()->default_value(2, "2 (info)"),
         "Sets log level (n>=0)",
-        [&](boost::any log_level)
+        [this](boost::any log_level)
         {
-            Log::log_level = spdlog::level::level_enum(boost::any_cast<unsigned int>(log_level));
-            Log::refresh();
+            this->opts["log_level"] = std::to_string(boost::any_cast<unsigned int>(log_level));
         })
-    ->addArg(
-        "clear_log,c",
+    ->add(
+        "log-clear,lc",
         boost::program_options::bool_switch()->default_value(false),
         "Clears the log file",
-        [&](boost::any bool_switch)
+        [this](boost::any bool_switch)
         {
-            if (boost::any_cast<bool>(bool_switch)) {
-                std::cout << "Log file at " << Log::getPath().string() << " cleared." << std::endl;
-                Log::clear();
-                exit(1);
-            }
+            this->opts["log_clear"] = boost::any_cast<bool>(bool_switch) ? "true" : "false";
         })
-    ->addArg(
-        "port,p",
-        boost::program_options::value<unsigned short>()->default_value(8270, "8270"),
-        "Web server port (n>=0)",
-        [&](boost::any port)
-        {
-            this->opts["port"] = std::to_string(boost::any_cast<unsigned short>(port)); 
-        })
-    ->addArg(
+    ->add(
         "ip,i",
         boost::program_options::value<std::string>()->default_value("127.0.0.1", "IP Address"),
         "IP of web server",
-        [&](boost::any ip)
+        [this](boost::any ip)
         {
             this->opts["ip"] = boost::any_cast<std::string>(ip); 
         })
-    ->addArg(
+    ->add(
+        "port,p",
+        boost::program_options::value<unsigned short>()->default_value(8270, "8270"),
+        "Web server port (n>=0)",
+        [this](boost::any port)
+        {
+            this->opts["port"] = std::to_string(boost::any_cast<unsigned short>(port)); 
+        })
+    ->add(
         "pages,P",
         boost::program_options::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>{}, "Starting Page(s)"),
         "List of pages to open",
-        [&](boost::any pages)
+        [this](boost::any pages)
         {
             std::vector<std::string>& pages_vec(boost::any_cast<std::vector<std::string>&>(pages));
-            while (true) {
-                if (pages_vec.size() > 1) {
-                    std::vector<boost::process::child> child_procs;
-                    child_procs.reserve(pages_vec.size());
-                    for (const auto& page_name_v : pages_vec) {
-                        child_procs.push_back(boost::process::child(File::getPath().string(), "-P", page_name_v, "-l", std::to_string(Log::log_level), boost::process::std_out > stdout, boost::process::std_err > stderr, boost::process::std_in < stdin));
-                    }
-                    for (auto& proc : child_procs) {
-                        while (proc.running()) {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                        }
-                    }
-                    exit(1);
-                } else {
-                    if (pages_vec.empty() || pages_vec[0] == "_") {
-                        pages_vec.clear();
-                        std::vector<std::string> starting_pages({});
-                        try {
-                            starting_pages = Info::getProperty<std::vector<std::string>>("starting_pages");
-                            if (starting_pages.empty()) {
-                                throw std::runtime_error("The \"starting_pages\" property in " + Info::getPath().string() + " is empty!!");
-                            }
-                        } catch (const std::exception& e) {
-                            Log::critical("No/incorrectly-formatted starting pages found in " + Info::getPath().string() + " nor were there any pages provided in arguments.");
-                            Log::critical(e.what());
-                            exit(-1);
-                        }
-                        pages_vec.insert(pages_vec.begin(), starting_pages.begin(), starting_pages.end());
-                        // continue;
-                    } else {
-                        Page::setPage(pages_vec[0]);
-                        Log::refresh();
-                        std::unique_ptr<RenWeb::Window> window(new RenWeb::Window(this->opts));
-                        window->run();
-                        break;
+            
+            if (pages_vec.size() > 1) {
+                auto pm = std::make_unique<PM>();
+                std::vector<std::string> args;
+                for (int arg_num = 0; arg_num < this->argc; arg_num++) {
+                    std::string arg = this->argv[arg_num];
+                    if (arg.rfind("-P", 0) != 0) {
+                        args.emplace_back(std::move(arg));
                     }
                 }
-            } // while
+                for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
+                    std::vector<std::string> updated_args = args;
+                    updated_args.emplace_back("-P" + pages_vec[page_num]);
+                    pm->add(page_num, updated_args);
+                }
+                pm->waitAll();
+                exit(0);
+            } else if (pages_vec.empty() || pages_vec[0] == "_") {
+                pages_vec.clear();
+                auto info = Info::getInfoFile();
+                if (!info->exists()) {
+                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
+                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                    exit(2);
+                }
+                json::value starting_pages = JSON::peek(info.get(), "starting_pages");
+                if (starting_pages.is_string()) {
+                    pages_vec.emplace_back(starting_pages.as_string());
+                } else if (starting_pages.is_array()) {
+                    for (const auto& item : starting_pages.as_array()) {
+                        if (item.is_string()) {
+                            pages_vec.emplace_back(item.as_string());
+                        }
+                    }
+                    if (pages_vec.empty()) {
+                        std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is empty or malformed!" << std::endl;
+                        exit(3);
+                    }
+                } else {
+                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is missing or isn't a string or string[]!" << std::endl;
+                    exit(3);
+                }
+                if (pages_vec.size() > 1) {
+                    auto pm = std::make_unique<PM>();
+                    std::vector<std::string> args;
+                    for (int arg_num = 0; arg_num < this->argc; arg_num++) {
+                        std::string arg = this->argv[arg_num];
+                        if (arg.rfind("-P", 0) != 0) {
+                            args.emplace_back(std::move(arg));
+                        }
+                    }
+                    for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
+                        std::vector<std::string> updated_args = args;
+                        updated_args.emplace_back("-P" + pages_vec[page_num]);
+                        pm->add(page_num, updated_args);
+                    }
+                    pm->waitAll();
+                    exit(0);
+                }
+            }
+            
+            this->opts["page"] = pages_vec[0];
+            std::unique_ptr<App> app = AppBuilder(this->opts, this->argc, this->argv).build();
+            app->run();
         });
 }
 
-void Args::runArgs(int argc, char** argv) {
+void Args::run() /*override*/ {
     boost::program_options::variables_map vm;
     try {
         boost::program_options::store(boost::program_options::parse_command_line(argc, argv, this->desc), vm);
@@ -177,6 +202,6 @@ void Args::runArgs(int argc, char** argv) {
             }
         }
     } catch (const std::exception& e) {
-        Log::critical(std::string("[RUNNING ARGS] ") + e.what());
+        std::cout << "\033[31m[ERROR]\033[0m [RUNNING ARGS] " << e.what();
     }
 }

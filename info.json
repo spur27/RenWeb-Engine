@@ -3,12 +3,20 @@
     "description": "Base RenWeb engine. Use with build files to see what it can do!",
     "license": "BSL",
     "title": "RenWeb",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "repository": "https://github.com/spur27/RenWeb",
     "category": "Utility",
     "copyright": "Copyright © 2025 Spur27",
     "appId": "io.github.spur27.renweb",
     "starting_pages": [
         "test"
-    ]
+    ],
+    "permissions": {
+        "geolocation": false,
+        "notifications": true,
+        "media_devices": false,
+        "pointer_lock": false,
+        "install_missing_media_plugins": true,
+        "device_info": true
+    }
 }

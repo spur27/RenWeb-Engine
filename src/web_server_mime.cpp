@@ -1,13 +1,10 @@
 #include "web_server.hpp"
 
-#include "logger.hpp"
-
 using WebServer = RenWeb::WebServer;
 
 std::string WebServer::getMimeType(const std::filesystem::path& file) {
     auto i = this->mime_types.find(file.extension().string());
     if (i == this->mime_types.end()) {
-        Log::error("Couldn't find mime type of extension " + file.extension().string() + " for file file " + file.string());
         return "application/octet-stream";
     } else {
         return i->second;

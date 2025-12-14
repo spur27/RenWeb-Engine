@@ -18,3 +18,4 @@ external/*
 index
 lib/*
 !lib/.gitkeep
+programs

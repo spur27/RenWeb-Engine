@@ -1,30 +1,61 @@
 # -----------------------------------------------------------------------------
-# Toolchain prefix
-# -		ARM 32-bit (Linux): 		   CROSS_COMPILE := arm-linux-gnueabihf-
-# -		ARM 64-bit (Linux): 		   CROSS_COMPILE := aarch64-linux-gnu-
-# -		x86_64 (Linux, native 64-bit): CROSS_COMPILE := x86_64-linux-gnu-
-# -		x86 32-bit (Linux): 		   CROSS_COMPILE := i386-linux-gnu-
-# -		Windows 32-bit (MinGW): 	   CROSS_COMPILE := i686-ws64-mingw32-
-# -		Windows 64-bit (MinGW):		   CROSS_COMPILE := x86_64-w64-mingw32-
-# -		macOS (native, clang++): 	   CROSS_COMPILE := 
-# -		MIPS 32-bit (Linux): 		   CROSS_COMPILE := mipsel-linux-gnu-
-# -		MIPS 64-bit (Linux):		   CROSS_COMPILE := mips64el-linux-gnu-
-# -		RISC-V 64-bit (Linux): 		   CROSS_COMPILE := riscv64-linux-gnu-
-# -		PowerPC (Linux): 			   CROSS_COMPILE := powerpc-linux-gnu-
-# -		ARM Android (32-bit): 		   CROSS_COMPILE := arm-linux-androideabi-
-# -		Android x86 (32-bit): 		   CROSS_COMPILE := i686-linux-android-
-# -		32-bit x86 macOS (if needed):  CROSS_COMPILE := i386-apple-darwin-
-# -		64-bit x86 macOS (native): 	   CROSS_COMPILE := x86_64-apple-darwin-
+# Toolchain prefix - Supported Linux cross-compilers
+# -		ARM 32-bit (Linux):          TOOLCHAIN := arm-linux-gnueabihf
+# -		ARM 64-bit (Linux):          TOOLCHAIN := aarch64-linux-gnu
+# -		MIPS 32-bit BE (Linux):      TOOLCHAIN := mips-linux-gnu
+# -		MIPS 32-bit LE (Linux):      TOOLCHAIN := mipsel-linux-gnu
+# -		MIPS 64-bit BE (Linux):      TOOLCHAIN := mips64-linux-gnuabi64
+# -		MIPS 64-bit LE (Linux):      TOOLCHAIN := mips64el-linux-gnuabi64
+# -		PowerPC 32-bit (Linux):      TOOLCHAIN := powerpc-linux-gnu
+# -		PowerPC 64-bit (Linux):      TOOLCHAIN := powerpc64-linux-gnu
+# -		RISC-V 64-bit (Linux):       TOOLCHAIN := riscv64-linux-gnu
+# -		S390x (Linux):               TOOLCHAIN := s390x-linux-gnu
+# -		SPARC 64-bit (Linux):        TOOLCHAIN := sparc64-linux-gnu
+# -		x86_64 (Linux):              TOOLCHAIN := x86_64-linux-gnu (or native)
+# -		x86 32-bit (Linux):          TOOLCHAIN := i686-linux-gnu
+# -		x86 32-bit (macOS):          Use clang with -m32 flag (no TOOLCHAIN)
+# -		Windows (cl.exe):            No TOOLCHAIN - use native cl.exe compiler
+# -		macOS (clang):               No TOOLCHAIN - use native clang compiler
 # -----------------------------------------------------------------------------
 TOOLCHAIN :=
 ifdef TOOLCHAIN
 	CROSS_COMPILE := $(TOOLCHAIN)-
 	SYSROOT := --sysroot=/usr/$(TOOLCHAIN)
+	# Set ARCH based on TOOLCHAIN
+	ifeq ($(TOOLCHAIN),arm-linux-gnueabihf)
+		ARCH := arm32
+	else ifeq ($(TOOLCHAIN),aarch64-linux-gnu)
+		ARCH := arm64
+	else ifeq ($(TOOLCHAIN),i686-linux-gnu)
+		ARCH := x86_32
+	else ifeq ($(TOOLCHAIN),mips-linux-gnu)
+		ARCH := mips32
+	else ifeq ($(TOOLCHAIN),mipsel-linux-gnu)
+		ARCH := mips32el
+	else ifeq ($(TOOLCHAIN),mips64-linux-gnuabi64)
+		ARCH := mips64
+	else ifeq ($(TOOLCHAIN),mips64el-linux-gnuabi64)
+		ARCH := mips64el
+	else ifeq ($(TOOLCHAIN),powerpc-linux-gnu)
+		ARCH := powerpc32
+	else ifeq ($(TOOLCHAIN),powerpc64-linux-gnu)
+		ARCH := powerpc64
+	else ifeq ($(TOOLCHAIN),riscv64-linux-gnu)
+		ARCH := riscv64
+	else ifeq ($(TOOLCHAIN),s390x-linux-gnu)
+		ARCH := s390x
+	else ifeq ($(TOOLCHAIN),sparc64-linux-gnu)
+		ARCH := sparc64
+	else ifeq ($(TOOLCHAIN),x86_64-linux-gnu)
+		ARCH := x86_64
+	else
+		ARCH := unknown
+	endif
 else
 	CROSS_COMPILE :=
 	SYSROOT :=
+	ARCH := x86_64
 endif
-ARCH := amd64
 # --sysroot=/usr/$(TOOLCHAIN)
 # -----------------------------------------------------------------------------
 # Target type
@@ -37,10 +68,10 @@ endif
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
 	SHELL := C:\Program Files\Git\bin\bash.exe
-    OS_NAME := Windows
+    OS_NAME := windows
 	EXE_EXT := .exe
 	OBJ_EXT := .obj
-	CXX := $(CROSS_COMPILE)cl
+	CXX := cl
 	CXXFLAGS := /std:c++17 /utf-8 /bigobj
 ifneq ($(LINKTYPE),shared)
 	CXXFLAGS += /MT 
@@ -50,22 +81,67 @@ ifeq ($(TARGET),debug)
 else
 	CXXFLAGS += /EHsc /O2
 endif
+	# Detect architecture from cl.exe environment
+	# Use VSCMD_ARG_TGT_ARCH if set, otherwise check PROCESSOR_ARCHITECTURE
+	ifdef VSCMD_ARG_TGT_ARCH
+		ifeq ($(VSCMD_ARG_TGT_ARCH),x86)
+			ARCH := x86_32
+		else ifeq ($(VSCMD_ARG_TGT_ARCH),x64)
+			ARCH := x86_64
+		else ifeq ($(VSCMD_ARG_TGT_ARCH),arm)
+			ARCH := arm32
+		else ifeq ($(VSCMD_ARG_TGT_ARCH),arm64)
+			ARCH := arm64
+		endif
+	else ifdef PROCESSOR_ARCHITECTURE
+		ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
+			ARCH := x86_64
+		else ifeq ($(PROCESSOR_ARCHITECTURE),x86)
+			ARCH := x86_32
+		else ifeq ($(PROCESSOR_ARCHITECTURE),ARM64)
+			ARCH := arm64
+		endif
+	endif
 else
 	SHELL := /bin/bash
     UNAME_S := $(shell uname -s)
 	EXE_EXT :=
 	OBJ_EXT := .o
-	CXX := $(CROSS_COMPILE)g++
-	CXXFLAGS := -MMD -MP -D_GNU_SOURCE
-	ifeq ($(TARGET), debug)
-		CXXFLAGS += $(SYSROOT) -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
-	else
-		CXXFLAGS += $(SYSROOT) -O3 -flto=auto -s
-	endif
     ifeq ($(UNAME_S),Linux)
-        OS_NAME := Linux
+        OS_NAME := linux
+		CXX := $(CROSS_COMPILE)g++
+		CXXFLAGS := -MMD -MP -D_GNU_SOURCE
+		ifeq ($(TARGET), debug)
+			CXXFLAGS += $(SYSROOT) -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
+		else
+			CXXFLAGS += $(SYSROOT) -O3 -flto -s
+		endif
+		# For cross-compilation, add Boost 1.82 include path
+		ifdef TOOLCHAIN
+			CXXFLAGS += -isystem /usr/$(TOOLCHAIN)/usr/local/include
+		else
+			# For native builds, also use Boost 1.82 from /usr/local
+			CXXFLAGS += -isystem /usr/local/include
+		endif
+		# For x86_32 builds on Linux, use -m32 flag if TOOLCHAIN not set
+		ifeq ($(ARCH),x86_32)
+			ifndef TOOLCHAIN
+				CXXFLAGS += -m32
+			endif
+		endif
     else ifeq ($(UNAME_S),Darwin)
-        OS_NAME := Apple
+        OS_NAME := apple
+		CXX := clang++
+		CXXFLAGS := -MMD -MP
+		ifeq ($(TARGET), debug)
+			CXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
+		else
+			CXXFLAGS += -O3 -flto -s
+		endif
+		# For x86_32 builds on macOS, use -m32 flag
+		ifeq ($(ARCH),x86_32)
+			CXXFLAGS += -m32
+		endif
     else
         $(error Unknown operating system detected. Don't know how to proceed :/)
     endif
@@ -103,7 +179,7 @@ endef
 # -----------------------------------------------------------------------------
 # Paths 
 # -----------------------------------------------------------------------------
-BUILD_PATH :=  ./build
+BUILD_PATH :=  ./programs
 COPY_PATH := ./build
 LIC_PATH :=    ./licenses
 CONF_PATH :=   ./config.json
@@ -113,8 +189,8 @@ OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
 EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
-EXE := $(EXE_NAME)-$(EXE_VERSION)-$(ARCH)$(EXE_EXT)
-ifeq ($(OS_NAME), Windows)
+EXE := $(EXE_NAME)-$(EXE_VERSION)-$(OS_NAME)-$(ARCH)$(EXE_EXT)
+ifeq ($(OS_NAME), windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
 	$(addprefix /I, $(wildcard external/*/include)) \
@@ -135,25 +211,36 @@ RC_PATH :=    ./src/.build/app.res
 # -----------------------------------------------------------------------------
 # Static Linked Libraries
 # -----------------------------------------------------------------------------
-ifeq ($(OS_NAME), Windows)
+ifeq ($(OS_NAME), windows)
 	LIBS := comdlg32.lib
 endif
-ifeq ($(OS_NAME), Apple)
+ifeq ($(OS_NAME), apple)
 	LIBS := -ldl 
 endif
-ifeq ($(OS_NAME), Linux)
-	LIBS := -Llib/boost/stage/lib -lboost_program_options -ldl
+ifeq ($(OS_NAME), linux)
+	ifdef TOOLCHAIN
+		# For all cross-compilation targets, use explicit sysroot path and link boost statically
+		LIBS := -L/usr/$(TOOLCHAIN)/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -Wl,-Bdynamic -ldl
+		LDFLAGS := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
+	else
+		# Native build: use Boost 1.82 from /usr/local/lib
+		LIBS := -L/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -Wl,-Bdynamic -ldl
+		LDFLAGS :=
+	endif
 endif
 # -----------------------------------------------------------------------------
 # Dynamic Linked Libraries
 # -----------------------------------------------------------------------------
-ifeq ($(OS_NAME),Linux)
+ifeq ($(OS_NAME),linux)
     ifdef TOOLCHAIN
-        PKG_CONFIG := $(TOOLCHAIN)-pkg-config
-        PKG_CONFIG_PATH := /usr/$(TOOLCHAIN)/lib/pkgconfig:/usr/$(TOOLCHAIN)/share/pkgconfig
-        PKG_CONFIG_LIBDIR := /usr/$(TOOLCHAIN)/lib/pkgconfig
-        PKG_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
-        PKG_LIBS   := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
+        PKG_CONFIG := pkg-config
+        # For all cross-compilers, use sysroot-aware pkg-config
+        # Include both standard and multiarch paths (i386-linux-gnu for i686, lib for others)
+        PKG_CONFIG_PATH := /usr/$(TOOLCHAIN)/usr/local/lib/pkgconfig:/usr/$(TOOLCHAIN)/usr/lib/pkgconfig:/usr/$(TOOLCHAIN)/usr/lib/i386-linux-gnu/pkgconfig:/usr/$(TOOLCHAIN)/usr/share/pkgconfig:/usr/$(TOOLCHAIN)/lib/pkgconfig
+        PKG_CONFIG_LIBDIR := /usr/$(TOOLCHAIN)/usr/local/lib/pkgconfig
+        PKG_CONFIG_SYSROOT_DIR := /usr/$(TOOLCHAIN)
+        PKG_CFLAGS := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) PKG_CONFIG_SYSROOT_DIR=$(PKG_CONFIG_SYSROOT_DIR) $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
+        PKG_LIBS   := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) PKG_CONFIG_SYSROOT_DIR=$(PKG_CONFIG_SYSROOT_DIR) $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
     else
         PKG_CONFIG := pkg-config
         PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
@@ -168,21 +255,21 @@ OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 # -----------------------------------------------------------------------------
 # Build target
 # -----------------------------------------------------------------------------
-all: $(BUILD_PATH)/$(EXE) copy-license copy-info
+all: $(BUILD_PATH)/$(EXE)
 # -----------------------------------------------------------------------------
 # RULE: Link all object files into executable
 # -----------------------------------------------------------------------------
 $(BUILD_PATH)/$(EXE): $(OBJS) | $(BUILD_PATH)
 	$(call step,Linking Executable,$@,of link type,$(LINKTYPE))
-ifeq ($(OS_NAME),Windows)
+ifeq ($(OS_NAME), windows)
 	npm run script:gen_resource
 	$(CXX) $(OBJS) ./src/.build/app.res $(CXXFLAGS) /link $(LIBS) /SUBSYSTEM:WINDOWS /OUT:$@
 else 
 ifeq ($(LINKTYPE),shared)
 	$(call warn,Shared for unix isn't implemented yet! Using static)
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LIBS) $(PKG_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
 else
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LIBS) $(PKG_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
 endif
 endif
 	$(call step,Linking Executable [DONE],$@)
@@ -191,7 +278,7 @@ endif
 # -----------------------------------------------------------------------------
 $(OBJ_PATH)/%$(OBJ_EXT): $(SRC_PATH)/%.cpp | $(OBJ_PATH)
 	$(call step,Compiling,$<)
-ifeq ($(OS_NAME),Windows)
+ifeq ($(OS_NAME),windows)
 ifeq ($(LINKTYPE),shared)
 	$(CXX) $(CXXFLAGS) /I$(INC_PATH) /MD /DBOOST_ALL_DYN_LINK $(EXTERN_INC_PATHS) /c $< /Fo$@
 else
@@ -222,13 +309,20 @@ $(OBJ_PATH):
 	$(call step,Object Path [DONE],Making path at $@)
 
 # -----------------------------------------------------------------------------
-# COMMAND: Remove build files and exe
+# COMMAND: Remove build files
 # -----------------------------------------------------------------------------
 clean:
 	$(call step,Cleaning)
-	rm -f $(BUILD_PATH)/$(EXE)
+	rm -rf $(wildcard $(BUILD_PATH)/$(EXE_NAME)-*)
 	rm -rf $(OBJ_PATH)/*
 	$(call step,Cleaning [DONE])
+# -----------------------------------------------------------------------------
+# COMMAND: Remove build files and exe
+# -----------------------------------------------------------------------------
+clear:
+	$(call step,Clearing)
+	rm -rf $(OBJ_PATH)/*
+	$(call step,Clearing [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Run the program
 # -----------------------------------------------------------------------------
@@ -275,28 +369,27 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help copy-license copy-info
+# .PHONY: all clean run help copy-license copy-info
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy license
 # -----------------------------------------------------------------------------
-copy-license:
-	$(call step,Copy License(s), Copying License at $@)
-	mkdir -p $(COPY_PATH)
-	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
-	$(call step,Copy License(s) [DONE] Copying License at $@)
+# copy-license:
+# 	$(call step,Copy License(s), Copying License at $@)
+# 	mkdir -p $(COPY_PATH)
+# 	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
+# 	$(call step,Copy License(s) [DONE] Copying License at $@)
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy info
 # -----------------------------------------------------------------------------
-copy-info:
-	$(call step,Copy Info(s), Copying Info at $@)
-	mkdir -p $(COPY_PATH)
-	cp $(INFO_PATH) $(COPY_PATH)/info.json
-	$(call step,Copy Info(s) [DONE] Copying Info at $@)
-
+# copy-info:
+# 	$(call step,Copy Info(s), Copying Info at $@)
+# 	mkdir -p $(COPY_PATH)
+# 	cp $(INFO_PATH) $(COPY_PATH)/info.json
+# 	$(call step,Copy Info(s) [DONE] Copying Info at $@)
 # -----------------------------------------------------------------------------
 # Includes
 # -----------------------------------------------------------------------------
-ifeq ($(OS_NAME),Windows)
+ifeq ($(OS_NAME),windows)
 -include
 else
 -include $(OBJS:.o=.d)

@@ -1,41 +1,122 @@
 #include "../include/config.hpp"
 
-#include <iostream>
-
 #include "file.hpp"
+#include "info.hpp"
+#include "json.hpp"
+#include "locate.hpp"
+#include <memory>
 
 using Config = RenWeb::Config;
-using JSONFile = RenWeb::JSONFile;
+using JSON = RenWeb::JSON;
 using File = RenWeb::File;
 
-Config::Config() {
-    throw std::runtime_error("Tried to construct static class Config");
+namespace {
+    std::shared_ptr<File> getConfigFile() {
+        auto info_file = RenWeb::Info::getInfoFile();
+        json::value config_path_val = JSON::peek(info_file.get(), "config_path");
+        if (config_path_val.is_string()) {
+            return std::make_shared<File>(std::filesystem::path(config_path_val.as_string().c_str()));
+        }
+        return std::make_shared<File>(RenWeb::Locate::currentDirectory() / "config.json");
+    }
 }
-/*static*/ json Config::getConfigFile() {
-    return JSONFile::getFile(Config::getPath());
+
+Config::Config(
+    std::shared_ptr<ILogger> logger,
+    const std::string& current_page
+) : JSON(logger, getConfigFile()),
+    current_page(current_page)
+{ }
+
+Config::Config(
+    std::shared_ptr<ILogger> logger,
+    const std::string& current_page,
+    std::shared_ptr<File> file
+) : JSON(logger, file),
+    current_page(current_page)
+{ }
+
+// Config::~Config();
+
+json::value Config::getProperty(const std::string& key) const /*override*/ {
+    try {
+        json::value page = JSON::getProperty(this->current_page);
+        if (page.is_null()) {
+            this->logger->error("Page '" + this->current_page + "' not found in config '" + this->file->getPath().string() + "'. Returning null.");
+            return json::value(nullptr);
+        }
+        return page.at(key);
+    } catch (const std::exception& e) {
+        this->logger->error(e.what());
+        return json::value(nullptr);
+    }
 }
-/*static*/ const json& Config::getConfig() {
-    return Config::config;
+
+json::value Config::getDefaultProperty(const std::string& key) const {
+    try {
+        json::value defaults = JSON::getProperty(this->DEFAULTS_KEY);
+        if (defaults.is_null()) {
+            this->logger->error("'__defaults__' section not found in config '" + this->file->getPath().string() + "'. Returning null.");
+            return json::value(nullptr);
+        }
+        return defaults.at(key);
+    } catch (const std::exception& e) {
+        this->logger->error(e.what());
+        return json::value(nullptr);
+    }
 }
-/*static*/ std::filesystem::path Config::getPath() {
-    return std::filesystem::path(File::getDir()).append(CONFIG_FILE_NAME);
+
+void Config::setProperty(const std::string& key, const json::value& value) /*override*/ {
+    try {
+        json::value page = JSON::getProperty(this->current_page);
+        json::object page_obj;
+        
+        if (page.is_null()) {
+            page_obj = {{key, value}};
+        } else if (page.is_object()) {
+            page_obj = page.as_object();
+            page_obj[key] = value;
+        } else {
+            throw std::runtime_error("Page '" + this->current_page + "' in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(page) + ").");
+        }
+        
+        // Update the page in json_data and persist
+        this->json_data.as_object()[this->current_page] = page_obj;
+        this->update(this->json_data.as_object());
+    } catch (const std::exception& e) {
+        this->logger->error(e.what());
+    }
 }
-/*static*/ void Config::saveConfigToFile(const json& config_v) {
-    Config::config.update(config_v, true);
-    std::cout << "UPDATED CONFIG" << std::endl;
-    std::cout << Config::config.dump(2) << std::endl;
-    JSONFile::setFile(Config::getPath(), Config::config);
+
+void Config::setDefaultProperty(const std::string& key, const json::value& value) {
+    try {
+        json::value defaults = JSON::getProperty(this->DEFAULTS_KEY);
+        json::object defaults_obj;
+        
+        if (defaults.is_null()) {
+            defaults_obj = {{key, value}};
+        } else if (defaults.is_object()) {
+            defaults_obj = defaults.as_object();
+            defaults_obj[key] = value;
+        } else {
+            throw std::runtime_error("Defaults section in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(defaults) + ").");
+        }
+        
+        // Update the defaults in json_data and persist
+        this->json_data.as_object()[this->DEFAULTS_KEY] = defaults_obj;
+        this->update(this->json_data.as_object());
+    } catch (const std::exception& e) {
+        this->logger->error(e.what());
+    }
 }
-/*static*/ void Config::resetToDefault(const std::string& page_name) {
-    if (page_name.empty()) {
-        Log::error("Can't load defaults if the set page is empty!");
-    } else if (Config::config.contains(page_name) && Config::config.at(page_name).contains("__default__")) {
-        Log::debug("Resetting defaults to those defined for page \"" + page_name + "\".");
-        Config::config[page_name].update(Config::config.at(page_name).at("__default__"), true);
-    } else if (Config::config.contains("__default__")) {
-        Log::warn("Resetting defaults to those defined at config.json root.");
-        Config::config[page_name].update(Config::config.at("__default__"), true);
-    } else {
-        Log::error("Property \"__default__\" is not set for page \"" + page_name + "\" nor at config.json root. Cannot reset to defaults.");
+
+
+const json::value& Config::getJson() const /*override*/ {
+    try {
+        return this->json_data.as_object().at(this->current_page);
+    } catch (const std::exception& e) {
+        this->logger->error(e.what());
+        static const json::value null_value = nullptr;
+        return null_value;
     }
 }

@@ -2,57 +2,65 @@
 
 #include <filesystem>
 #include <functional>
-#include <nlohmann/json.hpp>
+#include <memory>
 #include "file.hpp"
-#include "page.hpp"
-#include "managers.hpp"
+#include "config.hpp"
+#include "managers/in_out_manager.hpp"
+#include "managers/callback_manager.hpp"
 
 using File = RenWeb::File;
-using Page = RenWeb::Page;
-using json = nlohmann::json;
-using GSM = RenWeb::GetSetManager<std::string, json, const json&>;
+using Config = RenWeb::Config;
+namespace json = boost::json;
+using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
+using CM = RenWeb::CallbackManager<std::string, json::value, const json::value&>;
 
 namespace RenWeb {
-   class __Window__;
+   class App;
 }
 
 namespace RenWeb {
     class WindowFunctions {
         private:
-            RenWeb::__Window__* window_ref;
-            std::unique_ptr<RenWeb::GetSetManager<std::string, json, const json&>> getsets;
-            void setGetSets();
-            std::map<std::string, json> saved_states;
+            RenWeb::App* app;
+            WindowFunctions* bindDefaults();
+            WindowFunctions* setGetSets();
+            // WindowFunctions* setStartStops();
+            WindowFunctions* setWindowCallbacks();
+            WindowFunctions* setLogCallbacks();
+            WindowFunctions* setFileSystemCallbacks();
+            WindowFunctions* setConfigCallbacks();
+            WindowFunctions* setSystemCallbacks();
+            WindowFunctions* setProcessCallbacks();
+            WindowFunctions* setSignalCallbacks();
+            WindowFunctions* setDebugCallbacks();
+            WindowFunctions* setNetworkCallbacks();
+            WindowFunctions* setNavigateCallbacks();
+            std::map<std::string, json::value> saved_states;
         public:
-            WindowFunctions(RenWeb::__Window__*  window_ref);
+            std::unique_ptr<IOM> getsets;
+            // std::unique_ptr<IOM> startstops;
+            std::unique_ptr<CM> window_callbacks;
+            std::unique_ptr<CM> log_callbacks;
+            std::unique_ptr<CM> filesystem_callbacks;
+            std::unique_ptr<CM> config_callbacks;
+            std::unique_ptr<CM> system_callbacks;
+            std::unique_ptr<CM> process_callbacks;
+            std::unique_ptr<CM> signal_callbacks;
+            std::unique_ptr<CM> debug_callbacks;
+            std::unique_ptr<CM> network_callbacks;
+            std::unique_ptr<CM> navigate_callbacks;
+            
+
+            WindowFunctions(RenWeb::App* app);
             ~WindowFunctions();
-            json get(const std::string& property);
-            void set(const std::string& property, const json& value);
-            json getState();
-            void setState(const json& json);
+            WindowFunctions* bindFunction(const std::string&, std::function<std::string(std::string)>);
+            WindowFunctions* unbindFunction(const std::string&);
+            json::value get(const std::string& property);
+            void set(const std::string& property, const json::value& value);
+            json::object getState();
+            void setState(const json::object& json);
             void saveState();
-            std::vector<std::string> getNames();
-         // ------------ state ------------
+         // ------------ state -----------------
             bool isFocus();
-         // ------------ augmenters ------------
-            RenWeb::WindowFunctions* show(bool is_window_shown);
-            RenWeb::WindowFunctions* changeTitle(const std::string& title);
-            RenWeb::WindowFunctions* resetTitle();
-            RenWeb::WindowFunctions* reloadPage();
-            RenWeb::WindowFunctions* navigatePage(const std::string&);
-            RenWeb::WindowFunctions* terminate();
-         // ------------ windowing ------------
-            std::vector<std::string> openChooseFilesDialog(
-               const bool& multi =false, 
-               const bool& dirs =false, 
-               const std::vector<std::string>& filteration =std::vector<std::string>(), 
-               const std::filesystem::path& initial_dir =File::getDir()
-            );
-            RenWeb::WindowFunctions* openWindow(std::string uri, bool is_single =false);
-            RenWeb::WindowFunctions* sendNotif(
-               const std::string& title, 
-               const std::string& message, 
-               const std::filesystem::path& =std::filesystem::path("app.png"));
-            RenWeb::WindowFunctions* openURI(std::string resource);
     };
 };
