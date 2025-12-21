@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="./style.css">
+    <script src="./script.js" defer></script>
+</head>
+
+<body>
+    <div class="col">
+        <div class="col">
+            <textarea style="height: 20px;" class="log_msg" placeholder="enter log text"></textarea>
+            <div class="row">
+                <button class="log_trace">Trace</button>
+                <button class="log_debug">Debug</button>
+                <button class="log_info">Info</button>
+                <button class="log_warn">Warn</button>
+                <button class="log_error">Error</button>
+                <button class="log_critical">Critical</button>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="read_file">Read File</button>
+                <input class="read_file_msg" type="text" value="/" style="width: 70vw;">
+            </div>
+            <p class="read_file_output output_text">File text will appear here!</p>
+        </div>
+        <hr>
+        <div class="col">
+            <div class="row">
+                <button class="write_file">Write File</button>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Append?</p>
+                    <input class="append" type="checkbox" style="margin-top: -10px;">
+                </div>
+                <input class="write_file_msg" type="text" value="/" style="width: 70vw;">
+            </div>
+            <textarea class="write_file_input">Write something to a file!</textarea>
+            <div class="row">
+                <button class="exists_file">Exists File/Dir</button>
+                <button class="remove_file">Remove File/Dir</button>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Recursive?</p>
+                    <input class="recursive" type="checkbox" style="margin-top: -10px;">
+                </div>
+            </div>
+            <div class="row">
+                <button class="is_dir">Is Dir</button>
+                <button class="mk_dir">Make Dir</button>
+                <button class="ls_dir">List Dirs</button>
+            </div>
+            <p class="ls_dir_output output_text">Dir list will appear here!</p>
+            <hr />
+            <div class="row">
+                <p style="font-size: 12px; margin-top: -0px; height: 12px;">New File/Dir Name: </p>
+                <input class="new_file_msg" type="text" value="/" style="height: 20px; width: 70vw;">
+            </div>
+            <div class="row">
+                <button class="rename_file">Rename</button>
+                <button class="copy_file">Copy</button>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Overwrite?</p>
+                    <input class="overwrite" type="checkbox" style="margin-top: -10px;">
+                </div>
+            </div>
+        </div>
+        <hr />
+        <div class="col">
+            <div class="row">
+                <button style="width: 90vw" class="choose_files">Choose files or dirs</button>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Dirs?</p>
+                    <input class="dirs" type="checkbox" style="margin-top: -10px;">
+                </div>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Multiple?</p>
+                    <input class="multiple" type="checkbox" style="margin-top: -10px;">
+                </div>
+            </div>
+            <p class="choose_files_output output_text">Selected files/dirs will appear here!</p>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="print_page">Print Page</button>
+                <button class="start_window_drag">Start Window Drag</button>
+            </div>
+            <hr />
+            <div class="row">
+                <button class="zoom_in">Zoom In</button>
+                <button class="zoom_out">Zoom Out</button>
+                <button class="zoom_reset">Zoom Reset</button>
+            </div>
+            <div class="row">
+                <button class="get_zoom_level">Get Zoom Level</button>
+                <p class="zoom_output output_text_sm">...</p>
+                <button class="set_zoom_level">Set Zoom:</button>
+                <input class="zoom_input" type="text" placeholder="1.0" style="height: 20px; width: 20vw;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="find_in_page">Find in Page</button>
+                <input class="find_text" type="text" placeholder="Search text" style="width: 40vw;">
+            </div>
+            <div class="row">
+                <button class="find_next">Find Next</button>
+                <button class="find_previous">Find Previous</button>
+                <button class="clear_find">Clear Find</button>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="navigate_back">Back</button>
+                <button class="navigate_forward">Forward</button>
+                <button class="stop_loading">Stop Loading</button>
+            </div>
+            <div class="row">
+                <button class="can_go_back">Can Go Back?</button>
+                <button class="can_go_forward">Can Go Forward?</button>
+            </div>
+            <div class="row">
+                <button class="get_load_progress">Get Load Progress</button>
+                <p class="load_progress_output output_text_sm">...</p>
+                <button class="is_loading">Is Loading?</button>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="open_devtools">Open DevTools</button>
+                <button class="close_devtools">Close DevTools</button>
+                <button class="clear_console">Clear Console</button>
+                <button class="remove_all_css">Remove All CSS</button>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="row">
+            <button class="is_focus">Is Focused</button>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="reset_title">Reset Title</button>
+                <button class="change_title">Change Title</button>
+                <input class="title_input" type="text" placeholder="New Page Title" style="width: 50vw;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="reload_page">Reload Page</button>
+                <button class="terminate">Termiante Page</button>
+            </div>
+            <div class="row">
+                <p style="font-size: 12px; margin-top: -0px; height: 12px;">URI or Page Name: </p>
+                <input class="page_input" type="text" value="/" style="height: 20px; width: 70vw;">
+            </div>
+            <div class="row">
+                <button class="navigate_page">Navigate Page</button>
+                <button class="open_uri">Open URI</button>
+                <button class="open_window">Open Window</button>
+                <div class="col">
+                    <p style="font-size: 8px; margin-top: 0px;">Single?</p>
+                    <input class="single" type="checkbox" style="margin-top: -10px;">
+                </div>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <p class="systems_output output_text_sm" style="width: 97vw;">Systems info will appear here!</p>
+            <div class="row">
+                <button class="get_pid">Get PID</button>
+                <button class="get_os">Get OS</button>
+            </div>
+            <hr />
+            <div class="row">
+                <button class="send_notif_1">Send Notif 1</button>
+                <button class="send_notif_2">Send Notif 2</button>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <p class="settings_output output_text"
+                    style="font-size: 12px; width: 72vw; height: 165px; max-height: 165px; margin: 0px;">Settings will
+                    appear here!</p>
+                <div class="col">
+                    <button class="get_config">Get Config</button>
+                    <button class="save_config">Save Settings</button>
+                    <button class="reset_settings_to_defaults">Reset Settings</button>
+                    <button class="set_config_property">Set Config Property</button>
+                    <input class="property_name" type="text" placeholder="Property Name" style="width: 20vw;">
+                    <input class="property_value" type="text" placeholder="Property Value" style="width: 20vw;">
+                </div>
+            </div>
+        </div>
+        <hr class="thick" />
+        <div class="col">
+            <div class="row">
+                <button class="get_size">Get Size</button>
+                <p class="size_output output_text_sm">...</p>
+            </div>
+            <div class="row">
+                <button class="set_size">Set Size</button>
+                <input class="size_width" type="text" placeholder="width" style="height: 20px; width: 10vw;">
+                <input class="size_height" type="text" placeholder="height" style="height: 20px; width: 10vw;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_position">Get Position</button>
+                <p class="position_output output_text_sm">...</p>
+            </div>
+            <div class="row">
+                <button class="set_position">Set Position</button>
+                <input class="position_x" type="text" placeholder="width" style="height: 20px; width: 10vw;">
+                <input class="position_y" type="text" placeholder="height" style="height: 20px; width: 10vw;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_decorated">Get Decorated</button>
+                <button class="set_decorated">Set Decorated:</button>
+                <input class="is_decorated" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_resizable">Get Resizable</button>
+                <button class="set_resizable">Set Resizable:</button>
+                <input class="is_resizable" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_keepabove">Get Keepabove</button>
+                <button class="set_keepabove">Set Keepabove:</button>
+                <input class="is_keepabove" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_minimize">Get Minimize</button>
+                <button class="set_minimize">Set Minimize:</button>
+                <input class="is_minimize" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_maximize">Get Maximize</button>
+                <button class="set_maximize">Set Maximize:</button>
+                <input class="is_maximize" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_fullscreen">Get Fullscreen</button>
+                <button class="set_fullscreen">Set Fullscreen:</button>
+                <input class="is_fullscreen" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <!-- <div class="row">
+                <button class="get_show">Get Show</button>
+                <button class="set_show">Set Show:</button>
+                <input class="is_show" type="checkbox" style="margin-top: 10px;">
+            </div>
+        <hr/> -->
+            <div class="row">
+                <button class="get_taskbar_show">Get Taskbar Show</button>
+                <button class="set_taskbar_show">Set Taskbar Show:</button>
+                <input class="is_taskbar_show" type="checkbox" style="margin-top: 10px;">
+            </div>
+            <hr />
+            <div class="row">
+                <button class="get_opacity">Get Opacity</button>
+                <p class="opacity_output output_text_sm" style="width: 35vw;">...</p>
+                <button class="set_opacity">Set Opacity:</button>
+                <input class="opacity_input" type="text" placeholder="1.0" style="height: 20px; width: 35vw;">
+            </div>
+        </div>
+        <hr class="thick">
+        <div class="row">
+            <img src="../../assets/creature.png">
+            <img src="../../assets/seal1.png">
+            <img src="../../assets/seal2.png">
+            <img src="https://png.pngtree.com/png-vector/20231109/ourmid/pngtree-harp-seal-png-image_10505904.png">
+        </div>
+    </div>
+    <hr class="thick" />
+    <div class="row">
+        <audio controls>
+                <source src="../../assets/sample.ogg" type="audio/ogg">
+                    Your browser does not support the audio element.
+            </audio> 
+            <audio controls>
+                <source src="../../assets/sample.mp3" type="audio/mpeg">
+                    Your browser does not support the audio element.
+            </audio> 
+        </div>
+        <video id="test-video" width="320" height="240" controls autoplay loop muted>
+            <source src="../../assets/sample.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+        </video>
+        <div id="video-debug" style="font-size: 12px; color: #666;">Video debug info will appear here</div>
+        <hr class="thick" />
+    </div>
+</body>
+
+</html>

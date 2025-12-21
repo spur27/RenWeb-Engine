@@ -1,0 +1,101 @@
+* {
+    color: white;
+    overflow: auto;          
+    scrollbar-width: none;     
+    -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+body {
+    background-color: #212121;
+}
+button {
+    background-color: #282828;
+    width: 200px;
+    height: 30px;
+}
+button:hover, textarea:hover, textarea:focus {
+    background-color: #343434; 
+}
+hr {
+    width: 97vw;
+    margin: 0px;
+    margin-top: 5px;
+    border-image: linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 1) 0%,
+        rgba(255, 154, 0, 1) 10%,
+        rgba(208, 222, 33, 1) 20%,
+        rgba(79, 220, 74, 1) 30%,
+        rgba(63, 218, 216, 1) 40%,
+        rgba(47, 201, 226, 1) 50%,
+        rgba(28, 127, 238, 1) 60%,
+        rgba(95, 21, 242, 1) 70%,
+        rgba(186, 12, 248, 1) 80%,
+        rgba(251, 7, 217, 1) 90%,
+        rgba(255, 0, 0, 1) 100%
+    ) 1;
+}
+.thick {
+    border-width: 3px;
+}
+.col {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.row {
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    margin-top: 5px;
+}
+input {
+    /* width: 75px; */
+    color:#212121;
+}
+img {
+    max-width: 200px;
+}
+textarea {
+    color: white;
+    background-color: #282828; 
+    width: 96vw; 
+    max-width: 96vw;  
+    height: 50px; 
+    max-height: 100px; 
+    font-size: 8px;
+    border-style: solid; 
+    border-color: gray; 
+    border-width: 1px; 
+}
+
+.output_text {
+    white-space: pre-wrap; 
+    background-color: #282828; 
+    color: #aeaeae; 
+    border-style: solid; 
+    border-color: gray; 
+    border-width: 1px; 
+    width: 97vw; 
+    height: 100px; 
+    max-height: 100px; 
+    font-size: 8px;
+    overflow: scroll;
+}
+.output_text_sm {
+    margin: 0px;
+    padding-top: 3px;
+    padding-left: 3px;
+    white-space: pre-wrap; 
+    background-color: #282828; 
+    color: #aeaeae; 
+    border-style: solid; 
+    border-color: gray; 
+    border-width: 1px; 
+    width: 70vw; 
+    height: 20px; 
+    overflow: scroll;
+}

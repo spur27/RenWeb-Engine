@@ -1,4 +1,8 @@
 #include "../include/window_functions.hpp"
+#include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
+#include <boost/json/value.hpp>
+#include <sstream>
 
 #if defined(_WIN32)
     #include <windows.h>
@@ -41,7 +45,6 @@ WF::WindowFunctions(RenWeb::App* app)
       navigate_callbacks(new CM())
 { 
     this->setGetSets()
-        // ->setStartStops()
         ->setWindowCallbacks()
         ->setLogCallbacks()
         ->setFileSystemCallbacks()
@@ -57,6 +60,119 @@ WF::WindowFunctions(RenWeb::App* app)
 
 WF::~WindowFunctions() {
     this->app->logger->trace("Deconstructing WindowFunctions");
+}
+
+json::value WF::processInput(const std::string& input) {
+    return this->processInput(json::parse(input));
+}
+
+json::value WF::processInput(const json::value& input) {
+    switch (input.kind()) {
+        case json::kind::string:
+            this->app->logger->warn("Received string in processInput(std::string)");
+        case json::kind::int64:
+        case json::kind::double_:
+        case json::kind::bool_:
+        case json::kind::null:
+            return input;
+        case json::kind::array:
+            return this->processInput(input.as_array());
+        case json::kind::object:
+            return this->processInput(input.as_object());
+        default:
+            throw std::runtime_error("Unsupported JSON value kind in processInput(std::string)");
+    }
+}
+
+json::value WF::processInput(const json::object& input) {
+    if (input.contains("__encoding_type__") && input.at("__encoding_type__").is_string() && input.contains("__val__")) {
+        if (input.at("__encoding_type__").as_string() == "base64" && input.at("__val__").is_array()) {
+            std::stringstream ss;
+            for (const auto& item : input.at("__val__").as_array()) {
+                ss << char(item.as_int64());
+            }
+            return json::value(ss.str());
+        }
+        throw std::runtime_error("Unsupported encoding type in processInput(json::object): " + std::string(input.at("__encoding_type__").as_string()));
+    } else {
+        json::object processed_input;
+        for (const auto& item : input) {
+            processed_input[item.key()] = this->processInput(item.value());
+        }
+        return processed_input;
+    }
+}
+
+json::value WF::processInput(const json::array& input) {
+    json::array processed_input;
+    for (const auto& item : input) {
+        processed_input.push_back(this->processInput(item));
+    }
+    return processed_input;
+}
+
+json::value WF::formatOutput(const json::value& output) {
+    json::array formatted_output_arr;
+    json::object formatted_output_obj;
+    switch (output.kind()) {
+        case json::kind::string:
+            return this->formatOutput(output.as_string().c_str());
+        case json::kind::int64:
+        case json::kind::double_:
+        case json::kind::bool_:
+        case json::kind::null:
+            return output;
+        case json::kind::array:
+            for (const auto& item : output.as_array()) {
+                formatted_output_arr.push_back(this->formatOutput(item));
+            }
+            return formatted_output_arr;
+        case json::kind::object:
+            for (const auto& item : output.as_object()) {
+                formatted_output_obj[item.key()] = this->formatOutput(item.value());
+            }
+            return formatted_output_obj;
+        default:
+            throw std::runtime_error("Unsupported JSON value kind in formatOutput");
+    }
+}
+
+json::value WF::formatOutput(const std::string& output) {
+    json::object formatted_output = {
+        {"__encoding_type__", "base64"},
+        {"__val__", json::array()}
+    };
+    json::array& val_array = formatted_output["__val__"].as_array() ;
+    for (const char& ch : output) {
+        val_array.push_back(static_cast<int64_t>(ch));
+    }
+    return formatted_output;
+}
+
+template <typename T>
+json::value WF::formatOutput(const T& output) {
+    // Convert to std::string first to avoid infinite recursion with const char*
+    if constexpr (std::is_same_v<T, const char*> || std::is_same_v<T, char*>) {
+        return this->formatOutput(std::string(output));
+    } else {
+        return this->formatOutput(json::value(output));
+    }
+}
+
+json::value WF::getSingleParameter(const json::value& param) {
+    if (param.is_array()) {
+        if (param.as_array().size() > 1) {
+            this->app->logger->warn("Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
+            return param.as_array()[0];
+        } else if (param.as_array().size() == 0) {
+            this->app->logger->warn("Expected single parameter but received empty array. Using null.");
+            return json::value(nullptr);
+        } else {
+            return param.as_array()[0];
+        }
+    } else {
+        return param;
+    }
 }
 
 WF* WF::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
@@ -76,10 +192,10 @@ WF* WF::bindDefaults() {
             const auto& fn = entry.second;
             this->bindFunction("BIND_" + key, [fn, this](const std::string& req) -> std::string {
                 try {
-                    return json::serialize(fn(json::parse(req)));
+                    return json::serialize(this->formatOutput(fn(this->processInput(req))));
                 } catch (const std::exception& e) {
                     this->app->logger->error(std::string("[CLIENT] ") + e.what());
-                    return json::serialize(json::value(nullptr));
+                    return json::serialize(this->formatOutput(nullptr));
                 }
             });
         }
@@ -91,24 +207,23 @@ WF* WF::bindDefaults() {
             this->bindFunction("BIND_get_" + key, [pair, this](const std::string& req) -> std::string {
                 (void)req;
                 try {
-                    return json::serialize(pair.first());
+                    return json::serialize(this->formatOutput(pair.first()));
                 } catch (const std::exception& e) {
                     this->app->logger->error(std::string("[CLIENT] ") + e.what());
-                    return json::serialize(json::value(nullptr));
+                    return json::serialize(this->formatOutput(nullptr));
                 }
             })
             ->bindFunction("BIND_set_" + key, [pair, this](const std::string& req) -> std::string {
                 try {
-                    pair.second(json::parse(req));
+                    pair.second(this->processInput(req));
                 } catch (const std::exception& e) {
                     this->app->logger->error(std::string("[CLIENT] ") + e.what());
                 }
-                return json::serialize(json::value(nullptr));
+                return json::serialize(this->formatOutput(nullptr));
             });
         }
     };
     bindIOMs(this->getsets.get());
-    // bindIOMs(this->startstops.get());
     bindCMs(this->window_callbacks.get());
     bindCMs(this->log_callbacks.get());
     bindCMs(this->filesystem_callbacks.get());
@@ -181,8 +296,9 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req) {
             // std::cout << req << std::endl;
-            int width = req.as_object().at("width").as_int64();
-            int height = req.as_object().at("height").as_int64();
+            json::object obj = this->getSingleParameter(req).as_object();
+            int width = obj.at("width").as_int64();
+            int height = obj.at("height").as_int64();
             this->app->w->set_size(width, height);
         })
     ))
@@ -214,8 +330,9 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            int x = req.as_object().at("x").as_int64();
-            int y = req.as_object().at("y").as_int64();
+            json::object obj = this->getSingleParameter(req).as_object();
+            int x = obj.at("x").as_int64();
+            int y = obj.at("y").as_int64();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
@@ -249,7 +366,7 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool decorated = req.as_bool();
+            const bool decorated = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
@@ -294,7 +411,7 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool resizable = req.as_bool();
+            const bool resizable = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
@@ -341,7 +458,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool keep_above = req.as_bool();
+            const bool keep_above = this->getSingleParameter(req).as_bool();
             this->saved_states["keepabove"] = json::value(keep_above);
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
@@ -373,7 +490,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool minimize = req.as_bool();
+            const bool minimize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
@@ -412,7 +529,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool maximize = req.as_bool();
+            const bool maximize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
@@ -450,7 +567,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool fullscreen = req.as_bool();
+            const bool fullscreen = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             if (fullscreen) {
@@ -496,7 +613,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool taskbar_show = req.as_bool();
+            const bool taskbar_show = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
@@ -539,7 +656,7 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            double opacity_amt = req.as_double();
+            double opacity_amt = this->getSingleParameter(req).as_double();
             if (opacity_amt > 1.0 || opacity_amt < 0.0) {
                 this->app->logger->error("Invalid opacity: " + std::to_string(opacity_amt) + " only enter values between 0.0 and 1.0 inclusive");
             } else {
@@ -581,7 +698,7 @@ WF* WF::setWindowCallbacks() {
         #endif
     }))->add("show",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            const bool show_window = req.as_bool();
+            const bool show_window = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
@@ -606,7 +723,7 @@ WF* WF::setWindowCallbacks() {
             return json::value(nullptr);
     }))->add("change_title",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            const std::string title = req.as_string().c_str();
+            const std::string title = this->getSingleParameter(req).as_string().c_str();
             this->app->w->set_title(title);
             return json::value(nullptr);
     }))->add("reset_title",
@@ -631,7 +748,7 @@ WF* WF::setWindowCallbacks() {
             return json::value(nullptr);
     }))->add("navigate_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string uri = req.as_string().c_str();
+            const std::string uri = this->getSingleParameter(req).as_string().c_str();
             static const std::regex uri_regex(
                 R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
             );
@@ -740,7 +857,7 @@ WF* WF::setWindowCallbacks() {
         #endif
     }))->add("set_zoom_level",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            double zoom_level = req.as_double();
+            double zoom_level = this->getSingleParameter(req).as_double();
         #if defined(_WIN32)
             this->app->logger->warn("set_zoom_level not yet implemented for Windows");
         #elif defined(__APPLE__)
@@ -752,7 +869,7 @@ WF* WF::setWindowCallbacks() {
             return json::value(nullptr);
     }))->add("find_in_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string search_text = req.as_string().c_str();
+            const std::string search_text = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
             this->app->logger->warn("find_in_page not yet implemented for Windows");
         #elif defined(__APPLE__)
@@ -811,38 +928,32 @@ WF* WF::setLogCallbacks() {
     this->log_callbacks
     ->add("log_trace",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->trace("[CLIENT] " + msg);
             return json::value(nullptr);
     }))->add("log_debug",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->debug("[CLIENT] " + msg);
             return json::value(nullptr);
     }))->add("log_info",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->info("[CLIENT] " + msg);
             return json::value(nullptr);
     }))->add("log_warn",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->warn("[CLIENT] " + msg);
             return json::value(nullptr);
     }))->add("log_error",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->error("[CLIENT] " + msg);
             return json::value(nullptr);
     }))->add("log_critical",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-        (void)req;
-            std::string msg = req.as_string().c_str();
+            std::string msg = this->getSingleParameter(req).as_string().c_str();
             this->app->logger->critical("[CLIENT] " + msg);
             return json::value(nullptr);
     }));
@@ -854,7 +965,7 @@ WF* WF::setFileSystemCallbacks() {
     this->filesystem_callbacks
     ->add("read_file",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::filesystem::path path(req.as_string().c_str());
+            std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (!std::filesystem::exists(path)) {
                 this->app->logger->error("No file exists at " + path.string());
                 return json::value(nullptr);
@@ -906,16 +1017,16 @@ WF* WF::setFileSystemCallbacks() {
             this->app->logger->debug((append ? "Appended " : "Wrote ") + std::to_string(contents.size()) + " bytes to " + path.string());
             return json::value(true);
     }))->add("exists",
-        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
-            std::filesystem::path path(req.as_string().c_str());
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             return json::value(std::filesystem::exists(path));
     }))->add("is_dir",
-        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
-            std::filesystem::path path(req.as_string().c_str());
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             return json::value(std::filesystem::is_directory(path));
     }))->add("mk_dir",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::filesystem::path path(req.as_string().c_str());
+            std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (std::filesystem::exists(path)) {
                 this->app->logger->error("File/dir already exists at '" + path.string() + "'");
                 return json::value(false);
@@ -957,7 +1068,7 @@ WF* WF::setFileSystemCallbacks() {
             return json::value(true);
     }))->add("ls",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::filesystem::path path(req.as_string().c_str());
+            std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (!std::filesystem::is_directory(path)) {
                 this->app->logger->error("Path entered to ls wasn't a dir: " + path.string());
                 return json::value(nullptr);
@@ -1044,7 +1155,7 @@ WF* WF::setFileSystemCallbacks() {
             return json::value(Locate::currentDirectory().string());
     }))->add("download_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string uri = req.as_string().c_str();
+            const std::string uri = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
             this->app->logger->warn("download_uri not yet implemented for Windows");
         #elif defined(__APPLE__)
@@ -1143,9 +1254,9 @@ WF* WF::setProcessCallbacks() {
     ->add("process_start",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            json::array args_json = params[1].as_array();
-            std::string process_type = params.size() > 2 ? std::string(params[2].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            std::string key = params[1].as_string().c_str();
+            json::array args_json = params[2].as_array();
             
             std::vector<std::string> args;
             for (const auto& arg : args_json) {
@@ -1157,45 +1268,45 @@ WF* WF::setProcessCallbacks() {
     }))->add("process_kill",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            std::string key = params[1].as_string().c_str();
             
             getManager(process_type)->kill(key);
             return json::value(nullptr);
     }))->add("process_has",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            std::string key = params[1].as_string().c_str();
             
             return json::value(getManager(process_type)->has(key));
     }))->add("process_has_pid",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            int pid = params[0].as_int64();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            int pid = params[1].as_int64();
             
             return json::value(getManager(process_type)->hasPID(pid));
     }))->add("process_has_running",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            std::string key = params[1].as_string().c_str();
             
             return json::value(getManager(process_type)->hasRunning(key));
     }))->add("process_wait",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            std::string key = params[1].as_string().c_str();
             
             getManager(process_type)->wait(key);
             return json::value(nullptr);
     }))->add("process_wait_pid",
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            int pid = params[0].as_int64();
-            std::string process_type = params.size() > 1 ? std::string(params[1].as_string().c_str()) : "process";
+            std::string process_type = params[0].as_string().c_str();
+            int pid = params[1].as_int64();
             
             getManager(process_type)->waitPID(pid);
             return json::value(nullptr);
@@ -1222,7 +1333,7 @@ WF* WF::setProcessCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
             std::string key = params[0].as_string().c_str();
-            bool read_all = params[1].as_bool();
+            bool read_all = params.size() > 1 && !params[1].is_null() ? true : false;
             
             auto* pipemgr = dynamic_cast<RenWeb::PipeManager<std::string>*>(this->app->pipem.get());
             if (pipemgr == nullptr) {
@@ -1263,7 +1374,7 @@ WF* WF::setProcessCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
             int pid = params[0].as_int64();
-            bool read_all = params[1].as_bool();
+            bool read_all = params.size() > 1 && !params[1].is_null() ? true : false;
             
             auto* pipemgr = dynamic_cast<RenWeb::PipeManager<std::string>*>(this->app->pipem.get());
             if (pipemgr == nullptr) {
@@ -1306,7 +1417,7 @@ WF* WF::setProcessCallbacks() {
 // -----------------------------------------
         ->add("open_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string resource = req.as_string().c_str();
+            std::string resource = req.as_array()[0].as_string().c_str();
             
             // Normalize path separators
             for (size_t i = 0; i < resource.length(); i++) {
@@ -1398,12 +1509,12 @@ WF* WF::setSignalCallbacks() {
             return json::value(nullptr);
     }))->add("signal_remove",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_int64();
+            int signal_num = req.as_array()[0].as_int64();
             this->app->signalm->remove(signal_num);
             return json::value(nullptr);
     }))->add("signal_has",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_int64();
+            int signal_num = req.as_array()[0].as_int64();
             return json::value(this->app->signalm->has(signal_num));
     }))->add("signal_clear",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1418,7 +1529,7 @@ WF* WF::setSignalCallbacks() {
             return json::value(static_cast<int64_t>(this->app->signalm->count()));
     }))->add("signal_trigger",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_int64();
+            int signal_num = req.as_array()[0].as_int64();
             this->app->signalm->trigger(signal_num);
             return json::value(nullptr);
     }));

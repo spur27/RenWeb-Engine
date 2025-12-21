@@ -202,6 +202,7 @@ void Args::run() /*override*/ {
             }
         }
     } catch (const std::exception& e) {
-        std::cout << "\033[31m[ERROR]\033[0m [RUNNING ARGS] " << e.what();
+        std::cerr << "\033[31m[ERROR]\033[0m [RUNNING ARGS] " << e.what() << std::endl;
+        throw;
     }
 }

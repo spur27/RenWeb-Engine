@@ -1,0 +1,9 @@
+{
+  "name": "renweb-test-app",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@renweb/cli": "*",
+    "@renweb/core": "*"
+  }
+}

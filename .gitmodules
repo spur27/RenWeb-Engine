@@ -9,3 +9,9 @@
 [submodule "external/webview"]
 	path = external/webview
 	url = https://github.com/webview/webview.git
+[submodule "external/cpp-httplib"]
+	path = external/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git
+
+
+

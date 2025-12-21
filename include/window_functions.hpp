@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/json/value.hpp>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -24,7 +25,6 @@ namespace RenWeb {
             RenWeb::App* app;
             WindowFunctions* bindDefaults();
             WindowFunctions* setGetSets();
-            // WindowFunctions* setStartStops();
             WindowFunctions* setWindowCallbacks();
             WindowFunctions* setLogCallbacks();
             WindowFunctions* setFileSystemCallbacks();
@@ -36,9 +36,19 @@ namespace RenWeb {
             WindowFunctions* setNetworkCallbacks();
             WindowFunctions* setNavigateCallbacks();
             std::map<std::string, json::value> saved_states;
+            
+            // Helper methods for string/character array conversion
+            json::value formatOutput(const json::value& output);
+            json::value formatOutput(const std::string& output);
+            template<typename T>
+                json::value formatOutput(const T& output);
+            json::value processInput(const std::string& input);
+            json::value processInput(const json::value& input);
+            json::value processInput(const json::object& input);
+            json::value processInput(const json::array& input);
+            json::value getSingleParameter(const json::value& param);
         public:
             std::unique_ptr<IOM> getsets;
-            // std::unique_ptr<IOM> startstops;
             std::unique_ptr<CM> window_callbacks;
             std::unique_ptr<CM> log_callbacks;
             std::unique_ptr<CM> filesystem_callbacks;

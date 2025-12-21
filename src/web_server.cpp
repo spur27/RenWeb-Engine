@@ -105,6 +105,10 @@ void WebServer::stop() /*override*/ {
 }
 
 void WebServer::setHandles() {
+    this->server.set_keep_alive_max_count(100);
+    this->server.set_read_timeout(10, 0);
+    this->server.set_write_timeout(10, 0);
+    
     this->server.set_logger([this](const httplib::Request& req, const httplib::Response& res) {
         this->app->logger->info("[SERVER] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
     });
@@ -181,34 +185,44 @@ void WebServer::sendStatus(const httplib::Request& req, httplib::Response& res, 
 }
 
 void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, const std::filesystem::path& path) {
-    std::ifstream ifs(path, std::ios::binary);
-    if (!ifs) {
-        this->app->logger->critical("No ifs");
-        this->sendStatus(req, res, httplib::StatusCode::NotFound_404, "Resource not found at target " + req.target + " at path " + path.string());
-        return;
-    }
     std::error_code ec;
-    // auto file_size = std::filesystem::file_size(path, ec);
+    auto file_size = std::filesystem::file_size(path, ec);
     if (ec) {
-        this->app->logger->critical("No ifs");
+        this->app->logger->critical("Error getting file size");
         res.status = 500;
         this->sendStatus(req, res, httplib::StatusCode::PreconditionFailed_412, ec.message());
         return;
     }
+    
+    res.set_header("Accept-Ranges", "bytes");
+    
     res.set_content_provider(
-        this->getMimeType(path),  // Content type
-        [ifs = std::make_shared<std::ifstream>(path, std::ios::binary)]
-        (size_t offset, httplib::DataSink &sink) {
-            if (!ifs || !*ifs) return false;
-            ifs->seekg(offset);
-            std::array<char, 4096> buffer;
-            ifs->read(buffer.data(), buffer.size());
-            std::streamsize bytes_read = ifs->gcount();
-            if (bytes_read > 0) {
-                sink.write(buffer.data(), static_cast<size_t>(bytes_read));
-                return true;
+        file_size,
+        this->getMimeType(path),
+        [path, file_size](size_t offset, size_t length, httplib::DataSink &sink) {
+            if (offset >= file_size) return false;
+            if (offset + length > file_size) length = file_size - offset;
+            
+            std::ifstream ifs(path, std::ios::binary);
+            if (!ifs || !ifs.seekg(offset, std::ios::beg)) return false;
+            
+            const size_t chunk_size = 262144; // 256KB
+            size_t remaining = length;
+            std::vector<char> buffer(std::min(chunk_size, length));
+            
+            while (remaining > 0) {
+                size_t to_read = std::min(remaining, buffer.size());
+                ifs.read(buffer.data(), to_read);
+                std::streamsize bytes_read = ifs.gcount();
+                
+                if (bytes_read <= 0) break;
+                if (!sink.write(buffer.data(), static_cast<size_t>(bytes_read))) return false;
+                
+                remaining -= bytes_read;
+                if (!ifs.good() && !ifs.eof()) break;
             }
-            return false;
+            
+            return remaining == 0;
         }
     );
 }
