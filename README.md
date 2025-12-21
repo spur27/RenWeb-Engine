@@ -1,7 +1,7 @@
 
 <p align="center">
-    <a href="https://github.com/spur27/RenWeb">
-        <img height=250 src="https://github.com/SpurSlicer/RenWeb/blob/main/docs/assets/renweb.png" alt="RenWeb ~ A FOSS Software SDK">
+    <a href="https://github.com/spur27/RenWeb-Engine">
+        <img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb.png" alt="RenWeb ~ A FOSS Software SDK">
     </a>
 </p>
 
@@ -62,7 +62,7 @@ RenWeb is a modern framework for building cross-platform GUI applications using 
 
 Clone with submodules:
 ```bash
-git clone --recurse-submodules https://github.com/spur27/RenWeb.git
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
 ```
 
 **Prerequisites (All Platforms):**
@@ -166,7 +166,7 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   "author": "Spur27",
   "description": "Base RenWeb engine",
   "license": "BSL",
-  "repository": "https://github.com/spur27/RenWeb",
+  "repository": "https://github.com/spur27/RenWeb-Engine",
   "category": "Utility",
   "copyright": "Copyright © 2025 Spur27",
   "appId": "io.github.spur27.renweb",
