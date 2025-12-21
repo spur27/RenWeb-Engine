@@ -318,6 +318,7 @@ This repository uses the following open-source libraries:
 
 ## Known Bugs
 - Encoded objs aren't processed in `get_config` in API side
+- The dreaded flashbang (white flash when opening). You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`).
 
 ## License
 
