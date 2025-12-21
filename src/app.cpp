@@ -332,6 +332,7 @@ void App::run() {
     this->processPermissions();
     this->ws->start();
     this->w->navigate(this->ws->getURL());
+    this->fns->setState(this->config->getJson().is_object() ? this->config->getJson().as_object() : json::object{});
     this->w->dispatch([this](){
         const json::value& prop = this->config->getProperty("initially_shown");
         this->fns->window_callbacks->run(

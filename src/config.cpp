@@ -80,7 +80,6 @@ void Config::setProperty(const std::string& key, const json::value& value) /*ove
             throw std::runtime_error("Page '" + this->current_page + "' in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(page) + ").");
         }
         
-        // Update the page in json_data and persist
         this->json_data.as_object()[this->current_page] = page_obj;
         this->update(this->json_data.as_object());
     } catch (const std::exception& e) {
@@ -102,7 +101,6 @@ void Config::setDefaultProperty(const std::string& key, const json::value& value
             throw std::runtime_error("Defaults section in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(defaults) + ").");
         }
         
-        // Update the defaults in json_data and persist
         this->json_data.as_object()[this->DEFAULTS_KEY] = defaults_obj;
         this->update(this->json_data.as_object());
     } catch (const std::exception& e) {
@@ -119,4 +117,14 @@ const json::value& Config::getJson() const /*override*/ {
         static const json::value null_value = nullptr;
         return null_value;
     }
+}
+
+void Config::update(const json::object &new_data) /*override*/ {
+    json::object data = new_data;
+    if (!data.contains(this->current_page) || !data.at(this->current_page).is_object()) {
+        data = {
+            {this->current_page, data}
+        };
+    }
+    JSON::update(data);
 }

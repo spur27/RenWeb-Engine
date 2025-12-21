@@ -1,0 +1,14 @@
+WebKitGTK is licensed under the GNU Library General Public License (LGPL) version 2 or later.
+
+Full license text: https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html
+
+Some portions of WebKitGTK are licensed under different terms:
+- BSD-style licenses for certain components
+- Apache License 2.0 for certain components
+
+For complete licensing information, see:
+https://github.com/WebKit/WebKit/tree/main/Source/WebCore/LICENSE-LGPL-2.1
+https://github.com/WebKit/WebKit/tree/main/Source/WebCore/LICENSE-LGPL-2
+
+Note: LGPL allows dynamic linking with proprietary software, which is how
+RenWeb uses WebKitGTK. No modifications to WebKitGTK source code are made.

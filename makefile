@@ -255,7 +255,7 @@ OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 # -----------------------------------------------------------------------------
 # Build target
 # -----------------------------------------------------------------------------
-all: $(BUILD_PATH)/$(EXE)
+all: $(BUILD_PATH)/$(EXE) copy-license
 # -----------------------------------------------------------------------------
 # RULE: Link all object files into executable
 # -----------------------------------------------------------------------------
@@ -369,15 +369,17 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-# .PHONY: all clean run help copy-license copy-info
+.PHONY: all clean run help copy-license copy-info
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy license
 # -----------------------------------------------------------------------------
-# copy-license:
-# 	$(call step,Copy License(s), Copying License at $@)
-# 	mkdir -p $(COPY_PATH)
-# 	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
-# 	$(call step,Copy License(s) [DONE] Copying License at $@)
+# PHONY TARGET: Copy license files
+# -----------------------------------------------------------------------------
+copy-license:
+	$(call step,Copy License(s), Copying License at $@)
+	mkdir -p $(COPY_PATH)
+	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
+	$(call step,Copy License(s) [DONE] Copying License at $@)
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy info
 # -----------------------------------------------------------------------------

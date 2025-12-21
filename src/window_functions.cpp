@@ -360,7 +360,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            return json::value(gtk_window_get_decorated(GTK_WINDOW(window_widget)));
+            return json::value(static_cast<bool>(gtk_window_get_decorated(GTK_WINDOW(window_widget))));
         #endif
         }),
     // -----------------------------------------
@@ -405,7 +405,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskResizable) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            return json::value(gtk_window_get_resizable(GTK_WINDOW(window_widget)));
+            return json::value(static_cast<bool>(gtk_window_get_resizable(GTK_WINDOW(window_widget))));
         #endif
         }),
     // -----------------------------------------
@@ -1176,28 +1176,22 @@ WF* WF::setConfigCallbacks() {
     ->add("get_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            json::object state = json::object();
-            for (const auto& [key, getset] : this->getsets->getMap()) {
-                try {
-                    this->app->logger->info("Getting for " + key);
-                    state[key] = this->get(key);
-                } catch (...) { }
+            json::value config = this->app->config->getJson();
+            if (config.is_object()) {
+                config = JSON::merge(config.as_object(), this->getState());
+            } else {
+                config = this->getState();
             }
-            return JSON::merge(this->app->config->getJson().as_object(), state);
+            return config;
     }))->add("save_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->config->update(this->app->config->getJson().is_object() ? this->app->config->getJson().as_object() : json::object());
+            this->app->config->update(this->getState());
             return json::value(nullptr);
     }))->add("load_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            for (const auto& property : (this->app->config->getJson().is_object()) ? this->app->config->getJson().as_object() : json::object()) {
-                try {
-                    this->app->logger->info("Setting for " + std::string(property.key()));
-                    this->set(property.key(), property.value());
-                } catch (...) { }
-            }
+            this->app->logger->error("load_config doesn't do anything!");
             return json::value(nullptr);
     }))->add("set_config_property",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {

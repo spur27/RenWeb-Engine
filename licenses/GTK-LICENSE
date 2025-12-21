@@ -1,0 +1,8 @@
+GTK is licensed under the GNU Library General Public License (LGPL) version 2.1 or later.
+
+Full license text: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+Note: LGPL allows dynamic linking with proprietary software, which is how
+RenWeb uses GTK. No modifications to GTK source code are made.
+
+For more information, see: https://www.gtk.org/docs/architecture/license

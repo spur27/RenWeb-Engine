@@ -24,5 +24,6 @@ namespace RenWeb {
             json::value getDefaultProperty(const std::string& key) const;
             void setDefaultProperty(const std::string& key, const json::value& value);
             const json::value& getJson() const override;
+            void update(const json::object &new_data) override;
     };
 };
