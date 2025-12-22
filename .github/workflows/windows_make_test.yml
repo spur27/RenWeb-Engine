@@ -35,53 +35,37 @@ jobs:
         mkdir C:\webview2
         tar -xf C:\webview2.nupkg -C C:\webview2
       
-    - name: Get and unzip boost
+    - name: Download and build Boost
       run: |
-        curl -L https://github.com/MarkusJx/prebuilt-boost/releases/download/1.82.0/boost-1.82.0-windows-2022-msvc-shared-x86.tar.gz -o C:\boost_1_82_0.tar.gz
-        tar -xzf C:\boost_1_82_0.tar.gz -C C:\
-        # cd C:\boost\lib
-        # Get-ChildItem -Filter "libboost_*-vc*.lib" | ForEach-Object {
-        #     $oldName = $_.Name
-        #     $newName = $oldName -replace '(-mt)(-x64)', '$1-s$2'
-        #     if ($oldName -ne $newName) {
-        #         Rename-Item $oldName $newName
-        #         Write-Host "Renamed $oldName -> $newName"
-        #     }
-        # }
+        curl -L https://boostorg.jfrog.io/artifactory/main/release/1.82.0/source/boost_1_82_0.tar.gz -o C:\boost.tar.gz
+        tar -xzf C:\boost.tar.gz -C C:\
+        cd C:\boost_1_82_0
+        .\bootstrap.bat
+        .\b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
+        mkdir C:\boost_libs
+        xcopy /Y stage\lib\*.lib C:\boost_libs\
+      shell: cmd
 
         
     - name: Set Include
       run: |
-        echo "INCLUDE=C:\webview2\build\native\include;C:\boost;${env:INCLUDE}" >> $env:GITHUB_ENV
+        echo "INCLUDE=C:\webview2\build\native\include;C:\boost_1_82_0;${env:INCLUDE}" >> $env:GITHUB_ENV
 
     - name: Set Lib
       run: |
-        # C:\webview2\build\native\*\x64\*.lib
-        echo "LIBPATH=C:\boost\lib;${env:LIBPATH}" >> $env:GITHUB_ENV
-        dir C:\boost\lib
+        echo "LIBPATH=C:\boost_libs;${env:LIBPATH}" >> $env:GITHUB_ENV
+        dir C:\boost_libs
 
     - name: View vars
       run: |
         echo "INCLUDE = $env:INCLUDE"
         echo "LIBPATH = $env:LIBPATH"
 
-    - name: npm install UI packages
-      run: npm i
-
-    - name: npm install script packages
-      run: npm i
-      working-directory: ./scripts
-
-    - name: Build pages
-      run: npm run script:build
-        
     - name: make
       run: |
         git --version
         ls
-        make LINKTYPE=shared LIBS="C:\boost\lib\boost_filesystem-vc143-mt-x64-1_82.lib C:\boost\lib\boost_url-vc143-mt-x64-1_82.lib C:\boost\lib\boost_thread-vc143-mt-x64-1_82.lib C:\boost\lib\boost_system-vc143-mt-x64-1_82.lib  C:\boost\lib\boost_program_options-vc143-mt-x64-1_82.lib C:\boost\lib\boost_chrono-vc143-mt-x64-1_82.lib"
-      working-directory: ./engine
-      shell: bash
-
-    - name: Generate installers
-      run: npm run script:installers skip
+        $boostLibs = (Get-ChildItem C:\boost_libs -Filter "*.lib" | Select-Object -First 2).FullName -join " "
+        make LIBS="$boostLibs"
+      working-directory: .
+      shell: pwsh

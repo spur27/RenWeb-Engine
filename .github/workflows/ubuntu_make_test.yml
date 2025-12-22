@@ -30,4 +30,3 @@ jobs:
 
     - name: make
       run: make
-      working-directory: ./engine
