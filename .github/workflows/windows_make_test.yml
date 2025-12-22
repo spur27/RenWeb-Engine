@@ -38,6 +38,7 @@ jobs:
     - name: Build Boost from submodule
       run: |
         cd external/boost
+        git submodule update --init --recursive libs/process libs/json libs/program_options libs/system libs/config libs/core libs/asio libs/filesystem
         call bootstrap.bat
         b2 headers
         b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
