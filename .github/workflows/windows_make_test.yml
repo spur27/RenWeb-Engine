@@ -37,8 +37,9 @@ jobs:
       
     - name: Build Boost from submodule
       run: |
-        cd external\boost
+        cd external/boost
         call bootstrap.bat
+        b2 headers
         b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
         if not exist ..\..\lib mkdir ..\..\lib
         xcopy /Y stage\lib\*.lib ..\..\lib\

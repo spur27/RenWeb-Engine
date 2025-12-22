@@ -18,15 +18,19 @@ jobs:
 
     - name: Install system dependencies
       run: |
-        brew install pkg-config gtk+3 webkitgtk
+        echo "macOS uses native WebKit framework (already included in macOS)"
+        echo "No additional packages needed - WebKit.framework is part of the OS"
 
     - name: Build Boost from submodule
       run: |
         cd external/boost
         ./bootstrap.sh
+        ./b2 headers
         ./b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
         mkdir -p ../../lib
         cp stage/lib/*.a ../../lib/
 
-    - name: make
-      run: make
+    - name: Build with native WebKit framework
+      run: |
+        echo "Building RenWeb with native macOS WebKit framework"
+        make
