@@ -11,12 +11,21 @@
 body {
     background-color: #212121;
 }
-button {
+button, label.choose_files {
     background-color: #282828;
     width: 200px;
     height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: solid;
+    border-width: 1px;
+    border-color: lightgray;
+    border-radius: 2px;
+    color: white;
 }
-button:hover, textarea:hover, textarea:focus {
+button:hover, label.choose_files:hover, textarea:hover, textarea:focus {
     background-color: #343434; 
 }
 hr {

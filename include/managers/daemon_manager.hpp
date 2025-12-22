@@ -77,7 +77,7 @@ namespace RenWeb {
                         Log::critical("killProcesses is UNIMPLEMENTED for windows");
                         proc.terminate();
                     #else
-                        ::kill(id, SIGTERM);
+                        ::kill(id, SIGINT);
                     #endif
                         proc.join();
                         this->processes_by_pid.erase(id);

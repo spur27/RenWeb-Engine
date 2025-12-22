@@ -10,6 +10,7 @@
 
 using child = boost::process::child;
 using ipstream = boost::process::ipstream;
+using group = boost::process::group;
 
 namespace RenWeb {
     struct ipstreams {
@@ -19,8 +20,8 @@ namespace RenWeb {
     template <typename Key>
     class PipeManager : public IRoutineManager<Key> {
         private:
-            std::map<int, std::pair<struct ipstreams, child>*> pipes_by_pid;            
-            std::map<Key, std::pair<struct ipstreams, child>> pipes;            
+            std::map<int, std::pair<struct ipstreams, child>*> pipes_by_pid;
+            std::map<Key, std::pair<struct ipstreams, child>> pipes;
         public:
             PipeManager() { };
             ~PipeManager() {
@@ -37,7 +38,7 @@ namespace RenWeb {
                 }
                 auto pair = std::pair<struct ipstreams, child>();
                 pair.second = child(
-                    args, 
+                    args,
                     boost::process::std_out > pair.first.out, 
                     boost::process::std_err > pair.first.err
                 );
@@ -82,7 +83,7 @@ namespace RenWeb {
                     Log::critical("killProcesses is UNIMPLEMENTED for windows");
                     this->pipes[key].second.terminate();
                 #else
-                    ::kill(id, SIGTERM);
+                    ::kill(id, SIGINT);
                 #endif
                     this->pipes[key].second.join();
                     this->pipes.erase(key);

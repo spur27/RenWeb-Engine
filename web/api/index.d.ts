@@ -16,8 +16,8 @@ export declare namespace FS {
     type RenameCopySettings = {
         overwrite: boolean;
     };
-    function readFile(path: string): Promise<number[] | null>;
-    function writeFile(path: string, contents: number[], settings?: WriteSettings): Promise<boolean>;
+    function readFile(path: string): Promise<string | null>;
+    function writeFile(path: string, contents: string, settings?: WriteSettings): Promise<boolean>;
     function exists(path: string): Promise<boolean>;
     function isDir(path: string): Promise<boolean>;
     function mkDir(path: string): Promise<boolean>;
@@ -33,6 +33,7 @@ export declare namespace Window {
     function show(is_window_shown?: boolean): Promise<void>;
     function changeTitle(title: string): Promise<void>;
     function resetTitle(): Promise<void>;
+    function getCurrentTitle(): Promise<string>;
     function reloadPage(): Promise<void>;
     function closeWindow(): Promise<void>;
     function terminate(): Promise<void>;

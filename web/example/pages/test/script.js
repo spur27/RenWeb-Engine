@@ -10,7 +10,7 @@ import {
     Debug,
     Network,
     Navigate
- } from '@renweb/core'
+ } from './index.js';
 
 
 document.addEventListener("keydown", async (e) => {
@@ -27,6 +27,9 @@ document.addEventListener("keydown", async (e) => {
             await Log.debug("CTRL + s was pressed.");
             await Config.saveConfig();
             return;
+        } else if (e.key === 'i') {
+            await Log.debug("CTRL + i was pressed.");
+            await Debug.openDevtools();
         }
     }
 });
@@ -34,7 +37,14 @@ document.addEventListener("keydown", async (e) => {
 console.log = (async (msg) => await Log.debug(msg));
 window.onload = async () => {
     await Log.info("Window content has been loaded.");
+    await Window.resetTitle();
     await Window.show(true);
+    
+    // Request notification permission
+    if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+        await Log.info("Notification permission: " + Notification.permission);
+    }
 }
 document.querySelector(".log_trace").onclick = async () => {
     await Log.trace(document.querySelector(".log_msg").value);
@@ -175,10 +185,27 @@ document.querySelector(".copy_file").onclick = async () => {
     }
 };
 
-document.querySelector(".choose_files").onclick = async () => {
-    await Log.debug(`File dialog not implemented in new API yet...`);
-    document.querySelector(".choose_files").style.backgroundColor = "orange";
-    document.querySelector(".choose_files_output").textContent = "[INFO] File chooser not yet implemented in refactored API";
+document.querySelector(".choose_files_input").onchange = async () => {
+    const files = document.querySelector(".choose_files_input").files;
+    const multiple = document.querySelector(".multiple").checked;
+    
+    // Update multiple attribute based on checkbox
+    document.querySelector(".choose_files_input").multiple = multiple;
+    
+    await Log.debug(`Files chosen: ${files.length}`);
+    
+    if (files.length > 0) {
+        let fileList = Array.from(files).map(f => f.name).join(", ");
+        document.querySelector(".choose_files_output").textContent = `Selected: ${fileList}`;
+    } else {
+        document.querySelector(".choose_files_output").textContent = "No files selected";
+    }
+};
+
+// Update multiple attribute when checkbox changes
+document.querySelector(".multiple").onchange = () => {
+    const multiple = document.querySelector(".multiple").checked;
+    document.querySelector(".choose_files_input").multiple = multiple;
 };
 
 document.querySelector(".is_focus").onclick = async () => {
@@ -196,7 +223,7 @@ document.querySelector(".print_page").onclick = async () => {
     await Window.printPage();
 };
 
-document.querySelector(".start_window_drag").onclick = async () => {
+document.querySelector(".start_window_drag").onmousedown = async () => {
     await Log.debug(`Starting window drag...`);
     await Window.startWindowDrag();
 };
@@ -375,10 +402,67 @@ document.querySelector(".get_os").onclick = async () => {
 };
 
 document.querySelector(".send_notif_1").onclick = async () => {
-    await Log.warn("Notifications not implemented in new API yet");
+    await Log.debug("Sending notification 1...");
+    
+    if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+            new Notification("RenWeb Notification", {
+                body: "This is a simple notification from RenWeb!",
+                icon: "../../assets/creature.png"
+            });
+        } else if (Notification.permission !== "denied") {
+            const permission = await Notification.requestPermission();
+            if (permission === "granted") {
+                new Notification("RenWeb Notification", {
+                    body: "This is a simple notification from RenWeb!",
+                    icon: "../../assets/creature.png"
+                });
+            }
+        } else {
+            await Log.warn("Notification permission denied");
+        }
+    } else {
+        await Log.error("Notifications not supported in this browser");
+    }
 };
+
 document.querySelector(".send_notif_2").onclick = async () => {
-    await Log.warn("Notifications not implemented in new API yet");
+    await Log.debug("Sending notification 2 with actions...");
+    
+    if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+            const notif = new Notification("RenWeb Action Notification", {
+                body: "This notification has a longer message and demonstrates the browser notification API in action. Click me!",
+                icon: "../../assets/seal1.png",
+                requireInteraction: false,
+                tag: "renweb-notif-2"
+            });
+            
+            notif.onclick = async () => {
+                await Log.info("Notification clicked!");
+                notif.close();
+            };
+        } else if (Notification.permission !== "denied") {
+            const permission = await Notification.requestPermission();
+            if (permission === "granted") {
+                const notif = new Notification("RenWeb Action Notification", {
+                    body: "This notification has a longer message and demonstrates the browser notification API in action. Click me!",
+                    icon: "../../assets/seal1.png",
+                    requireInteraction: false,
+                    tag: "renweb-notif-2"
+                });
+                
+                notif.onclick = async () => {
+                    await Log.info("Notification clicked!");
+                    notif.close();
+                };
+            }
+        } else {
+            await Log.warn("Notification permission denied");
+        }
+    } else {
+        await Log.error("Notifications not supported in this browser");
+    }
 };
 
 document.querySelector(".get_config").onclick = async () => {

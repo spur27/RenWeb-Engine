@@ -9,6 +9,23 @@ type Encoded = {
     __val__: any[]
 }
 
+function decodeObj(dec: any): any {
+    for (const key in dec) {
+        if (typeof dec[key] === "object" && "__encoding_type__" in dec[key] && "__val__" in dec[key]) {
+            dec[key] = decode(dec[key] as Encoded);
+        }
+    }
+    return dec;
+}
+function decodeArray(dec: any[]): any[] {
+    for (let i = 0; i < dec.length; i++) {
+        if (typeof dec[i] === "object" && "__encoding_type__" in dec[i] && "__val__" in dec[i]) {
+            dec[i] = decode(dec[i] as Encoded);
+        }
+    }
+    return dec;
+}
+
 function decode(dec: Encoded): any {
     switch (dec.__encoding_type__) {
         case "base64":
@@ -16,6 +33,23 @@ function decode(dec: Encoded): any {
         default:
             return null;
     }
+}
+
+function encodeObj(enc: any): any {
+    for (const key in enc) {
+        if (typeof enc[key] === "object") {
+            enc[key] = encode(enc[key]);
+        }
+    }
+    return enc;
+}
+function encodeArray(enc: any[]): any[] {
+    for (let i = 0; i < enc.length; i++) {
+        if (typeof enc[i] === "object") {
+            enc[i] = encode(enc[i]);
+        }
+    }
+    return enc;
 }
 
 function encode(enc: any, enc_type="base64"): Encoded {
@@ -101,6 +135,8 @@ export namespace Window {
         { await BIND_change_title(encode(title)); }
     export async function resetTitle(): Promise<void> 
         { await BIND_reset_title(null); }
+    export async function currentTitle(): Promise<string> 
+        { return decode(await BIND_current_title(null)); }
     export async function reloadPage(): Promise<void> 
         { await BIND_reload_page(null); }
     export async function closeWindow(): Promise<void> 
@@ -140,7 +176,7 @@ export namespace System {
 
 export namespace Config {
     export async function getConfig(): Promise<any> 
-        { return await BIND_get_config(null); }
+        {  return decodeObj(await BIND_get_config(null)); }
     export async function saveConfig(): Promise<void> 
         { await BIND_save_config(null); }
     export async function loadConfig(): Promise<void> 
@@ -304,6 +340,7 @@ declare const BIND_is_focus: (...args: any[]) => Promise<any>;
 declare const BIND_show: (...args: any[]) => Promise<any>;
 declare const BIND_change_title: (...args: any[]) => Promise<any>;
 declare const BIND_reset_title: (...args: any[]) => Promise<any>;
+declare const BIND_current_title: (...args: any[]) => Promise<any>;
 declare const BIND_reload_page: (...args: any[]) => Promise<any>;
 declare const BIND_close_window: (...args: any[]) => Promise<any>;
 declare const BIND_terminate: (...args: any[]) => Promise<any>;

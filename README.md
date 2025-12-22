@@ -28,14 +28,16 @@
   - [File Resolution Order](#file-resolution-order)
   - [HTTP Range Requests](#http-range-requests)
 - [Command Line Arguments](#command-line-arguments)
-- [Building Pages](#building-pages)
-- [Client-Side API](#client-side-api)
 - [Credits](#credits)
+- [Planned Additions](#planned-additions)
+- [Known Bugs](#known-bugs)
 - [License](#license)
 
 ## Introduction
 
-RenWeb is a modern framework for building cross-platform GUI applications using web technologies (HTML, CSS, JavaScript) with a C++ backend. It combines a WebKit-based webview engine with an embedded HTTP server, providing a complete solution for creating desktop applications with web interfaces.
+RenWeb is a modern framework for building cross-platform GUI applications using web technologies (HTML, CSS, JavaScript) with a C++ backend. It combines a WebKit-based webview engine with an embedded HTTP server, providing a complete solution for creating desktop applications with web interfaces. 
+
+The purpose of this project is to provide an easy and fun way to make creative desktop applications that work everywhere and remain simple. Customizability will always be in the end user's hands. All you will need to know in order to use this project is front-end web (this project CAN use UI npm packages just fine once they're webpacked) and... that's it! The RenWeb engine was designed to utilize dependency injection, interfaces, and composition internally, so if you want to fork this project to use your custom webserver, a different logger, even a different rendering engine, all you'll need to do is extend to an interface! Want to add your own custom functions in addition to the 90 that already exist to use in the JS? All you need to do is add one to the maps <a href="./src/window_functions.cpp">here</a> and you're good to go! What about custom settings, changing where settings are stored, changing where web content is stored, etc.? Everything is stored in `info.json` and `config.json`. That's it. 
 
 <p align="center">
     <img height=500 src="https://github.com/SpurSlicer/RenWeb/blob/main/docs/assets/window_example_1.png" alt="Window displaying the test page">
@@ -47,13 +49,21 @@ RenWeb is a modern framework for building cross-platform GUI applications using 
 - Process management for multi-window applications
 - Configurable window properties per page
 - Built-in logging system
-- TypeScript support with `@renweb/core` package
-- Support for vanilla JavaScript and React applications
+- Full WebGL Support
+- Less-than 2mb executables
+- 90 different functions added to the JS engine to interface with the desktop
+- Permissions management
+- Portable executable
+- Uses embedded web rendering hardware to minimize bloat
+- Compiles for 12 CPU architectures on linux
+- Modular file structure
+- Allows users to easily customize the app
+- Complete process and signal control
+- Seals!! (in the test page)
 
 **Core Dependencies:**
 - [webview](https://github.com/webview/webview) - Cross-platform webview library
 - [spdlog](https://github.com/gabime/spdlog) - Fast C++ logging library  
-- [nlohmann/json](https://github.com/nlohmann/json) - JSON for Modern C++
 - [cpp-httplib](https://github.com/yhirose/cpp-httplib) - HTTP/HTTPS server library
 - [Boost](https://www.boost.org/) - Program options and JSON parsing
 - Standard C++ libraries (C++17 or later)
@@ -64,11 +74,11 @@ Clone with submodules:
 ```bash
 git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
 ```
+NOTE: you can remove the boost library submodule if you've installed boost as a package in linux. It's included as a submodule for convenience when compiling for windows and mac. Use version 1.82 if you install it as a package on linux!!
 
 **Prerequisites (All Platforms):**
 - C++ Compiler (g++ recommended, C++17 or later)
 - [Make](https://www.gnu.org/software/make/)
-- [Node.js](https://nodejs.org/) (for building UI pages)
 
 ### Linux
 
@@ -83,20 +93,20 @@ apt install pkg-config libboost-all-dev
 ```bash
 dnf install gtk3-devel webkit2gtk4.1-devel
 dnf install gtk3 webkit2gtk4.1
-dnf install pkgconf-pkg-config boost-devel
+dnf install pkgconf-pkg-config boost-devel boost-static
 ```
 
 **Build:**
 ```bash
-cd RenWeb-engine
 make
 ```
+(See the <a href="./makefile">makefile</a> to check out how cleaning, building for other architectures, and building for development/release works)
 
 **Run:**
 ```bash
 make run
 # Or directly:
-./programs/renweb-0.0.4-linux-x86_64
+./programs/renweb-0.0.4-linux-<arch>
 ```
 
 ### MacOS
@@ -113,23 +123,25 @@ RenWeb looks for files relative to the executable location:
 
 ```
 programs/
-├── renweb-0.0.4-linux-x86_64    [executable]
+├── renweb-0.0.4-linux-<arch>     [executable]
 ├── info.json                     [application metadata - required]
-├── config.json                   [window configuration - auto-generated]
-├── log.txt                       [application logs - auto-generated]
-├── content/                      [page content - required]
+├── config.json        [moveable] [window configuration - auto-generated or prewritten]
+├── log.txt            [moveable] [application logs - auto-generated]
+├── content/           [moveable] [page content - required]
 │   └── page/
 │       ├── index.html
 │       └── ...
-├── assets/                       [shared assets]
+├── assets/            [moveable] [shared assets]
 │   └── ...
-├── custom/                       [user customization - optional]
+├── custom/            [moveable] [user customization - optional]
 │   └── (overrides for content/assets)
-├── backup/                       [fallback content - optional]
+├── backup/            [moveable] [fallback content - optional]
 │   └── (emergency fallback files)
 └── licenses/                     [license files]
-    └── LICENSE
+    └── ...
 ```
+- `moveable` means you can tell RenWeb where to look for these files via properties in `info.json`:
+  - `log_path`, `config_path`, and `base_dir` all look in the current-directory of the RenWeb executable unless told otherwise. This mostly exists to make packaging applications more flexible.
 
 ### Directory Structure
 
@@ -142,6 +154,7 @@ programs/
 - Images, videos, audio, fonts
 - Accessible from any page via `../../assets/`
 - Supports HTTP Range requests for media streaming
+- It supports EVERY MIME type (<a href="./src/web_server_mime.cpp">see for yourself lol</a>)
 
 **`custom/`** - User customization directory (optional)
 - Highest priority in file resolution
@@ -188,28 +201,26 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
 **Required Fields:**
 - `title` - Application name (displayed with `-v` flag)
 - `version` - Application version
-- `starting_pages` - Array of page names to open on launch (or single string)
+- `starting_pages` - Array of page names to open on launch (or single string). These open when the program is initially launched
 
 **Optional Fields:**
 - `author` - Creator name
 - `description` - Application description
 - `license` - License type
-- `repository` - Source repository URL
-- `category` - Application category
+- `repository` - Source repository URL (used for auto updating (when this is implemented))
+- `category` - Application category (used for packaging)
 - `copyright` - Copyright notice
-- `appId` - Unique application identifier
+- `appId` - Unique application identifier (used for packaging)
 - `config_path` - Path to config.json (defaults to `./config.json`)
 - `log_path` - Path to log file (defaults to `./log.txt`)
 - `base_path` - Base directory for content/assets/custom/backup folders (defaults to `.`)
 - `permissions` - WebView permissions object
-
-**Permissions:**
-- `geolocation` - Allow location access
-- `notifications` - Allow desktop notifications
-- `media_devices` - Allow camera/microphone
-- `pointer_lock` - Allow mouse pointer locking
-- `install_missing_media_plugins` - Auto-install codecs
-- `device_info` - Allow hardware information access
+  - `geolocation` - Allow location access
+  - `notifications` - Allow desktop notifications
+  - `media_devices` - Allow camera/microphone
+  - `pointer_lock` - Allow mouse pointer locking
+  - `install_missing_media_plugins` - Auto-install codecs
+  - `device_info` - Allow hardware information access
 
 ### config.json
 
@@ -237,7 +248,8 @@ Window configuration file - auto-generated if missing. Stores per-page window se
     "fullscreen": false,
     "taskbar_show": true,
     "opacity": 1.0,
-    "initially_shown": true
+    "initially_shown": true,
+    "title": "RenWeb"
   },
 }
 ```
@@ -246,7 +258,7 @@ Window configuration file - auto-generated if missing. Stores per-page window se
 
 All window properties are get/set-able via the client API:
 
-- `title` (string) - Window title text (optional, per-page only)
+- `title` (string) - Window title text (optional, per-page only; overrides title in `info.json`)
 - `decorated` (boolean) - Show window title bar and borders
 - `size` (object) - Window dimensions
   - `width` (number) - Window width in pixels
@@ -316,9 +328,16 @@ This repository uses the following open-source libraries:
 - [webview](https://github.com/webview/webview) - Cross-platform webview library - [MIT License](./external/webview/LICENSE)
 - [Boost](https://www.boost.org/) - C++ libraries (Program Options, JSON, Process) - [Boost Software License](https://www.boost.org/LICENSE_1_0.txt)
 
+## Planned Additions
+- Windows and Apple are still a WIP, so having these fully implmented at some point would be nice.
+- Auto-Updating by checking the repository URI in `info.json`
+- Full unit testing (planning on using gtest at some point)
+- More fool-proof testing
+
 ## Known Bugs
-- Encoded objs aren't processed in `get_config` in API side
-- The dreaded flashbang (white flash when opening). You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`).
+- The dreaded flashbang (white flash when opening). 
+  - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
+- Parent processes do not kill children (even though they should)
 
 ## License
 

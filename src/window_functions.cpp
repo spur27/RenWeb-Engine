@@ -656,7 +656,8 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            double opacity_amt = this->getSingleParameter(req).as_double();
+            json::value param = this->getSingleParameter(req);
+            double opacity_amt = param.is_int64() ? static_cast<double>(param.as_int64()) : param.as_double();
             if (opacity_amt > 1.0 || opacity_amt < 0.0) {
                 this->app->logger->error("Invalid opacity: " + std::to_string(opacity_amt) + " only enter values between 0.0 and 1.0 inclusive");
             } else {
@@ -724,6 +725,7 @@ WF* WF::setWindowCallbacks() {
     }))->add("change_title",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string title = this->getSingleParameter(req).as_string().c_str();
+            this->saved_states["current_title"] = json::value(title);
             this->app->w->set_title(title);
             return json::value(nullptr);
     }))->add("reset_title",
@@ -739,8 +741,18 @@ WF* WF::setWindowCallbacks() {
             if (!title.is_string()) {
                 title = json::value("UNKNOWN TITLE");
             }
-            this->app->w->set_title(title.as_string().c_str());
+            std::string title_str = title.as_string().c_str();
+            this->saved_states["current_title"] = json::value(title_str);
+            this->app->w->set_title(title_str);
             return json::value(nullptr);
+    }))->add("current_title",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            if (this->saved_states.find("current_title") == this->saved_states.end()) {
+                this->app->logger->warn("Title has not been set yet, returning empty string");
+                return json::value(Locate::executable().filename().string());
+            }
+            return this->saved_states["current_title"];
     }))->add("reload_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -769,6 +781,7 @@ WF* WF::setWindowCallbacks() {
     }))->add("start_window_drag",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
+            this->app->logger->info("start_window_drag called");
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             ReleaseCapture();
@@ -779,6 +792,8 @@ WF* WF::setWindowCallbacks() {
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window_widget));
+            
+            // Get the current pointer position
             GdkDisplay* display = gdk_window_get_display(gdk_window);
             GdkSeat* seat = gdk_display_get_default_seat(display);
             GdkDevice* device = gdk_seat_get_pointer(seat);
@@ -786,7 +801,10 @@ WF* WF::setWindowCallbacks() {
             gint root_x, root_y;
             gdk_device_get_position(device, NULL, &root_x, &root_y);
             
-            gtk_window_begin_move_drag(GTK_WINDOW(window_widget), 1, root_x, root_y, GDK_CURRENT_TIME);
+            this->app->logger->info("Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
+            
+            // Use gdk_window_begin_move_drag instead - it doesn't require an event
+            gdk_window_begin_move_drag(gdk_window, 1, root_x, root_y, GDK_CURRENT_TIME);
         #endif
             return json::value(nullptr);
     }))->add("print_page",
@@ -990,7 +1008,7 @@ WF* WF::setFileSystemCallbacks() {
             json::array params = req.as_array();
             std::filesystem::path path(params[0].as_string().c_str());
             std::string contents(params[1].as_string().c_str());
-            bool append = params[2].as_bool();
+            bool append = params[2].as_object().at("append").as_bool();
             
             std::ios::openmode mode = std::ios::binary;
             mode |= append ? std::ios::app : std::ios::trunc;
@@ -1214,9 +1232,7 @@ WF* WF::setSystemCallbacks() {
     ->add("get_pid",
         std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
             (void)req;
-            std::stringstream str;
-            str << boost::this_process::get_id();
-            return json::string(str.str());
+            return json::value(boost::this_process::get_id());
     }))->add("get_OS",
         std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
             (void)req;
@@ -1411,9 +1427,7 @@ WF* WF::setProcessCallbacks() {
 // -----------------------------------------
         ->add("open_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string resource = req.as_array()[0].as_string().c_str();
-            
-            // Normalize path separators
+            std::string resource = req.as_array()[0].as_string().c_str();            
             for (size_t i = 0; i < resource.length(); i++) {
                 if (resource[i] == '\\') resource[i] = '/';
             }
@@ -1479,15 +1493,6 @@ WF* WF::setProcessCallbacks() {
 #pragma region SignalCallbacks
 WF* WF::setSignalCallbacks() {
     this->signal_callbacks
-    /**
-     * signal_add - Register a callback for a specific signal
-     * @param signal_num - The signal number (e.g., SIGINT=2, SIGTERM=15)
-     * @param callback_name - Name of JavaScript function to call when signal received
-     * @returns null
-     * 
-     * Note: This allows JavaScript to register custom signal handlers.
-     * The default SIGINT/SIGTERM/SIGABRT handlers for graceful shutdown are already registered.
-     */
     ->add("signal_add",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="./style.css">
-    <script src="./script.js" defer></script>
+    <script src="./script.js" type="module" defer></script>
 </head>
 
 <body>
@@ -71,11 +71,8 @@
         <hr />
         <div class="col">
             <div class="row">
-                <button style="width: 90vw" class="choose_files">Choose files or dirs</button>
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Dirs?</p>
-                    <input class="dirs" type="checkbox" style="margin-top: -10px;">
-                </div>
+                <label for="choose_files_input" class="choose_files" style="width: 90vw">Choose files</label>
+                <input type="file" id="choose_files_input" class="choose_files_input" multiple style="display: none;">
                 <div class="col">
                     <p style="font-size: 8px; margin-top: 0px;">Multiple?</p>
                     <input class="multiple" type="checkbox" style="margin-top: -10px;">
@@ -185,8 +182,7 @@
         <div class="col">
             <div class="row">
                 <p class="settings_output output_text"
-                    style="font-size: 12px; width: 72vw; height: 165px; max-height: 165px; margin: 0px;">Settings will
-                    appear here!</p>
+                    style="font-size: 12px; width: 72vw; height: 165px; max-height: 165px; margin: 0px;">Settings will appear here!</p>
                 <div class="col">
                     <button class="get_config">Get Config</button>
                     <button class="save_config">Save Settings</button>

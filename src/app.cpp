@@ -280,6 +280,9 @@ void App::processPermissions() {
     }
     WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
     
+    WebKitSettings* settings = webkit_web_view_get_settings(webview);
+    webkit_settings_set_enable_developer_extras(settings, TRUE);
+    
     g_signal_connect_swapped(webview, "permission-request", G_CALLBACK(+[](App* app, WebKitPermissionRequest* request, WebKitWebView*) -> gboolean {
         const json::value& perms_from_info = app->info->getProperty("permissions");
         const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
