@@ -35,26 +35,24 @@ jobs:
         mkdir C:\webview2
         tar -xf C:\webview2.nupkg -C C:\webview2
       
-    - name: Download and build Boost
+    - name: Build Boost from submodule
       run: |
-        curl -L https://boostorg.jfrog.io/artifactory/main/release/1.82.0/source/boost_1_82_0.tar.gz -o C:\boost.tar.gz
-        tar -xzf C:\boost.tar.gz -C C:\
-        cd C:\boost_1_82_0
-        .\bootstrap.bat
-        .\b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
-        mkdir C:\boost_libs
-        xcopy /Y stage\lib\*.lib C:\boost_libs\
+        cd external\boost
+        call bootstrap.bat
+        b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
+        if not exist ..\..\lib mkdir ..\..\lib
+        xcopy /Y stage\lib\*.lib ..\..\lib\
       shell: cmd
 
         
     - name: Set Include
       run: |
-        echo "INCLUDE=C:\webview2\build\native\include;C:\boost_1_82_0;${env:INCLUDE}" >> $env:GITHUB_ENV
+        echo "INCLUDE=C:\webview2\build\native\include;${{ github.workspace }}\external\boost;${env:INCLUDE}" >> $env:GITHUB_ENV
 
     - name: Set Lib
       run: |
-        echo "LIBPATH=C:\boost_libs;${env:LIBPATH}" >> $env:GITHUB_ENV
-        dir C:\boost_libs
+        echo "LIBPATH=${{ github.workspace }}\lib;${env:LIBPATH}" >> $env:GITHUB_ENV
+        dir ${{ github.workspace }}\lib
 
     - name: View vars
       run: |
@@ -65,7 +63,7 @@ jobs:
       run: |
         git --version
         ls
-        $boostLibs = (Get-ChildItem C:\boost_libs -Filter "*.lib" | Select-Object -First 2).FullName -join " "
+        $boostLibs = (Get-ChildItem lib -Filter "*.lib").FullName -join " "
         make LIBS="$boostLibs"
       working-directory: .
       shell: pwsh

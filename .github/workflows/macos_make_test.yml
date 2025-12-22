@@ -16,15 +16,17 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
-        brew install boost pkg-config
+        brew install pkg-config gtk+3 webkitgtk
 
-    - name: Install WebKit (may fail - WebKit support for macOS is WIP)
+    - name: Build Boost from submodule
       run: |
-        echo "WebKit on macOS requires building from source"
-        echo "See: https://github.com/WebKit/webkit"
-        exit 1
+        cd external/boost
+        ./bootstrap.sh
+        ./b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
+        mkdir -p ../../lib
+        cp stage/lib/*.a ../../lib/
 
-    # - name: make
-    #   run: make
+    - name: make
+      run: make
