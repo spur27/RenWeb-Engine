@@ -132,11 +132,11 @@ else
     else ifeq ($(UNAME_S),Darwin)
         OS_NAME := apple
 		CXX := clang++
-		CXXFLAGS := -MMD -MP
+		CXXFLAGS := -std=c++17 -MMD -MP
 		ifeq ($(TARGET), debug)
 			CXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
 		else
-			CXXFLAGS += -O3 -flto -s
+			CXXFLAGS += -O3 -flto
 		endif
 		# For x86_32 builds on macOS, use -m32 flag
 		ifeq ($(ARCH),x86_32)
@@ -194,6 +194,7 @@ ifeq ($(OS_NAME), windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
 	$(addprefix /I, $(wildcard external/*/include)) \
+	/I external/boost \
 	$(addprefix /I, $(wildcard external/boost/libs/*/include)) \
 	$(addprefix /I, $(wildcard external/boost/libs/*/*/include)) \
 	$(addprefix /I, $(wildcard external/boost/libs/*/*/*/include)) \
@@ -202,6 +203,7 @@ else
 EXTERN_INC_PATHS := \
 	$(addprefix -I, $(wildcard external/*/)) \
 	$(addprefix -I, $(wildcard external/*/include)) \
+	-I external/boost \
 	$(addprefix -I, $(wildcard external/boost/libs/*/include)) \
 	$(addprefix -I, $(wildcard external/boost/libs/*/*/include)) \
 	$(addprefix -I, $(wildcard external/boost/libs/*/*/*/include)) \
