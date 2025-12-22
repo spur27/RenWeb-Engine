@@ -194,7 +194,6 @@ ifeq ($(OS_NAME), windows)
 EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/*/)) \
 	$(addprefix /I, $(wildcard external/*/include)) \
-	/I external/boost \
 	$(addprefix /I, $(wildcard external/boost/libs/*/include)) \
 	$(addprefix /I, $(wildcard external/boost/libs/*/*/include)) \
 	$(addprefix /I, $(wildcard external/boost/libs/*/*/*/include)) \
@@ -203,7 +202,6 @@ else
 EXTERN_INC_PATHS := \
 	$(addprefix -I, $(wildcard external/*/)) \
 	$(addprefix -I, $(wildcard external/*/include)) \
-	-I external/boost \
 	$(addprefix -I, $(wildcard external/boost/libs/*/include)) \
 	$(addprefix -I, $(wildcard external/boost/libs/*/*/include)) \
 	$(addprefix -I, $(wildcard external/boost/libs/*/*/*/include)) \
