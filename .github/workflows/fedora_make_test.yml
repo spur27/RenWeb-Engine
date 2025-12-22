@@ -23,6 +23,11 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Remove boost submodule (using system packages instead)
+      run: |
+        rm -rf external/boost
+        git config --file .gitmodules --remove-section submodule.external/boost || true
+
     - name: install dependencies
       run: |
           dnf update -y
