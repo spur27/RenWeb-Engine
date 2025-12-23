@@ -153,7 +153,8 @@ else
     else ifeq ($(UNAME_S),Darwin)
         OS_NAME := apple
 		CXX := clang++
-		CXXFLAGS := -std=c++17 -MMD -MP
+		CXXFLAGS := -std=c++17 -MMD -MP -mmacosx-version-min=10.15
+		LDFLAGS += -mmacosx-version-min=10.15
 		ifeq ($(TARGET), debug)
 			CXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
 		else

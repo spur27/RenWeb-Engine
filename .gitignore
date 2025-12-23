@@ -17,3 +17,4 @@ index
 lib/*
 !lib/.gitkeep
 programs
+.DS_Store

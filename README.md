@@ -110,7 +110,7 @@ make run
 ```
 
 ### MacOS
-*Work in progress - See [WebKit build instructions](https://github.com/WebKit/webkit/blob/main/ReadMe.md#getting-the-code)*
+You should be able to compile it with XCode tools (min MacOS version 10.15) and boost from either the brew cask or from the submodule.
 
 ### Windows
 *Work in progress*
@@ -337,6 +337,7 @@ This repository uses the following open-source libraries:
 ## Known Bugs
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
+  - Problem on MacOS 10.15 and will likely persist on applications with lesser hardware
 - Parent processes do not kill children (even though they should)
 - `print_page` doesn't work on mac (prints blank screen)
 
