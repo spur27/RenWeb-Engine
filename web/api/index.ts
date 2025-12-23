@@ -236,8 +236,6 @@ export namespace Debug {
         { await BIND_open_devtools(null); }
     export async function closeDevtools(): Promise<void> 
         { await BIND_close_devtools(null); }
-    export async function removeAllCss(): Promise<void> 
-        { await BIND_remove_all_css(null); }
 }
 
 export namespace Network {
@@ -388,7 +386,6 @@ declare const BIND_signal_trigger: (...args: any[]) => Promise<any>;
 declare const BIND_clear_console: (...args: any[]) => Promise<any>;
 declare const BIND_open_devtools: (...args: any[]) => Promise<any>;
 declare const BIND_close_devtools: (...args: any[]) => Promise<any>;
-declare const BIND_remove_all_css: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_load_progress: (...args: any[]) => Promise<any>;
 declare const BIND_is_loading: (...args: any[]) => Promise<any>;

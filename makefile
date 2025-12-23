@@ -54,7 +54,28 @@ ifdef TOOLCHAIN
 else
 	CROSS_COMPILE :=
 	SYSROOT :=
-	ARCH := x86_64
+	# Detect architecture based on OS (only if ARCH not already set)
+	ifndef ARCH
+		UNAME_S := $(shell uname -s)
+		ifeq ($(UNAME_S),Darwin)
+			# On macOS, detect actual architecture
+			UNAME_M := $(shell uname -m)
+			ifeq ($(UNAME_M),arm64)
+				ARCH := arm64
+			else ifeq ($(UNAME_M),x86_64)
+				ARCH := x86_64
+			else ifeq ($(UNAME_M),i386)
+				ARCH := x86_32
+			else ifeq ($(UNAME_M),i686)
+				ARCH := x86_32
+			else
+				ARCH := $(UNAME_M)
+			endif
+		else
+			# For Linux and other systems, default to x86_64
+			ARCH := x86_64
+		endif
+	endif
 endif
 # --sysroot=/usr/$(TOOLCHAIN)
 # -----------------------------------------------------------------------------
@@ -138,6 +159,11 @@ else
 		else
 			CXXFLAGS += -O3 -flto
 		endif
+		# Support for architecture-specific flags (for cross-compilation)
+		ifdef ARCH_FLAGS
+			CXXFLAGS += $(ARCH_FLAGS)
+			LDFLAGS += $(ARCH_FLAGS)
+		endif
 		# For x86_32 builds on macOS, use -m32 flag
 		ifeq ($(ARCH),x86_32)
 			CXXFLAGS += -m32
@@ -180,7 +206,7 @@ endef
 # Paths 
 # -----------------------------------------------------------------------------
 BUILD_PATH :=  ./programs
-COPY_PATH := ./build
+COPY_PATH :=   ./programs
 LIC_PATH :=    ./licenses
 CONF_PATH :=   ./config.json
 INFO_PATH :=   ./info.json
@@ -215,7 +241,7 @@ ifeq ($(OS_NAME), windows)
 	LIBS := comdlg32.lib
 endif
 ifeq ($(OS_NAME), apple)
-	LIBS := -ldl 
+	LIBS := -L./external/boost/stage/lib -lboost_program_options -lboost_json -framework Cocoa -framework WebKit -ldl 
 endif
 ifeq ($(OS_NAME), linux)
 	ifdef TOOLCHAIN
@@ -273,6 +299,20 @@ else
 endif
 endif
 	$(call step,Linking Executable [DONE],$@)
+# -----------------------------------------------------------------------------
+# RULE: Special compilation for window_functions.cpp and app.cpp on macOS (Objective-C++)
+# -----------------------------------------------------------------------------
+ifeq ($(OS_NAME), apple)
+$(OBJ_PATH)/window_functions$(OBJ_EXT): $(SRC_PATH)/window_functions.cpp | $(OBJ_PATH)
+	$(call step,Compiling (Objective-C++),$<)
+	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(call step,Compiling [DONE],$<)
+
+$(OBJ_PATH)/app$(OBJ_EXT): $(SRC_PATH)/app.cpp | $(OBJ_PATH)
+	$(call step,Compiling (Objective-C++),$<)
+	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(call step,Compiling [DONE],$<)
+endif
 # -----------------------------------------------------------------------------
 # RULE: Compile source files to object files
 # -----------------------------------------------------------------------------
@@ -371,9 +411,7 @@ help:
 # -----------------------------------------------------------------------------
 .PHONY: all clean run help copy-license copy-info
 # -----------------------------------------------------------------------------
-# PHONY TARGET: Copy license
-# -----------------------------------------------------------------------------
-# PHONY TARGET: Copy license files
+# PHONY TARGET: Copy licenses
 # -----------------------------------------------------------------------------
 copy-license:
 	$(call step,Copy License(s), Copying License at $@)

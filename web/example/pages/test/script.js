@@ -350,11 +350,6 @@ document.querySelector(".clear_console").onclick = async () => {
     await Debug.clearConsole();
 };
 
-document.querySelector(".remove_all_css").onclick = async () => {
-    await Log.debug(`Removing all CSS...`);
-    await Debug.removeAllCss();
-};
-
 document.querySelector(".reset_title").onclick = async () => {
     await Log.debug(`Resetting Title...`);
     await Window.resetTitle();

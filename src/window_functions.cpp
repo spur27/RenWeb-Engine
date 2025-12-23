@@ -8,6 +8,7 @@
     #include <windows.h>
 #elif defined(__APPLE__)
     #include <Cocoa/Cocoa.h>
+    #include <WebKit/WebKit.h>
 #elif defined(__linux__)
     #include <gtk/gtk.h>
     #include "gdk/gdk.h"
@@ -27,6 +28,24 @@
 
 using WF = RenWeb::WindowFunctions;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
+
+#if defined(__APPLE__)
+static id getWKWebViewFromWindow(void* window_ptr) {
+    if (!window_ptr) return nil;
+    
+    id nsWindow = (__bridge id)window_ptr;
+    id contentView = [nsWindow contentView];
+    
+    // Find the WKWebView in the view hierarchy
+    NSArray* subviews = [contentView subviews];
+    for (id view in subviews) {
+        if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+            return view;
+        }
+    }
+    return nil;
+}
+#endif
 using CM = RenWeb::CallbackManager<std::string, json::value, const json::value&>;
 
 WF::WindowFunctions(RenWeb::App* app)
@@ -281,7 +300,7 @@ WF* WF::setGetSets() {
             height = rect.bottom - rect.top;
         #elif defined(__APPLE__)
             // On macOS, get the window content size
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect contentRect = [nsWindow contentRectForFrameRect:[nsWindow frame]];
             width = (int)contentRect.size.width;
             height = (int)contentRect.size.height;
@@ -315,11 +334,11 @@ WF* WF::setGetSets() {
             y = rect.top;
         #elif defined(__APPLE__)
             // On macOS, get the window origin
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect frame = [nsWindow frame];
             NSRect screenFrame = [[NSScreen mainScreen] frame];
             x = (int)frame.origin.x;
-            y = (int)(screenFrame.size.height - frame.origin.y - frame.size.height); // Convert from Cocoa coordinates
+            y = (int)(screenFrame.size.height - frame.origin.y - frame.size.height); 
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             gtk_window_get_position(GTK_WINDOW(window_widget), &x, &y);
@@ -338,7 +357,7 @@ WF* WF::setGetSets() {
             SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
         #elif defined(__APPLE__)
             // On macOS, set the window origin
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect screenFrame = [[NSScreen mainScreen] frame];
             NSPoint newOrigin = NSMakePoint(x, screenFrame.size.height - y); // Convert to Cocoa coordinates
             [nsWindow setFrameOrigin:newOrigin];
@@ -356,7 +375,7 @@ WF* WF::setGetSets() {
             LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
             return json::value((style & (WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME)) != 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -379,7 +398,7 @@ WF* WF::setGetSets() {
             SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
             if (decorated) {
                 styleMask |= NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
@@ -401,14 +420,13 @@ WF* WF::setGetSets() {
             LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
             return json::value((style & (WS_THICKFRAME | WS_MAXIMIZEBOX)) != 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskResizable) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             return json::value(static_cast<bool>(gtk_window_get_resizable(GTK_WINDOW(window_widget))));
         #endif
         }),
-    // -----------------------------------------
         // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool resizable = this->getSingleParameter(req).as_bool();
@@ -424,7 +442,7 @@ WF* WF::setGetSets() {
             SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
             if (resizable) {
                 styleMask |= NSWindowStyleMaskResizable;
@@ -446,7 +464,7 @@ WF* WF::setGetSets() {
             DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
             return json::value((exStyle & WS_EX_TOPMOST) != 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow level] == NSFloatingWindowLevel);
         #elif defined(__linux__)
             if (this->saved_states.find("keepabove") == this->saved_states.end()) {
@@ -465,7 +483,7 @@ WF* WF::setGetSets() {
             SetWindowPos(hwnd, (keep_above) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             [nsWindow setLevel:(keep_above) ? NSFloatingWindowLevel : NSNormalWindowLevel];
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -480,7 +498,7 @@ WF* WF::setGetSets() {
                 HWND hwnd = GetActiveWindow();
                 return json::value(IsIconic(hwnd) != 0);
             #elif defined(__APPLE__)
-                NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+                NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 return json::value([nsWindow isMiniaturized]);
             #elif defined(__linux__)
                 auto window_widget = this->app->w->window().value();
@@ -495,7 +513,7 @@ WF* WF::setGetSets() {
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (minimize) {
                 [nsWindow miniaturize:nil];
             } else {
@@ -519,7 +537,7 @@ WF* WF::setGetSets() {
             HWND hwnd = GetActiveWindow();
             return json::value(IsZoomed(hwnd) != 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow isZoomed]);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -534,7 +552,7 @@ WF* WF::setGetSets() {
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (maximize != [nsWindow isZoomed]) {
                 [nsWindow zoom:nil];
             }
@@ -557,7 +575,7 @@ WF* WF::setGetSets() {
             DWORD style = GetWindowLongPtr(hwnd, GWL_STYLE);
             return json::value((style & WS_POPUP) != 0 && (style & (WS_CAPTION | WS_THICKFRAME)) == 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -579,7 +597,7 @@ WF* WF::setGetSets() {
             }
             SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             BOOL isCurrentlyFullscreen = ([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0;
             if (fullscreen != isCurrentlyFullscreen) {
                 [nsWindow toggleFullScreen:nil];
@@ -603,18 +621,17 @@ WF* WF::setGetSets() {
             DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
             return json::value((exStyle & WS_EX_TOOLWINDOW) == 0); // Inverted: toolwindow hides from taskbar
         #elif defined(__APPLE__)
-            this->app->logger->warn("getTaskbarShow has not been tested for Apple");
+            this->app->logger->warn("getTaskbarShow can't be set via RenWeb on Apple");
             return json::value(true); // Default assumption
         #elif defined(__linux__)
-            this->app->logger->warn("getTaskbarShow has not been tested for Linux");
             auto window_widget = this->app->w->window().value();
             return json::value(!gtk_window_get_skip_taskbar_hint(GTK_WINDOW(window_widget))); // Inverted: skip means not shown
         #endif    
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool taskbar_show = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
+            const bool taskbar_show = this->getSingleParameter(req).as_bool();
             HWND hwnd = GetActiveWindow();
             DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
             if (taskbar_show) {
@@ -625,11 +642,10 @@ WF* WF::setGetSets() {
             SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
             SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
-            this->app->logger->warn("setTaskbarShow has not been tested for Apple");
-            // On macOS, this would typically be controlled by LSUIElement in Info.plist
-            // Runtime changes are complex and not commonly supported
+            (void)req; 
+            this->app->logger->warn("setTaskbarShow can't be set via RenWeb on Apple");
         #elif defined(__linux__)
-            this->app->logger->warn("setTaskbarShow has not been tested for Linux");
+            const bool taskbar_show = this->getSingleParameter(req).as_bool();
             auto window_widget = this->app->w->window().value();
             gtk_window_set_skip_taskbar_hint(GTK_WINDOW(window_widget), !taskbar_show); // Inverted logic
         #endif    
@@ -647,7 +663,7 @@ WF* WF::setGetSets() {
             }
             return json::value(1.0f); // Default fully opaque
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(static_cast<float>([nsWindow alphaValue]));
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -668,7 +684,7 @@ WF* WF::setGetSets() {
                 BYTE alpha = static_cast<BYTE>(opacity_amt * 255.0f);
                 SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
         #elif defined(__APPLE__)
-                NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+                NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 [nsWindow setAlphaValue:opacity_amt];
         #elif defined(__linux__)
                 this->app->logger->warn("setOpacity has not been tested for Linux");
@@ -691,7 +707,7 @@ WF* WF::setWindowCallbacks() {
             HWND hwnd = GetActiveWindow();
             return json::value(hwnd == GetForegroundWindow());
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow isKeyWindow]);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -704,7 +720,7 @@ WF* WF::setWindowCallbacks() {
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (show_window) {
                 [nsWindow orderFront:nil];
             } else {
@@ -787,7 +803,7 @@ WF* WF::setWindowCallbacks() {
             ReleaseCapture();
             SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window();
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             [nsWindow performWindowDragWithEvent:[NSApp currentEvent]];
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -813,7 +829,32 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("print_page not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("print_page not yet implemented for Apple");
+        this->app->logger->error("Print page BROKEN on apple");    
+        auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    // Retain the webview to prevent deallocation before block executes
+                    id retainedWebview = [webview retain];
+                    
+                    // Use dispatch_async to ensure print dialog appears on main thread
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        // Create print info with default settings
+                        NSPrintInfo* printInfo = [NSPrintInfo sharedPrintInfo];
+                        
+                        // Create print operation
+                        NSPrintOperation* printOp = [NSPrintOperation printOperationWithView:retainedWebview printInfo:printInfo];
+                        [printOp setShowsPrintPanel:YES];
+                        [printOp setShowsProgressPanel:YES];
+                        
+                        // Run the print operation
+                        [printOp runOperation];
+                        
+                        // Release after use
+                        [retainedWebview release];
+                    });
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitPrintOperation* print_op = webkit_print_operation_new(WEBKIT_WEB_VIEW(webview_widget));
@@ -827,7 +868,14 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("zoom_in not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("zoom_in not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    double currentZoom = [[webview valueForKey:@"pageZoom"] doubleValue];
+                    [webview setPageZoom:currentZoom + 0.1];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             double current_zoom = webkit_web_view_get_zoom_level(WEBKIT_WEB_VIEW(webview_widget));
@@ -840,7 +888,14 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("zoom_out not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("zoom_out not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    double currentZoom = [[webview valueForKey:@"pageZoom"] doubleValue];
+                    [webview setPageZoom:currentZoom - 0.1];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             double current_zoom = webkit_web_view_get_zoom_level(WEBKIT_WEB_VIEW(webview_widget));
@@ -853,7 +908,13 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("zoom_reset not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("zoom_reset not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    [webview setPageZoom:1.0];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_set_zoom_level(WEBKIT_WEB_VIEW(webview_widget), 1.0);
@@ -866,7 +927,14 @@ WF* WF::setWindowCallbacks() {
             this->app->logger->warn("get_zoom_level not yet implemented for Windows");
             return json::value(1.0);
         #elif defined(__APPLE__)
-            this->app->logger->warn("get_zoom_level not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    double currentZoom = [[webview valueForKey:@"pageZoom"] doubleValue];
+                    return json::value(currentZoom);
+                }
+            }
             return json::value(1.0);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
@@ -879,7 +947,13 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("set_zoom_level not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("set_zoom_level not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    [webview setPageZoom:zoom_level];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_set_zoom_level(WEBKIT_WEB_VIEW(webview_widget), zoom_level);
@@ -891,7 +965,33 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("find_in_page not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("find_in_page not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview && [webview respondsToSelector:@selector(findString:withConfiguration:completionHandler:)]) {
+                    NSString* searchString = [NSString stringWithUTF8String:search_text.c_str()];
+                    id config = [[NSClassFromString(@"WKFindConfiguration") alloc] init];
+                    [config setValue:@NO forKey:@"caseSensitive"];
+                    [config setValue:@NO forKey:@"backwards"];
+                    [config setValue:@YES forKey:@"wraps"];
+                    
+                    void (^completionHandler)(id) = ^(id result) {
+                        (void)result; 
+                    };
+                    
+                    SEL selector = @selector(findString:withConfiguration:completionHandler:);
+                    NSMethodSignature *signature = [webview methodSignatureForSelector:selector];
+                    if (signature) {
+                        NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+                        [invocation setTarget:webview];
+                        [invocation setSelector:selector];
+                        [invocation setArgument:&searchString atIndex:2];
+                        [invocation setArgument:&config atIndex:3];
+                        [invocation setArgument:&completionHandler atIndex:4];
+                        [invocation invoke];
+                    }
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -904,7 +1004,7 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("find_next not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("find_next not yet implemented for Apple");
+            this->app->logger->warn("apple doesn't have bindings for this findNext");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -917,7 +1017,7 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("find_previous not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("find_previous not yet implemented for Apple");
+            this->app->logger->warn("apple doesn't have bindings for this findPrevious");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -930,7 +1030,13 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("clear_find not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("clear_find not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    [webview findString:@"" withConfiguration:nil completionHandler:nil];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1177,7 +1283,20 @@ WF* WF::setFileSystemCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("download_uri not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("download_uri not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
+                    NSURL* url = [NSURL URLWithString:urlString];
+                    NSURLRequest* request = [NSURLRequest requestWithURL:url];
+                    if ([webview respondsToSelector:@selector(startDownloadUsingRequest:completionHandler:)]) {
+                        [webview performSelector:@selector(startDownloadUsingRequest:completionHandler:) withObject:request withObject:nil];
+                    } else {
+                        this->app->logger->warn("WKWebView download not available on this macOS version");
+                    }
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_download_uri(WEBKIT_WEB_VIEW(webview_widget), uri.c_str());
@@ -1249,7 +1368,6 @@ WF* WF::setSystemCallbacks() {
 #pragma endregion
 #pragma region ProcessCallbacks
 WF* WF::setProcessCallbacks() {
-    // Helper lambda to get the appropriate manager based on process_type
     auto getManager = [this](const std::string& process_type) -> RenWeb::IRoutineManager<std::string>* {
         if (process_type == "daemon") {
             return this->app->daem.get();
@@ -1453,10 +1571,8 @@ WF* WF::setProcessCallbacks() {
                 if (!this->app->procm->has(uri)) {
                     this->app->logger->debug("Attempting to start single process for uri '" + uri + "'");
                     
-                    // Use original program args to spawn new instance
                     std::vector<std::string> args = this->app->orig_args;
                     if (args.size() > 1) {
-                        // Replace/add the page argument
                         args.resize(2);
                         args[1] = uri;
                     } else {
@@ -1472,7 +1588,6 @@ WF* WF::setProcessCallbacks() {
             } else {
                 this->app->logger->debug("Attempting to start process for uri '" + uri + "'");
                 
-                // Generate unique key for non-single windows
                 std::string unique_key = uri + "_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
                 
                 std::vector<std::string> args = this->app->orig_args;
@@ -1499,7 +1614,6 @@ WF* WF::setSignalCallbacks() {
             int signal_num = params[0].as_int64();
             std::string callback_name = params[1].as_string().c_str();
             
-            // Register signal handler that evaluates JS callback
             this->app->signalm->add(signal_num, [this, callback_name](int sig) {
                 std::string js_code = callback_name + "(" + std::to_string(sig) + ");";
                 this->app->w->eval(js_code);
@@ -1518,8 +1632,6 @@ WF* WF::setSignalCallbacks() {
     }))->add("signal_clear",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            // Clear only user-defined signal callbacks
-            // Const signals (SIGINT/SIGTERM/SIGABRT) remain for proper cleanup
             this->app->signalm->clear();
             return json::value(nullptr);
     }))->add("signal_count",
@@ -1549,7 +1661,18 @@ WF* WF::setDebugCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("open_devtools not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("open_devtools not yet implemented for Apple");
+            // macOS WKWebView inspector
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    id config = [webview configuration];
+                    id preferences = [config preferences];
+                    [preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+                    // Show the inspector
+                    [(id)[webview performSelector:@selector(_inspector)] performSelector:@selector(show)];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitWebInspector* inspector = webkit_web_view_get_inspector(WEBKIT_WEB_VIEW(webview_widget));
@@ -1562,24 +1685,18 @@ WF* WF::setDebugCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("close_devtools not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("close_devtools not yet implemented for Apple");
+            // macOS WKWebView inspector close
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    [(id)[webview performSelector:@selector(_inspector)] performSelector:@selector(close)];
+                }
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitWebInspector* inspector = webkit_web_view_get_inspector(WEBKIT_WEB_VIEW(webview_widget));
             webkit_web_inspector_close(inspector);
-        #endif
-            return json::value(nullptr);
-    }))->add("remove_all_css",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            (void)req;
-        #if defined(_WIN32)
-            this->app->logger->warn("remove_all_css not yet implemented for Windows");
-        #elif defined(__APPLE__)
-            this->app->logger->warn("remove_all_css not yet implemented for Apple");
-        #elif defined(__linux__)
-            auto webview_widget = this->app->w->widget().value();
-            WebKitUserContentManager* content_manager = webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(webview_widget));
-            webkit_user_content_manager_remove_all_style_sheets(content_manager);
         #endif
             return json::value(nullptr);
     }));
@@ -1596,7 +1713,14 @@ WF* WF::setNetworkCallbacks() {
             this->app->logger->warn("get_load_progress not yet implemented for Windows");
             return json::value(0.0);
         #elif defined(__APPLE__)
-            this->app->logger->warn("get_load_progress not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                if (webview) {
+                    double progress = [[webview valueForKey:@"estimatedProgress"] doubleValue];
+                    return json::value(progress);
+                }
+            }
             return json::value(0.0);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
@@ -1610,7 +1734,12 @@ WF* WF::setNetworkCallbacks() {
             this->app->logger->warn("is_loading not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
-            this->app->logger->warn("is_loading not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                BOOL loading = [[webview valueForKey:@"isLoading"] boolValue];
+                return json::value(static_cast<bool>(loading));
+            }
             return json::value(false);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
@@ -1630,7 +1759,11 @@ WF* WF::setNavigateCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("navigate_back not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("navigate_back not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                [webview performSelector:@selector(goBack)];
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_go_back(WEBKIT_WEB_VIEW(webview_widget));
@@ -1642,7 +1775,11 @@ WF* WF::setNavigateCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("navigate_forward not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("navigate_forward not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                [webview performSelector:@selector(goForward)];
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_go_forward(WEBKIT_WEB_VIEW(webview_widget));
@@ -1654,7 +1791,11 @@ WF* WF::setNavigateCallbacks() {
         #if defined(_WIN32)
             this->app->logger->warn("stop_loading not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("stop_loading not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                [webview stopLoading];
+            }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             webkit_web_view_stop_loading(WEBKIT_WEB_VIEW(webview_widget));
@@ -1667,7 +1808,12 @@ WF* WF::setNavigateCallbacks() {
             this->app->logger->warn("can_go_back not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
-            this->app->logger->warn("can_go_back not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                BOOL canGo = (BOOL)[webview canGoBack];
+                return json::value(static_cast<bool>(canGo));
+            }
             return json::value(false);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
@@ -1681,7 +1827,12 @@ WF* WF::setNavigateCallbacks() {
             this->app->logger->warn("can_go_forward not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
-            this->app->logger->warn("can_go_forward not yet implemented for Apple");
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                id webview = getWKWebViewFromWindow(window_result.value());
+                BOOL canGo = (BOOL)[webview canGoForward];
+                return json::value(static_cast<bool>(canGo));
+            }
             return json::value(false);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();

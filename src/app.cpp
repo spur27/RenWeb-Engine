@@ -20,12 +20,22 @@
 #include <iostream>
 #endif
 
+#if defined(__APPLE__)
+#include <objc/message.h>
+#endif
+
 #if defined(_WIN32)
 #include <windows.h>
 #include <urlmon.h>
 #include <shellapi.h>
 #pragma comment(lib, "urlmon.lib")
 #pragma comment(lib, "shell32.lib")
+#endif
+
+#if defined(__APPLE__)
+#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
 #endif
 
 using namespace RenWeb;
@@ -171,12 +181,10 @@ void AppBuilder::performDependencyCheck() {
 std::unique_ptr<App> AppBuilder::build() {  
     auto app = std::unique_ptr<App>(new App());
     
-    // Initialize orig_args first as it has no dependencies
     app->orig_args = (argc == 0)
         ? std::vector<std::string>({Locate::executable().string()})
         : std::vector<std::string>(this->argv, this->argv + this->argc);
     
-    // Initialize logger (no dependencies)
     if (this->logger == nullptr) {      
         this->withLogger(std::make_unique<Logger>(std::make_unique<LogFlags>(LogFlags{
             .log_silent = opts.at("log_silent") == "true",
@@ -190,7 +198,6 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->logger = this->logger;
     
-    // Check for required dependencies (requires logger)
     try {
         this->performDependencyCheck();
     } catch (const std::exception& e) {
@@ -198,7 +205,6 @@ std::unique_ptr<App> AppBuilder::build() {
         std::exit(1);
     }
     
-    // Initialize info (requires logger)
     if (this->info == nullptr) {
         this->withInfo(std::make_unique<JSON>(
             this->logger, 
@@ -207,7 +213,6 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->info = std::move(this->info);
     
-    // Initialize config (requires logger)
     if (this->config == nullptr) {
         this->validateOpt("page");
         this->withConfig(std::make_unique<Config>(
@@ -218,7 +223,6 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->config = std::move(this->config);
 
-    // Initialize managers (no dependencies on app members)
     if (this->procm == nullptr) {
         this->withProcessManager(std::make_unique<ProcessManager<std::string>>());
     }
@@ -234,19 +238,16 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->pipem = std::move(this->pipem);
 
-    // Initialize webview (no dependencies on app members)
     if (this->w == nullptr) {
         this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
     }
     app->w = std::move(this->w);
     
-    // Initialize signal manager (requires app with logger, w)
     if (this->signalm == nullptr) {
         this->withSignalManager(std::make_unique<SignalManager>(app.get()));
     }
     app->signalm = std::move(this->signalm);
 
-    // Initialize web server (requires app with logger, info, config)
     if (this->ws == nullptr) {
         this->validateOpt("ip");
         this->validateOpt("port");
@@ -258,7 +259,6 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->ws = std::move(this->ws);
     
-    // Initialize window functions (requires app with all above members)
     if (this->fns == nullptr) {
         this->withWindowFunctions(std::make_unique<WindowFunctions>(app.get()));
     }
@@ -324,24 +324,123 @@ void App::processPermissions() {
     this->logger->critical("Windows permission handling not yet implemented");
     
 #elif defined(__APPLE__)
-    // macOS WebKit permissions are handled via WKUIDelegate methods
-    // TODO: Implement WKUIDelegate permission methods
-    this->logger->critical("macOS permission handling not yet implemented");
+    // NOTE: macOS WebKit permissions are handled via WKUIDelegate
+    auto window_result = this->w->window();
+    if (!window_result.has_value()) {
+        this->logger->error("Failed to get window for permission setup");
+        return;
+    }
+    
+    id nsWindow = (__bridge id)window_result.value();
+    id contentView = [nsWindow contentView];
+    id webview = nil;
+    
+    NSArray* subviews = [contentView subviews];
+    for (id view in subviews) {
+        if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+            webview = view;
+            break;
+        }
+    }
+    
+    if (!webview) {
+        this->logger->error("Failed to find WKWebView for permission setup");
+        return;
+    }
+    
+    id config = [webview configuration];
+    id preferences = [config preferences];
+    
+    [preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+    [preferences setValue:@YES forKey:@"javaScriptEnabled"];
+    
+    const json::value& perms_from_info = this->info->getProperty("permissions");
+    const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+    
+    auto check_permission = [&](const char* key, bool default_value) -> bool {
+        return (perms.contains(key) && perms.at(key).is_bool())
+            ? perms.at(key).as_bool()
+            : default_value;
+    };
+    
+    static Class delegateClass = nil;
+    if (!delegateClass) {
+        delegateClass = objc_allocateClassPair([NSObject class], "RenWebPermissionDelegate", 0);
+        
+        // Add requestMediaCapturePermission method (for camera/microphone)
+        IMP requestMediaImp = imp_implementationWithBlock(^(id self, id webView, id origin, id frame, id type, id decisionHandler) {
+            App* app = (__bridge App*)objc_getAssociatedObject(self, "app");
+            const json::value& perms_from_info = app->info->getProperty("permissions");
+            const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+            bool allowed = (perms.contains("media_devices") && perms.at("media_devices").is_bool()) 
+                ? perms.at("media_devices").as_bool() : false;
+            app->logger->info("Media capture permission request: " + std::string(allowed ? "allowing" : "denying"));
+            void (^handler)(int) = decisionHandler;
+            handler(allowed ? 1 : 0); // WKPermissionDecisionGrant = 1, WKPermissionDecisionDeny = 0
+        });
+        class_addMethod(delegateClass, NSSelectorFromString(@"webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"),
+                       requestMediaImp, "v@:@@@@@");
+        
+        // Add requestDeviceOrientationAndMotionPermission method
+        IMP requestDeviceImp = imp_implementationWithBlock(^(id self, id webView, id origin, id frame, id decisionHandler) {
+            App* app = (__bridge App*)objc_getAssociatedObject(self, "app");
+            const json::value& perms_from_info = app->info->getProperty("permissions");
+            const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+            bool allowed = (perms.contains("device_info") && perms.at("device_info").is_bool()) 
+                ? perms.at("device_info").as_bool() : true;
+            app->logger->info("Device orientation/motion permission request: " + std::string(allowed ? "allowing" : "denying"));
+            void (^handler)(int) = decisionHandler;
+            handler(allowed ? 1 : 0);
+        });
+        class_addMethod(delegateClass, NSSelectorFromString(@"webView:requestDeviceOrientationAndMotionPermissionForOrigin:initiatedByFrame:decisionHandler:"),
+                       requestDeviceImp, "v@:@@@@");
+        
+        objc_registerClassPair(delegateClass);
+    }
+    
+    id delegate = [[delegateClass alloc] init];
+    objc_setAssociatedObject(delegate, "app", (__bridge id)this, OBJC_ASSOCIATION_ASSIGN);
+    [webview setUIDelegate:delegate];
 #endif
     this->logger->info("Permissions have been set.");
 }
 
 void App::run() {
+    // Hide window initially if config says so
+    const json::value& prop = this->config->getProperty("initially_shown");
+    if (prop.is_bool() && !prop.as_bool()) {
+    #if defined(__linux__)
+        auto window_result = this->w->window();
+        if (window_result.has_value()) {
+            GtkWidget* window = GTK_WIDGET(window_result.value());
+            if (window) {
+                gtk_widget_hide(window);
+            }
+        }
+    #elif defined(__APPLE__)
+        auto window_result = this->w->window();
+        if (window_result.has_value()) {
+            id window = (id)window_result.value();
+            if (window) {
+                ((void (*)(id, SEL, id))objc_msgSend)(window, sel_registerName("orderOut:"), nullptr);
+            }
+        }
+    #elif defined(_WIN32)
+        HWND hwnd = GetActiveWindow();
+        ShowWindow(hwnd, SW_HIDE);     
+    #endif
+    }
+
     this->processPermissions();
     this->ws->start();
     this->w->navigate(this->ws->getURL());
     this->fns->setState(this->config->getJson().is_object() ? this->config->getJson().as_object() : json::object{});
-    this->w->dispatch([this](){
-        const json::value& prop = this->config->getProperty("initially_shown");
-        this->fns->window_callbacks->run(
-            "show", 
-            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
-        );
-    });
+    // this->w->dispatch([this](){
+    //     const json::value& prop = this->config->getProperty("initially_shown");
+    //     this->fns->window_callbacks->run(
+    //         "show", 
+    //         json::value((prop.is_bool()) ? (prop.as_bool()) : true)
+    //     );
+    // });
     this->w->run();
 }

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # =============================================================================
 # build_all_archs.sh - Build RenWeb for all supported architectures
@@ -20,41 +20,17 @@ CYAN='\033[36m'
 BOLD='\033[1m'
 
 # =============================================================================
-# All Supported Toolchains by OS
+# Supported Toolchains and Architectures
 # =============================================================================
 
-# Linux toolchains (12 total)
-declare -A LINUX_TOOLCHAINS=(
-    ["x86_64-linux-gnu"]="x86_64 (64-bit)"
-    ["i686-linux-gnu"]="x86_32 (32-bit)"
-    ["aarch64-linux-gnu"]="ARM64 (64-bit)"
-    ["arm-linux-gnueabihf"]="ARM32 (hard-float)"
-    ["mips-linux-gnu"]="MIPS32 (big-endian)"
-    ["mipsel-linux-gnu"]="MIPS32 (little-endian)"
-    ["mips64-linux-gnuabi64"]="MIPS64 (big-endian)"
-    ["mips64el-linux-gnuabi64"]="MIPS64 (little-endian)"
-    ["powerpc-linux-gnu"]="PowerPC32"
-    ["powerpc64-linux-gnu"]="PowerPC64"
-    ["riscv64-linux-gnu"]="RISC-V 64-bit"
-    ["s390x-linux-gnu"]="S390x (IBM Z)"
-    ["sparc64-linux-gnu"]="SPARC64"
-)
+# Linux toolchains (simple list - bash 3.2 compatible)
+LINUX_TOOLCHAINS="x86_64-linux-gnu i686-linux-gnu aarch64-linux-gnu arm-linux-gnueabihf mips-linux-gnu mipsel-linux-gnu mips64-linux-gnuabi64 mips64el-linux-gnuabi64 powerpc-linux-gnu powerpc64-linux-gnu riscv64-linux-gnu s390x-linux-gnu sparc64-linux-gnu"
 
-# macOS architectures (4 total)
-declare -A MACOS_ARCHITECTURES=(
-    ["x86_64"]="x86_64 (64-bit Intel)"
-    ["arm64"]="ARM64 (Apple Silicon)"
-    ["x86_32"]="x86_32 (32-bit Intel)"
-    ["armv7"]="ARM32 (armv7)"
-)
+# macOS architectures
+MACOS_ARCHITECTURES="arm64 x86_64"
 
-# Windows architectures (4 total)
-declare -A WINDOWS_ARCHITECTURES=(
-    ["x64"]="x86_64 (64-bit)"
-    ["x86"]="x86_32 (32-bit)"
-    ["arm64"]="ARM64 (64-bit)"
-    ["arm"]="ARM32 (32-bit)"
-)
+# Windows architectures  
+WINDOWS_ARCHITECTURES="x64 x86 arm64 arm"
 
 # =============================================================================
 # Helper Functions
@@ -219,7 +195,7 @@ build_linux() {
     echo ""
     
     # Build for each available cross-compiler toolchain (skip host toolchain)
-    for toolchain in "${!LINUX_TOOLCHAINS[@]}"; do
+    for toolchain in $LINUX_TOOLCHAINS; do
         # Skip the host toolchain since we already built it natively
         if [ "$toolchain" = "$host_toolchain" ]; then
             print_info "Skipping $toolchain (already built natively)"
@@ -229,13 +205,13 @@ build_linux() {
         total_count=$((total_count + 1))
         
         if toolchain_exists "$toolchain"; then
-            if build_for_toolchain "$toolchain" "${LINUX_TOOLCHAINS[$toolchain]}" "$target"; then
+            if build_for_toolchain "$toolchain" "$toolchain" "$target"; then
                 success_count=$((success_count + 1))
             else
                 fail_count=$((fail_count + 1))
             fi
         else
-            print_warning "Toolchain $toolchain not found, skipping ${LINUX_TOOLCHAINS[$toolchain]}"
+            print_warning "Toolchain $toolchain not found, skipping"
             fail_count=$((fail_count + 1))
         fi
         echo ""
@@ -259,7 +235,7 @@ build_macos() {
     local fail_count=0
     local total_count=0
     
-    print_header "Building for macOS - All Architectures (4 total)"
+    print_header "Building for macOS - Multiple Architectures"
     print_info "Host architecture: $HOST_ARCH"
     echo ""
     
@@ -268,49 +244,77 @@ build_macos() {
         return 1
     fi
     
+    # Check if Xcode Command Line Tools are installed
+    if ! xcode-select -p >/dev/null 2>&1; then
+        print_error "Xcode Command Line Tools not installed!"
+        print_info "Installing Xcode Command Line Tools..."
+        if xcode-select --install 2>&1; then
+            print_info "Please wait for installation to complete, then run this script again"
+            return 1
+        fi
+    fi
+    
     local ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
     
-    # Build for each macOS architecture
-    for arch in "${!MACOS_ARCHITECTURES[@]}"; do
+    # Supported macOS architectures for cross-compilation
+    # arm64: Apple Silicon (M1, M2, M3, etc.)
+    # x86_64: Intel 64-bit
+    # Both can be cross-compiled with Xcode SDK
+    local SUPPORTED_ARCHS="arm64 x86_64"
+    
+    print_info "Supported architectures: $SUPPORTED_ARCHS"
+    print_info "Note: macOS cross-compilation uses -arch flag with Xcode SDK"
+    echo ""
+    
+    # Build for each supported architecture
+    for arch in $SUPPORTED_ARCHS; do
         total_count=$((total_count + 1))
-        local arch_desc="${MACOS_ARCHITECTURES[$arch]}"
         
-        # Determine if this is the native architecture
-        local is_native=false
-        if [[ "$HOST_ARCH" == "$arch" ]] || [[ "$HOST_ARCH" == "arm64" && "$arch" == "arm64" ]] || [[ "$HOST_ARCH" == "x86_64" && "$arch" == "x86_64" ]]; then
-            is_native=true
-            print_info "Building native architecture: $arch_desc"
+        print_building "$arch" "clang++ -arch $arch"
+        
+        # Clear object files but keep binaries from previous arch builds
+        # Use 'make clear' which only removes objects, not executables
+        make clear >/dev/null 2>&1
+        
+        # Pass ARCH to makefile for filename and ARCH_FLAGS for compilation
+        # The makefile will use ARCH in the output name and append ARCH_FLAGS to CXXFLAGS/LDFLAGS
+        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET="$target" -j$ncpu 2>&1; then
+            print_success "Built for $arch successfully"
+            success_count=$((success_count + 1))
         else
-            print_info "Cross-building for: $arch_desc"
-        fi
-        
-        print_building "$arch_desc" "clang++ -arch $arch"
-        
-        # Set up architecture-specific flags
-        local arch_flags=""
-        case "$arch" in
-            x86_32)
-                arch_flags="-m32"
-                ;;
-            x86_64|arm64|armv7)
-                arch_flags="-arch $arch"
-                ;;
-        esac
-        
-        if make clear TARGET="$target" >/dev/null 2>&1; then
-            if make TARGET="$target" CXXFLAGS="$arch_flags" -j$ncpu 2>&1; then
-                print_success "Built for $arch_desc successfully"
-                success_count=$((success_count + 1))
-            else
-                print_warning "Failed to build for $arch_desc"
-                fail_count=$((fail_count + 1))
-            fi
-        else
-            print_warning "Failed to clear for $arch_desc"
+            print_error "Failed to build for $arch"
             fail_count=$((fail_count + 1))
         fi
         echo ""
     done
+    
+    # If we built both architectures successfully, offer to create universal binary
+    if [ $success_count -eq 2 ]; then
+        print_info "Creating universal binary (arm64 + x86_64)..."
+        
+        # Find the two binaries
+        local arm64_bin=$(ls ./programs/renweb-*-apple-arm64 2>/dev/null | head -1)
+        local x86_64_bin=$(ls ./programs/renweb-*-apple-x86_64 2>/dev/null | head -1)
+        
+        if [ -n "$arm64_bin" ] && [ -n "$x86_64_bin" ]; then
+            # Extract version from info.json
+            local version=$(grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4)
+            local universal_bin="./programs/renweb-${version}-apple-universal"
+            
+            if lipo -create "$arm64_bin" "$x86_64_bin" -output "$universal_bin" 2>/dev/null; then
+                print_success "Universal binary created: $universal_bin"
+                success_count=$((success_count + 1))
+                
+                # Verify the universal binary contains both architectures
+                print_info "Universal binary architectures:"
+                lipo -info "$universal_bin"
+            else
+                print_warning "Could not create universal binary (lipo failed)"
+            fi
+        else
+            print_warning "Could not find both architecture binaries to create universal binary"
+        fi
+    fi
     
     # Print summary
     print_header "Build Summary"
@@ -376,28 +380,22 @@ build_windows() {
         current_arch="x64"
     fi
     
-    # Map to our architecture naming
-    current_arch_name="${WINDOWS_ARCHITECTURES[$current_arch]}"
-    if [ -z "$current_arch_name" ]; then
-        current_arch_name="$current_arch"
-    fi
-    
     # Build for the current architecture environment
-    print_info "Building for $current_arch_name (VS environment: $current_arch)"
+    print_info "Building for $current_arch (VS environment)"
     total_count=$((total_count + 1))
     
-    print_building "$current_arch_name" "cl.exe"
+    print_building "$current_arch" "cl.exe"
     
     if make clear TARGET="$target" 2>&1 | grep -v "^make"; then
         if make TARGET="$target" -j4 2>&1; then
-            print_success "Built for $current_arch_name successfully"
+            print_success "Built for $current_arch successfully"
             success_count=$((success_count + 1))
         else
-            print_error "Failed to build for $current_arch_name"
+            print_error "Failed to build for $current_arch"
             fail_count=$((fail_count + 1))
         fi
     else
-        print_error "Failed to clear for $current_arch_name"
+        print_error "Failed to clear for $current_arch"
         fail_count=$((fail_count + 1))
     fi
     echo ""
@@ -419,7 +417,7 @@ build_windows() {
     print_info "Or manually run this script in different VS Developer Command Prompt sessions:"
     echo ""
     echo "  For each architecture:"
-    for arch in "${!WINDOWS_ARCHITECTURES[@]}"; do
+    for arch in $WINDOWS_ARCHITECTURES; do
         local vcvars_script=""
         case "$arch" in
             x64) vcvars_script="vcvars64.bat" ;;
@@ -427,7 +425,7 @@ build_windows() {
             arm64) vcvars_script="vcvarsamd64_arm64.bat" ;;
             arm) vcvars_script="vcvarsamd64_arm.bat" ;;
         esac
-        echo "    $arch (${WINDOWS_ARCHITECTURES[$arch]}): Run $vcvars_script then this script"
+        echo "    $arch: Run $vcvars_script then this script"
     done
 }
 
