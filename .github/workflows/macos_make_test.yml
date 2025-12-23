@@ -27,7 +27,7 @@ jobs:
         git submodule update --init --recursive libs/process libs/json libs/program_options libs/system libs/config libs/core libs/asio libs/filesystem
         ./bootstrap.sh
         ./b2 headers
-        ./b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
+        ./b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 cxxflags="-std=c++17 -mmacosx-version-min=10.15" linkflags="-mmacosx-version-min=10.15" stage
         mkdir -p ../../lib
         cp stage/lib/*.a ../../lib/
 
