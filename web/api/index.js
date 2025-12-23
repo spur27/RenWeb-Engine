@@ -216,8 +216,6 @@ export var Debug;
     Debug.openDevtools = openDevtools;
     async function closeDevtools() { await BIND_close_devtools(null); }
     Debug.closeDevtools = closeDevtools;
-    async function removeAllCss() { await BIND_remove_all_css(null); }
-    Debug.removeAllCss = removeAllCss;
 })(Debug || (Debug = {}));
 export var Network;
 (function (Network) {

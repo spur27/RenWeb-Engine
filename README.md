@@ -338,6 +338,7 @@ This repository uses the following open-source libraries:
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
 - Parent processes do not kill children (even though they should)
+- `print_page` doesn't work on mac (prints blank screen)
 
 ## License
 

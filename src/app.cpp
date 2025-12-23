@@ -409,38 +409,21 @@ void App::run() {
     // Hide window initially if config says so
     const json::value& prop = this->config->getProperty("initially_shown");
     if (prop.is_bool() && !prop.as_bool()) {
-    #if defined(__linux__)
-        auto window_result = this->w->window();
-        if (window_result.has_value()) {
-            GtkWidget* window = GTK_WIDGET(window_result.value());
-            if (window) {
-                gtk_widget_hide(window);
-            }
-        }
-    #elif defined(__APPLE__)
-        auto window_result = this->w->window();
-        if (window_result.has_value()) {
-            id window = (id)window_result.value();
-            if (window) {
-                ((void (*)(id, SEL, id))objc_msgSend)(window, sel_registerName("orderOut:"), nullptr);
-            }
-        }
-    #elif defined(_WIN32)
-        HWND hwnd = GetActiveWindow();
-        ShowWindow(hwnd, SW_HIDE);     
-    #endif
+        this->fns->window_callbacks->run(
+            "show", 
+            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
+        );
     }
-
     this->processPermissions();
     this->ws->start();
     this->w->navigate(this->ws->getURL());
     this->fns->setState(this->config->getJson().is_object() ? this->config->getJson().as_object() : json::object{});
-    // this->w->dispatch([this](){
-    //     const json::value& prop = this->config->getProperty("initially_shown");
-    //     this->fns->window_callbacks->run(
-    //         "show", 
-    //         json::value((prop.is_bool()) ? (prop.as_bool()) : true)
-    //     );
-    // });
+    this->w->dispatch([this, prop](){
+        // (performed so it works on linux)
+        this->fns->window_callbacks->run(
+            "show", 
+            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
+        );
+    });
     this->w->run();
 }

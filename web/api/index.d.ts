@@ -33,7 +33,7 @@ export declare namespace Window {
     function show(is_window_shown?: boolean): Promise<void>;
     function changeTitle(title: string): Promise<void>;
     function resetTitle(): Promise<void>;
-    function getCurrentTitle(): Promise<string>;
+    function currentTitle(): Promise<string>;
     function reloadPage(): Promise<void>;
     function closeWindow(): Promise<void>;
     function terminate(): Promise<void>;
@@ -86,7 +86,6 @@ export declare namespace Debug {
     function clearConsole(): Promise<void>;
     function openDevtools(): Promise<void>;
     function closeDevtools(): Promise<void>;
-    function removeAllCss(): Promise<void>;
 }
 export declare namespace Network {
     function getLoadProgress(): Promise<number>;
