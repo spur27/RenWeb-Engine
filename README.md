@@ -308,9 +308,9 @@ Available Options:
   -v, --version                  Display version from info.json
   
 Logging:
-  -ls, --log-silent             Suppress console log output
-  -ll, --log-level <n>          Set log level (0=trace, 5=critical, default=2)
-  -lc, --log-clear              Clear log.txt before starting
+  -s, --log-silent             Suppress console log output
+  -l, --log-level <n>          Set log level (0=trace, 5=critical, default=2)
+  -c, --log-clear              Clear log.txt before starting
   
 Server:
   -i, --ip <address>            Web server IP (default: 127.0.0.1)
@@ -338,7 +338,6 @@ This repository uses the following open-source libraries:
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
   - Problem on MacOS 10.15 and will likely persist on applications with lesser hardware
-- Parent processes do not kill children (even though they should)
 - `print_page` doesn't work on mac (prints blank screen)
 
 ## License

@@ -43,7 +43,7 @@ using JSON = RenWeb::JSON;
 
 void AppBuilder::validateOpt(const std::string& opt) {
     if (this->opts.find(opt) == this->opts.end()) {
-        throw std::runtime_error("Option '" + opt + "' missing in opts!");
+        throw std::runtime_error("[app builder] Option '" + opt + "' missing in opts!");
     }
 }
 
@@ -107,14 +107,14 @@ AppBuilder* AppBuilder::withWindowFunctions(std::unique_ptr<WindowFunctions> fns
 void AppBuilder::performDependencyCheck() {
 #if defined(__linux__)
     if (system("which gst-inspect-1.0 > /dev/null 2>&1") != 0) {
-        this->logger->warn("gst-inspect-1.0 not found. GStreamer may not be installed.");
-        this->logger->warn("HTML5 media playback will not work without GStreamer.");
-        this->logger->warn("Installation guide: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
+        this->logger->warn("[app] gst-inspect-1.0 not found. GStreamer may not be installed.");
+        this->logger->warn("[app] HTML5 media playback will not work without GStreamer.");
+        this->logger->warn("[app] Installation guide: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
     } else {
         if (system("gst-inspect-1.0 x264enc > /dev/null 2>&1") != 0) {
-            this->logger->warn("GStreamer plugins-ugly not detected (MP3 codec support missing).");
-            this->logger->warn("This package may have patent/licensing restrictions in some jurisdictions.");
-            this->logger->warn("Install at your own discretion: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
+            this->logger->warn("[app] GStreamer plugins-ugly not detected (MP3 codec support missing).");
+            this->logger->warn("[app] This package may have patent/licensing restrictions in some jurisdictions.");
+            this->logger->warn("[app] Install at your own discretion: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
         }
     }
 #elif defined(_WIN32)
@@ -128,7 +128,7 @@ void AppBuilder::performDependencyCheck() {
     );
     
     if (result != ERROR_SUCCESS) {
-        this->logger->warn("WebView2 Runtime not found. Downloading installer...");
+        this->logger->warn("[app] WebView2 Runtime not found. Downloading installer...");
         
         // Download to temp directory
         char tempPath[MAX_PATH];
@@ -145,12 +145,12 @@ void AppBuilder::performDependencyCheck() {
         );
         
         if (FAILED(hr)) {
-            this->logger->error("Failed to download WebView2 installer.");
-            this->logger->error("Please download manually: https://developer.microsoft.com/microsoft-edge/webview2/");
-            throw std::runtime_error("WebView2 not installed");
+            this->logger->error("[app] Failed to download WebView2 installer.");
+            this->logger->error("[app] Please download manually: https://developer.microsoft.com/microsoft-edge/webview2/");
+            throw std::runtime_error("[app] WebView2 not installed");
         }
-        
-        this->logger->info("Download complete. Launching installer...");
+
+        this->logger->info("[app] Download complete. Launching installer...");
         
         // Launch installer and wait for completion
         SHELLEXECUTEINFOA sei = { sizeof(sei) };
@@ -160,8 +160,8 @@ void AppBuilder::performDependencyCheck() {
         
         if (!ShellExecuteExA(&sei) || !sei.hProcess) {
             DeleteFileA(installerPath.c_str());
-            this->logger->error("Failed to launch WebView2 installer.");
-            throw std::runtime_error("Failed to launch installer");
+            this->logger->error("[app] Failed to launch WebView2 installer.");
+            throw std::runtime_error("[app] Failed to launch installer");
         }
         
         // Wait for installer to complete
@@ -170,21 +170,15 @@ void AppBuilder::performDependencyCheck() {
         
         // Clean up
         DeleteFileA(installerPath.c_str());
-        
-        this->logger->info("WebView2 installation complete. Continuing...");
+
+        this->logger->info("[app] WebView2 installation complete. Continuing...");
     } else {
         RegCloseKey(hKey);
     }
 #endif
 }
 
-std::unique_ptr<App> AppBuilder::build() {  
-    auto app = std::unique_ptr<App>(new App());
-    
-    app->orig_args = (argc == 0)
-        ? std::vector<std::string>({Locate::executable().string()})
-        : std::vector<std::string>(this->argv, this->argv + this->argc);
-    
+std::unique_ptr<App> AppBuilder::build() {      
     if (this->logger == nullptr) {      
         this->withLogger(std::make_unique<Logger>(std::make_unique<LogFlags>(LogFlags{
             .log_silent = opts.at("log_silent") == "true",
@@ -196,12 +190,16 @@ std::unique_ptr<App> AppBuilder::build() {
             {"page", opts.at("page")}
         });
     }
-    app->logger = this->logger;
+
+    auto app = std::unique_ptr<App>(new App(this->logger));
+    app->orig_args = (argc == 0)
+        ? std::vector<std::string>({Locate::executable().string()})
+        : std::vector<std::string>(this->argv, this->argv + this->argc);
     
     try {
         this->performDependencyCheck();
     } catch (const std::exception& e) {
-        app->logger->critical(e.what());
+        this->logger->critical("[app] " + std::string(e.what()));
         std::exit(1);
     }
     
@@ -224,17 +222,17 @@ std::unique_ptr<App> AppBuilder::build() {
     app->config = std::move(this->config);
 
     if (this->procm == nullptr) {
-        this->withProcessManager(std::make_unique<ProcessManager<std::string>>());
+        this->withProcessManager(std::make_unique<ProcessManager<std::string>>(this->logger));
     }
     app->procm = std::move(this->procm);
     
     if (this->daem == nullptr) {
-        this->withDaemonManager(std::make_unique<DaemonManager<std::string>>());
+        this->withDaemonManager(std::make_unique<DaemonManager<std::string>>(this->logger));
     }
     app->daem = std::move(this->daem);
     
     if (this->pipem == nullptr) {
-        this->withPipeManager(std::make_unique<PipeManager<std::string>>());
+        this->withPipeManager(std::make_unique<PipeManager<std::string>>(this->logger));
     }
     app->pipem = std::move(this->pipem);
 
@@ -242,9 +240,26 @@ std::unique_ptr<App> AppBuilder::build() {
         this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
     }
     app->w = std::move(this->w);
-    
+
     if (this->signalm == nullptr) {
-        this->withSignalManager(std::make_unique<SignalManager>(app.get()));
+        this->withSignalManager(std::make_unique<SignalManager>(
+            this->logger,
+            std::map<int, std::function<void(int)>>{
+                {SIGINT, [&app](int signal) {
+                    (void)signal;
+                    if (app && app->w)
+                        app->w->terminate();
+                }}, {SIGTERM, [&app](int signal) {
+                    (void)signal;
+                    if (app && app->signalm)
+                        app->signalm->trigger(SIGINT);
+                }}, {SIGABRT, [&app](int signal) {
+                    (void)signal;
+                    if (app && app->signalm)
+                        app->signalm->trigger(SIGINT);
+                }}
+            }
+        ));
     }
     app->signalm = std::move(this->signalm);
 
@@ -252,15 +267,16 @@ std::unique_ptr<App> AppBuilder::build() {
         this->validateOpt("ip");
         this->validateOpt("port");
         this->withWebServer(std::make_unique<WebServer>(
+            this->logger,
             app.get(),
             static_cast<unsigned short>(std::stoi(opts.at("port"))),
             opts.at("ip")
         ));
     }
     app->ws = std::move(this->ws);
-    
+
     if (this->fns == nullptr) {
-        this->withWindowFunctions(std::make_unique<WindowFunctions>(app.get()));
+        this->withWindowFunctions(std::make_unique<WindowFunctions>(this->logger, app.get()));
     }
     app->fns = std::move(this->fns);
 
@@ -275,7 +291,7 @@ void App::processPermissions() {
 #if defined(__linux__)
     auto widget_result = this->w->widget();
     if (!widget_result.has_value()) {
-        this->logger->error("Failed to get webview widget for permission setup");
+        this->logger->error("[app] Failed to get webview widget for permission setup");
         return;
     }
     WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
@@ -296,22 +312,22 @@ void App::processPermissions() {
         bool allowed = false;
         if (WEBKIT_IS_GEOLOCATION_PERMISSION_REQUEST(request)) {
             allowed = check_permission("geolocation", false);
-            app->logger->info("Geolocation permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Geolocation permission request: " + std::string(allowed ? "allowing" : "denying"));
         } else if (WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request)) {
             allowed = check_permission("notifications", true);
-            app->logger->info("Notifications permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Notifications permission request: " + std::string(allowed ? "allowing" : "denying"));
         } else if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request)) {
             allowed = check_permission("media_devices", false);
-            app->logger->info("Media devices permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Media devices permission request: " + std::string(allowed ? "allowing" : "denying"));
         } else if (WEBKIT_IS_POINTER_LOCK_PERMISSION_REQUEST(request)) {
             allowed = check_permission("pointer_lock", false);
-            app->logger->info("Pointer lock permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Pointer lock permission request: " + std::string(allowed ? "allowing" : "denying"));
         } else if (WEBKIT_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
             allowed = check_permission("install_missing_media_plugins", true);
-            app->logger->info("Install missing media plugins permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Install missing media plugins permission request: " + std::string(allowed ? "allowing" : "denying"));
         } else if (WEBKIT_DEVICE_INFO_PERMISSION_REQUEST(request)) {
             allowed = check_permission("device_info", true);
-            app->logger->info("Device info permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Device info permission request: " + std::string(allowed ? "allowing" : "denying"));
         }
         
         allowed ? webkit_permission_request_allow(request) : webkit_permission_request_deny(request);
@@ -321,13 +337,13 @@ void App::processPermissions() {
 #elif defined(_WIN32)
     // Windows WebView2 permissions are handled via ICoreWebView2::add_PermissionRequested
     // TODO: Implement permission request handler
-    this->logger->critical("Windows permission handling not yet implemented");
+    this->logger->critical("[app] Windows permission handling not yet implemented");
     
 #elif defined(__APPLE__)
     // NOTE: macOS WebKit permissions are handled via WKUIDelegate
     auto window_result = this->w->window();
     if (!window_result.has_value()) {
-        this->logger->error("Failed to get window for permission setup");
+        this->logger->error("[app] Failed to get window for permission setup");
         return;
     }
     
@@ -344,7 +360,7 @@ void App::processPermissions() {
     }
     
     if (!webview) {
-        this->logger->error("Failed to find WKWebView for permission setup");
+        this->logger->error("[app] Failed to find WKWebView for permission setup");
         return;
     }
     
@@ -374,7 +390,7 @@ void App::processPermissions() {
             const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
             bool allowed = (perms.contains("media_devices") && perms.at("media_devices").is_bool()) 
                 ? perms.at("media_devices").as_bool() : false;
-            app->logger->info("Media capture permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Media capture permission request: " + std::string(allowed ? "allowing" : "denying"));
             void (^handler)(int) = decisionHandler;
             handler(allowed ? 1 : 0); // WKPermissionDecisionGrant = 1, WKPermissionDecisionDeny = 0
         });
@@ -388,7 +404,7 @@ void App::processPermissions() {
             const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
             bool allowed = (perms.contains("device_info") && perms.at("device_info").is_bool()) 
                 ? perms.at("device_info").as_bool() : true;
-            app->logger->info("Device orientation/motion permission request: " + std::string(allowed ? "allowing" : "denying"));
+            app->logger->info("[app] Device orientation/motion permission request: " + std::string(allowed ? "allowing" : "denying"));
             void (^handler)(int) = decisionHandler;
             handler(allowed ? 1 : 0);
         });
@@ -402,11 +418,10 @@ void App::processPermissions() {
     objc_setAssociatedObject(delegate, "app", (__bridge id)this, OBJC_ASSOCIATION_ASSIGN);
     [webview setUIDelegate:delegate];
 #endif
-    this->logger->info("Permissions have been set.");
+    this->logger->info("[app] Permissions have been set.");
 }
 
-void App::run() {
-    // Hide window initially if config says so
+void App::setupWindow() {
     const json::value& prop = this->config->getProperty("initially_shown");
     if (prop.is_bool() && !prop.as_bool()) {
         this->fns->window_callbacks->run(
@@ -414,16 +429,21 @@ void App::run() {
             json::value((prop.is_bool()) ? (prop.as_bool()) : true)
         );
     }
-    this->processPermissions();
+}
+
+void App::run() {
+    const json::object current_state = this->config->getJson().is_object() 
+        ? this->config->getJson().as_object() : json::object{};
+
     this->ws->start();
-    this->w->navigate(this->ws->getURL());
-    this->fns->setState(this->config->getJson().is_object() ? this->config->getJson().as_object() : json::object{});
-    this->w->dispatch([this, prop](){
-        // (performed so it works on linux)
-        this->fns->window_callbacks->run(
-            "show", 
-            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
-        );
+
+    this->processPermissions();
+
+    this->w->dispatch([this, current_state](){
+        this->setupWindow();
+        this->fns->setState(current_state);
     });
+    
+    this->w->navigate(this->ws->getURL());
     this->w->run();
 }

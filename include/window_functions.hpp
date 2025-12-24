@@ -6,6 +6,7 @@
 #include <memory>
 #include "file.hpp"
 #include "config.hpp"
+#include "logger.hpp"
 #include "managers/in_out_manager.hpp"
 #include "managers/callback_manager.hpp"
 
@@ -22,6 +23,7 @@ namespace RenWeb {
 namespace RenWeb {
     class WindowFunctions {
         private:
+            std::shared_ptr<ILogger> logger;
             RenWeb::App* app;
             WindowFunctions* bindDefaults();
             WindowFunctions* setGetSets();
@@ -37,7 +39,6 @@ namespace RenWeb {
             WindowFunctions* setNavigateCallbacks();
             std::map<std::string, json::value> saved_states;
             
-            // Helper methods for string/character array conversion
             json::value formatOutput(const json::value& output);
             json::value formatOutput(const std::string& output);
             template<typename T>
@@ -59,9 +60,8 @@ namespace RenWeb {
             std::unique_ptr<CM> debug_callbacks;
             std::unique_ptr<CM> network_callbacks;
             std::unique_ptr<CM> navigate_callbacks;
-            
 
-            WindowFunctions(RenWeb::App* app);
+            WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app);
             ~WindowFunctions();
             WindowFunctions* bindFunction(const std::string&, std::function<std::string(std::string)>);
             WindowFunctions* unbindFunction(const std::string&);

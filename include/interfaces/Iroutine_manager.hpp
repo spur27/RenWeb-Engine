@@ -8,6 +8,7 @@ namespace RenWeb {
     template <typename Key>
     class IRoutineManager {
         public:
+            virtual ~IRoutineManager() = default;
             virtual int add(const Key& key, const std::vector<std::string>& args) = 0;
             virtual bool hasPID(const int& pid) = 0;
             virtual bool has(const Key& key) = 0;

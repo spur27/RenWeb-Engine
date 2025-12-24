@@ -42,12 +42,12 @@ json::value Config::getProperty(const std::string& key) const /*override*/ {
     try {
         json::value page = JSON::getProperty(this->current_page);
         if (page.is_null()) {
-            this->logger->error("Page '" + this->current_page + "' not found in config '" + this->file->getPath().string() + "'. Returning null.");
+            this->logger->error("[config] Page '" + this->current_page + "' not found in config '" + this->file->getPath().string() + "'. Returning null.");
             return json::value(nullptr);
         }
         return page.at(key);
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[config] property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
         return json::value(nullptr);
     }
 }
@@ -56,12 +56,12 @@ json::value Config::getDefaultProperty(const std::string& key) const {
     try {
         json::value defaults = JSON::getProperty(this->DEFAULTS_KEY);
         if (defaults.is_null()) {
-            this->logger->error("'__defaults__' section not found in config '" + this->file->getPath().string() + "'. Returning null.");
+            this->logger->error("[config] '__defaults__' section not found in config '" + this->file->getPath().string() + "'. Returning null.");
             return json::value(nullptr);
         }
         return defaults.at(key);
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[config] default property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
         return json::value(nullptr);
     }
 }
@@ -77,13 +77,13 @@ void Config::setProperty(const std::string& key, const json::value& value) /*ove
             page_obj = page.as_object();
             page_obj[key] = value;
         } else {
-            throw std::runtime_error("Page '" + this->current_page + "' in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(page) + ").");
+            throw std::runtime_error("[config] Page '" + this->current_page + "' in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(page) + ").");
         }
         
         this->json_data.as_object()[this->current_page] = page_obj;
         this->update(this->json_data.as_object());
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[config] couldn't set property '" + key + "' in page '" + this->current_page + "': " + std::string(e.what()));
     }
 }
 
@@ -98,13 +98,13 @@ void Config::setDefaultProperty(const std::string& key, const json::value& value
             defaults_obj = defaults.as_object();
             defaults_obj[key] = value;
         } else {
-            throw std::runtime_error("Defaults section in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(defaults) + ").");
+            throw std::runtime_error("[config] Defaults section in config '" + this->file->getPath().string() + "' is neither null nor an object (" + json::serialize(defaults) + ").");
         }
         
         this->json_data.as_object()[this->DEFAULTS_KEY] = defaults_obj;
         this->update(this->json_data.as_object());
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[config] couldn't set default property '" + key + "' in page '" + this->current_page + "': " + std::string(e.what()));
     }
 }
 
@@ -113,7 +113,7 @@ const json::value& Config::getJson() const /*override*/ {
     try {
         return this->json_data.as_object().at(this->current_page);
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[config] Couldn't retrieve config.json:  " + std::string(e.what()));
         static const json::value null_value = nullptr;
         return null_value;
     }

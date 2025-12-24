@@ -1,7 +1,9 @@
 #include "../include/window_functions.hpp"
+#include "json.hpp"
 #include <boost/json/object.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
+#include <memory>
 #include <sstream>
 
 #if defined(_WIN32)
@@ -48,8 +50,9 @@ static id getWKWebViewFromWindow(void* window_ptr) {
 #endif
 using CM = RenWeb::CallbackManager<std::string, json::value, const json::value&>;
 
-WF::WindowFunctions(RenWeb::App* app)
-    : app(app),
+WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
+    : logger(logger),
+      app(app),
       getsets(new IOM()),
     //   startstops(new IOM()),
       window_callbacks(new CM()),
@@ -78,7 +81,7 @@ WF::WindowFunctions(RenWeb::App* app)
 }
 
 WF::~WindowFunctions() {
-    this->app->logger->trace("Deconstructing WindowFunctions");
+    this->logger->trace("[function] Deconstructing WindowFunctions");
 }
 
 json::value WF::processInput(const std::string& input) {
@@ -88,7 +91,7 @@ json::value WF::processInput(const std::string& input) {
 json::value WF::processInput(const json::value& input) {
     switch (input.kind()) {
         case json::kind::string:
-            this->app->logger->warn("Received string in processInput(std::string)");
+            this->logger->warn("[function] Received string in processInput(std::string)");
         case json::kind::int64:
         case json::kind::double_:
         case json::kind::bool_:
@@ -99,7 +102,7 @@ json::value WF::processInput(const json::value& input) {
         case json::kind::object:
             return this->processInput(input.as_object());
         default:
-            throw std::runtime_error("Unsupported JSON value kind in processInput(std::string)");
+            throw std::runtime_error("[function] Unsupported JSON value kind in processInput(std::string)");
     }
 }
 
@@ -112,7 +115,7 @@ json::value WF::processInput(const json::object& input) {
             }
             return json::value(ss.str());
         }
-        throw std::runtime_error("Unsupported encoding type in processInput(json::object): " + std::string(input.at("__encoding_type__").as_string()));
+        throw std::runtime_error("[function] Unsupported encoding type in processInput(json::object): " + std::string(input.at("__encoding_type__").as_string()));
     } else {
         json::object processed_input;
         for (const auto& item : input) {
@@ -152,7 +155,7 @@ json::value WF::formatOutput(const json::value& output) {
             }
             return formatted_output_obj;
         default:
-            throw std::runtime_error("Unsupported JSON value kind in formatOutput");
+            throw std::runtime_error("[function] Unsupported JSON value kind in formatOutput");
     }
 }
 
@@ -181,10 +184,10 @@ json::value WF::formatOutput(const T& output) {
 json::value WF::getSingleParameter(const json::value& param) {
     if (param.is_array()) {
         if (param.as_array().size() > 1) {
-            this->app->logger->warn("Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
+            this->logger->warn("[function] Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
             return param.as_array()[0];
         } else if (param.as_array().size() == 0) {
-            this->app->logger->warn("Expected single parameter but received empty array. Using null.");
+            this->logger->warn("[function] Expected single parameter but received empty array. Using null.");
             return json::value(nullptr);
         } else {
             return param.as_array()[0];
@@ -196,12 +199,12 @@ json::value WF::getSingleParameter(const json::value& param) {
 
 WF* WF::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
     this->app->w->bind(fn_name, fn);
-    this->app->logger->trace("Bound " + fn_name);
+    this->logger->trace("[function] Bound " + fn_name);
     return this;
 }
 WF* WF::unbindFunction(const std::string& fn_name) {
     this->app->w->unbind(fn_name);
-    this->app->logger->trace("Unbound " + fn_name);
+    this->logger->trace("[function] Unbound " + fn_name);
     return this;
 }
 WF* WF::bindDefaults() {
@@ -213,7 +216,7 @@ WF* WF::bindDefaults() {
                 try {
                     return json::serialize(this->formatOutput(fn(this->processInput(req))));
                 } catch (const std::exception& e) {
-                    this->app->logger->error(std::string("[CLIENT] ") + e.what());
+                    this->logger->error(std::string("[function] ") + e.what());
                     return json::serialize(this->formatOutput(nullptr));
                 }
             });
@@ -228,7 +231,7 @@ WF* WF::bindDefaults() {
                 try {
                     return json::serialize(this->formatOutput(pair.first()));
                 } catch (const std::exception& e) {
-                    this->app->logger->error(std::string("[CLIENT] ") + e.what());
+                    this->logger->error(std::string("[function] ") + e.what());
                     return json::serialize(this->formatOutput(nullptr));
                 }
             })
@@ -236,7 +239,7 @@ WF* WF::bindDefaults() {
                 try {
                     pair.second(this->processInput(req));
                 } catch (const std::exception& e) {
-                    this->app->logger->error(std::string("[CLIENT] ") + e.what());
+                    this->logger->error(std::string("[function] ") + e.what());
                 }
                 return json::serialize(this->formatOutput(nullptr));
             });
@@ -265,17 +268,16 @@ json::object WF::getState() {
     json::object state = json::object();
     for (const auto& [key, getset] : this->getsets->getMap()) {
         try {
-            this->app->logger->info("Getting for " + key);
+            this->logger->info("[function] Getting for " + key);
             state[key] = this->get(key);
         } catch (...) { }
     }
     return state;
 }
 void WF::setState(const json::object& json) {
-    std::cout << json << std::endl;
     for (const auto& property : json) {
         try {
-            this->app->logger->info("Setting for " + std::string(property.key()));
+            this->logger->info("[function] Setting for " + std::string(property.key()));
             this->set(property.key(), property.value());
         } catch (...) { }
     }
@@ -283,7 +285,7 @@ void WF::setState(const json::object& json) {
 void WF::saveState() {
     // this->app->config->update(this->getState())
     // Page::savePageConfig(this->getState());
-    this->app->logger->critical("SAVE STATE NOT IMPLEMENTED");
+    this->logger->critical("[function] SAVE STATE NOT IMPLEMENTED");
 }
 #pragma region GetSet
 WF* WF::setGetSets() {
@@ -314,7 +316,6 @@ WF* WF::setGetSets() {
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req) {
-            // std::cout << req << std::endl;
             json::object obj = this->getSingleParameter(req).as_object();
             int width = obj.at("width").as_int64();
             int height = obj.at("height").as_int64();
@@ -468,7 +469,7 @@ WF* WF::setGetSets() {
             return json::value([nsWindow level] == NSFloatingWindowLevel);
         #elif defined(__linux__)
             if (this->saved_states.find("keepabove") == this->saved_states.end()) {
-                this->app->logger->warn("State 'keepabove' has not been set in 'saved_states' yet.");
+                this->logger->warn("[function] State 'keepabove' has not been set in 'saved_states' yet.");
                 return json::value(false);
             }
             return this->saved_states["keepabove"];
@@ -621,7 +622,7 @@ WF* WF::setGetSets() {
             DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
             return json::value((exStyle & WS_EX_TOOLWINDOW) == 0); // Inverted: toolwindow hides from taskbar
         #elif defined(__APPLE__)
-            this->app->logger->warn("getTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->warn("[function] getTaskbarShow can't be set via RenWeb on Apple");
             return json::value(true); // Default assumption
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -643,7 +644,7 @@ WF* WF::setGetSets() {
             SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
             (void)req; 
-            this->app->logger->warn("setTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->warn("[function] setTaskbarShow can't be set via RenWeb on Apple");
         #elif defined(__linux__)
             const bool taskbar_show = this->getSingleParameter(req).as_bool();
             auto window_widget = this->app->w->window().value();
@@ -675,7 +676,7 @@ WF* WF::setGetSets() {
             json::value param = this->getSingleParameter(req);
             double opacity_amt = param.is_int64() ? static_cast<double>(param.as_int64()) : param.as_double();
             if (opacity_amt > 1.0 || opacity_amt < 0.0) {
-                this->app->logger->error("Invalid opacity: " + std::to_string(opacity_amt) + " only enter values between 0.0 and 1.0 inclusive");
+                this->logger->error("[function] Invalid opacity: " + std::to_string(opacity_amt) + " only enter values between 0.0 and 1.0 inclusive");
             } else {
         #if defined(_WIN32)
                 HWND hwnd = GetActiveWindow();
@@ -687,7 +688,7 @@ WF* WF::setGetSets() {
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 [nsWindow setAlphaValue:opacity_amt];
         #elif defined(__linux__)
-                this->app->logger->warn("setOpacity has not been tested for Linux");
+                this->logger->warn("[function] setOpacity has not been tested for Linux");
                 auto window_window = this->app->w->window().value();
                 gtk_widget_set_opacity(GTK_WIDGET(window_window), opacity_amt);
         #endif
@@ -732,7 +733,6 @@ WF* WF::setWindowCallbacks() {
             if (show_window) {
                 gtk_widget_show_all(GTK_WIDGET(window_widget));
             } else {
-                this->app->logger->critical("HIDING STUFF");
                 gtk_widget_hide(GTK_WIDGET(window_widget));
                 gtk_widget_hide(GTK_WIDGET(webview_widget));
             }
@@ -765,7 +765,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             if (this->saved_states.find("current_title") == this->saved_states.end()) {
-                this->app->logger->warn("Title has not been set yet, returning empty string");
+                this->logger->warn("[function] Title has not been set yet, returning empty string");
                 return json::value(Locate::executable().filename().string());
             }
             return this->saved_states["current_title"];
@@ -782,10 +782,10 @@ WF* WF::setWindowCallbacks() {
             );
             if (uri != "_") this->app->config->current_page = uri;
             if (std::regex_match(uri, uri_regex)) {
-                this->app->logger->warn("Navigating to page " + uri);
+                this->logger->warn("[function] Navigating to page " + uri);
                 this->app->w->navigate(uri);
             } else {
-                this->app->logger->warn("Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
+                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);
@@ -797,7 +797,6 @@ WF* WF::setWindowCallbacks() {
     }))->add("start_window_drag",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->logger->info("start_window_drag called");
         #if defined(_WIN32)
             HWND hwnd = GetActiveWindow();
             ReleaseCapture();
@@ -816,9 +815,9 @@ WF* WF::setWindowCallbacks() {
             
             gint root_x, root_y;
             gdk_device_get_position(device, NULL, &root_x, &root_y);
-            
-            this->app->logger->info("Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
-            
+
+            this->logger->info("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
+
             // Use gdk_window_begin_move_drag instead - it doesn't require an event
             gdk_window_begin_move_drag(gdk_window, 1, root_x, root_y, GDK_CURRENT_TIME);
         #endif
@@ -827,9 +826,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("print_page not yet implemented for Windows");
+            this->logger->warn("[function] print_page not yet implemented for Windows");
         #elif defined(__APPLE__)
-        this->app->logger->error("Print page BROKEN on apple");    
+        this->logger->error("[function] print_page BROKEN on apple");
         auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
@@ -866,7 +865,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("zoom_in not yet implemented for Windows");
+            this->logger->warn("[function] zoom_in not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -886,7 +885,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("zoom_out not yet implemented for Windows");
+            this->logger->warn("[function] zoom_out not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -906,7 +905,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("zoom_reset not yet implemented for Windows");
+            this->logger->warn("[function] zoom_reset not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -924,7 +923,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("get_zoom_level not yet implemented for Windows");
+            this->logger->warn("[function] get_zoom_level not yet implemented for Windows");
             return json::value(1.0);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -945,7 +944,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             double zoom_level = this->getSingleParameter(req).as_double();
         #if defined(_WIN32)
-            this->app->logger->warn("set_zoom_level not yet implemented for Windows");
+            this->logger->warn("[function] set_zoom_level not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -963,7 +962,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string search_text = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
-            this->app->logger->warn("find_in_page not yet implemented for Windows");
+            this->logger->warn("[function] find_in_page not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1002,9 +1001,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("find_next not yet implemented for Windows");
+            this->logger->warn("[function] find_next not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("apple doesn't have bindings for this findNext");
+            this->logger->warn("[function] apple doesn't have bindings for this findNext");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1015,9 +1014,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("find_previous not yet implemented for Windows");
+            this->logger->warn("[function] find_previous not yet implemented for Windows");
         #elif defined(__APPLE__)
-            this->app->logger->warn("apple doesn't have bindings for this findPrevious");
+            this->logger->warn("apple doesn't have bindings for this findPrevious");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1028,7 +1027,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("clear_find not yet implemented for Windows");
+            this->logger->warn("[function] clear_find not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1053,32 +1052,32 @@ WF* WF::setLogCallbacks() {
     ->add("log_trace",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->trace("[CLIENT] " + msg);
+            this->logger->trace("[client] " + msg);
             return json::value(nullptr);
     }))->add("log_debug",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->debug("[CLIENT] " + msg);
+            this->logger->debug("[client] " + msg);
             return json::value(nullptr);
     }))->add("log_info",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->info("[CLIENT] " + msg);
+            this->logger->info("[client] " + msg);
             return json::value(nullptr);
     }))->add("log_warn",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->warn("[CLIENT] " + msg);
+            this->logger->warn("[client] " + msg);
             return json::value(nullptr);
     }))->add("log_error",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->error("[CLIENT] " + msg);
+            this->logger->error("[client] " + msg);
             return json::value(nullptr);
     }))->add("log_critical",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::string msg = this->getSingleParameter(req).as_string().c_str();
-            this->app->logger->critical("[CLIENT] " + msg);
+            this->logger->critical("[client] " + msg);
             return json::value(nullptr);
     }));
     return this;
@@ -1091,21 +1090,21 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (!std::filesystem::exists(path)) {
-                this->app->logger->error("No file exists at " + path.string());
+                this->logger->error("[function] No file exists at " + path.string());
                 return json::value(nullptr);
             }
             else if (std::filesystem::is_directory(path)) {
-                this->app->logger->error("readFile can't read directory contents. Use ls for that.");
+                this->logger->error("readFile can't read directory contents. Use ls for that.");
                 return json::value(nullptr);
             }
             std::ifstream file(path, std::ios::binary);
             if (!file.good()) {
-                this->app->logger->error("Failed to open file for reading: " + path.string());
+                this->logger->error("[function] Failed to open file for reading: " + path.string());
                 return json::value(nullptr);
             }
             std::vector<char> buffer(std::istreambuf_iterator<char>(file), {});
             file.close();
-            this->app->logger->debug("Read " + std::to_string(buffer.size()) + " bytes from " + path.string());
+            this->logger->debug("[function] Read " + std::to_string(buffer.size()) + " bytes from " + path.string());
             
             std::string contents(buffer.begin(), buffer.end());
             return json::value(contents);
@@ -1121,24 +1120,24 @@ WF* WF::setFileSystemCallbacks() {
             
             std::filesystem::path parent_path = path.parent_path();
             if (std::filesystem::is_directory(path)) {
-                this->app->logger->error("Can't write to a directory " + path.string());
+                this->logger->error("[function] Can't write to a directory " + path.string());
                 return json::value(false);
             } else if (!std::filesystem::exists(parent_path)) {
-                this->app->logger->error("Directory '" + parent_path.string() + "' doesn't exist.");
+                this->logger->error("[function] Directory '" + parent_path.string() + "' doesn't exist.");
                 return json::value(false);
             }
             
             std::ofstream file(path, mode);
             if (file.bad()) {
-                this->app->logger->error("Bad file " + path.string());
+                this->logger->error("[function] Bad file " + path.string());
                 return json::value(false);
             }
             if (contents.empty()) {
-                this->app->logger->debug("Input content empty. Attempting empty write");
+                this->logger->debug("Input content empty. Attempting empty write");
             }
             file.write(contents.data(), contents.size());
             file.close();
-            this->app->logger->debug((append ? "Appended " : "Wrote ") + std::to_string(contents.size()) + " bytes to " + path.string());
+            this->logger->debug(std::string("[function] ") +(append ? "Appended " : "Wrote ") + std::to_string(contents.size()) + " bytes to " + path.string());
             return json::value(true);
     }))->add("exists",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1152,13 +1151,13 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (std::filesystem::exists(path)) {
-                this->app->logger->error("File/dir already exists at '" + path.string() + "'");
+                this->logger->error("[function] File/dir already exists at '" + path.string() + "'");
                 return json::value(false);
             }
             std::error_code ec;
             std::filesystem::create_directory(path, ec);
             if (ec) {
-                this->app->logger->error(ec.message());
+                this->logger->error("[function] " + ec.message());
                 return json::value(false);
             }
             return json::value(true);
@@ -1170,7 +1169,7 @@ WF* WF::setFileSystemCallbacks() {
             
             std::error_code ec;
             if (!std::filesystem::exists(path)) {
-                this->app->logger->error("Cannot delete file/dir that doesn't exist: " + path.string());
+                this->logger->error("[function] Cannot delete file/dir that doesn't exist: " + path.string());
                 return json::value(false);
             } else if (std::filesystem::is_directory(path)) {
                 if (recursive) {
@@ -1179,14 +1178,14 @@ WF* WF::setFileSystemCallbacks() {
                     std::filesystem::remove(path, ec);
                 }
                 if (ec) {
-                    this->app->logger->error(ec.message());
+                    this->logger->error("[function] " + ec.message());
                     return json::value(false);
                 }
                 return json::value(true);
             }
             std::filesystem::remove(path, ec);
             if (ec) {
-                this->app->logger->error(ec.message());
+                this->logger->error("[function] " + ec.message());
                 return json::value(false);
             }
             return json::value(true);
@@ -1194,7 +1193,7 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             std::filesystem::path path(this->getSingleParameter(req).as_string().c_str());
             if (!std::filesystem::is_directory(path)) {
-                this->app->logger->error("Path entered to ls wasn't a dir: " + path.string());
+                this->logger->error("[function] Path entered to ls wasn't a dir: " + path.string());
                 return json::value(nullptr);
             }
             std::error_code ec;
@@ -1203,7 +1202,7 @@ WF* WF::setFileSystemCallbacks() {
                 array.push_back(json::string(entry.path().string()));
             }
             if (ec) {
-                this->app->logger->error(ec.message());
+                this->logger->error("[function] " + ec.message());
                 return json::value(nullptr);
             }
             return json::value(array);
@@ -1216,10 +1215,10 @@ WF* WF::setFileSystemCallbacks() {
             
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
-                this->app->logger->error("Can't rename path that doesn't exist: " + orig_path.string());
+                this->logger->error("[function] Can't rename path that doesn't exist: " + orig_path.string());
                 return json::value(nullptr);
             } else if (std::filesystem::exists(new_path) && !overwrite) {
-                this->app->logger->error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
+                this->logger->error("[function] Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
                 return json::value(nullptr);
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
@@ -1228,13 +1227,13 @@ WF* WF::setFileSystemCallbacks() {
                     std::filesystem::remove(new_path, ec);
                 }
                 if (ec) {
-                    this->app->logger->error(ec.message());
+                    this->logger->error("[function] " + ec.message());
                     return json::value(false);
                 }
             }
             std::filesystem::rename(orig_path, new_path, ec);
             if (ec) {
-                this->app->logger->error(ec.message());
+                this->logger->error("[function] " + ec.message());
                 return json::value(false);
             }
             return json::value(true);
@@ -1247,10 +1246,10 @@ WF* WF::setFileSystemCallbacks() {
             
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
-                this->app->logger->error("Can't copy path that doesn't exist: " + orig_path.string());
+                this->logger->error("[function] Can't copy path that doesn't exist: " + orig_path.string());
                 return json::value(nullptr);
             } else if (std::filesystem::exists(new_path) && !overwrite) {
-                this->app->logger->error("Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
+                this->logger->error("[function] Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
                 return json::value(nullptr);
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
@@ -1259,7 +1258,7 @@ WF* WF::setFileSystemCallbacks() {
                     std::filesystem::remove(new_path, ec);
                 }
                 if (ec) {
-                    this->app->logger->error(ec.message());
+                    this->logger->error("[function] " + ec.message());
                     return json::value(false);
                 }
             }
@@ -1269,7 +1268,7 @@ WF* WF::setFileSystemCallbacks() {
                 std::filesystem::copy(orig_path, new_path, ec);
             }
             if (ec) {
-                this->app->logger->error(ec.message());
+                this->logger->error("[function] " + ec.message());
                 return json::value(false);
             }
             return json::value(true);
@@ -1281,7 +1280,7 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string uri = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
-            this->app->logger->warn("download_uri not yet implemented for Windows");
+            this->logger->warn("[function] download_uri not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1293,7 +1292,7 @@ WF* WF::setFileSystemCallbacks() {
                     if ([webview respondsToSelector:@selector(startDownloadUsingRequest:completionHandler:)]) {
                         [webview performSelector:@selector(startDownloadUsingRequest:completionHandler:) withObject:request withObject:nil];
                     } else {
-                        this->app->logger->warn("WKWebView download not available on this macOS version");
+                        this->logger->warn("[function] WKWebView download not available on this macOS version");
                     }
                 }
             }
@@ -1328,7 +1327,7 @@ WF* WF::setConfigCallbacks() {
     }))->add("load_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->logger->error("load_config doesn't do anything!");
+            this->logger->error("[function] load_config doesn't do anything!");
             return json::value(nullptr);
     }))->add("set_config_property",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1339,7 +1338,7 @@ WF* WF::setConfigCallbacks() {
     }))->add("reset_to_defaults",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->logger->critical("reset_to_defaults NOT IMPLEMENTED");
+            this->logger->critical("[function] reset_to_defaults NOT IMPLEMENTED");
             return json::value(nullptr);
     }));
     return this;
@@ -1443,14 +1442,14 @@ WF* WF::setProcessCallbacks() {
             (void)req;
             
             if (this->app->orig_args.empty()) {
-                this->app->logger->error("Cannot duplicate process - no original arguments available");
+                this->logger->error("[function] Cannot duplicate process - no original arguments available");
                 return json::value(nullptr);
             }
             
             std::string unique_key = "duplicate_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
             
             int pid = this->app->procm->add(unique_key, this->app->orig_args);
-            this->app->logger->debug("Duplicated process with PID: " + std::to_string(pid));
+            this->logger->debug("[function] Duplicated process with PID: " + std::to_string(pid));
             
             return json::value(pid);
     }))
@@ -1552,10 +1551,10 @@ WF* WF::setProcessCallbacks() {
             
         #if defined(_WIN32)
             system(("start " + resource).c_str());
-            this->app->logger->warn("open_uri has not been tested for Windows");
+            this->logger->warn("[function] open_uri has not been tested for Windows");
         #elif defined(__APPLE__)
             system(("open " + resource).c_str());
-            this->app->logger->warn("open_uri has not been tested for Apple");
+            this->logger->warn("[function] open_uri has not been tested for Apple");
         #elif defined(__linux__)
             int res = system(("xdg-open " + resource).c_str());
             (void)res;
@@ -1569,7 +1568,7 @@ WF* WF::setProcessCallbacks() {
             
             if (is_single) {
                 if (!this->app->procm->has(uri)) {
-                    this->app->logger->debug("Attempting to start single process for uri '" + uri + "'");
+                    this->logger->debug("[function] Attempting to start single process for uri '" + uri + "'");
                     
                     std::vector<std::string> args = this->app->orig_args;
                     if (args.size() > 1) {
@@ -1582,11 +1581,11 @@ WF* WF::setProcessCallbacks() {
                     int pid = this->app->procm->add(uri, args);
                     return json::value(pid);
                 } else {
-                    this->app->logger->debug("Process of name '" + uri + "' is already running");
+                    this->logger->debug("[function] Process of name '" + uri + "' is already running");
                     return json::value(nullptr);
                 }
             } else {
-                this->app->logger->debug("Attempting to start process for uri '" + uri + "'");
+                this->logger->debug("[function] Attempting to start process for uri '" + uri + "'");
                 
                 std::string unique_key = uri + "_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
                 
@@ -1659,7 +1658,7 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("open_devtools not yet implemented for Windows");
+            this->logger->warn("[function] open_devtools not yet implemented for Windows");
         #elif defined(__APPLE__)
             // macOS WKWebView inspector
             auto window_result = this->app->w->window();
@@ -1683,7 +1682,7 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("close_devtools not yet implemented for Windows");
+            this->logger->warn("[function] close_devtools not yet implemented for Windows");
         #elif defined(__APPLE__)
             // macOS WKWebView inspector close
             auto window_result = this->app->w->window();
@@ -1710,7 +1709,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("get_load_progress not yet implemented for Windows");
+            this->logger->warn("[function] get_load_progress not yet implemented for Windows");
             return json::value(0.0);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -1731,7 +1730,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("is_loading not yet implemented for Windows");
+            this->logger->warn("[function] is_loading not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -1757,7 +1756,7 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("navigate_back not yet implemented for Windows");
+            this->logger->warn("[function] navigate_back not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1773,7 +1772,7 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("navigate_forward not yet implemented for Windows");
+            this->logger->warn("[function] navigate_forward not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1789,7 +1788,7 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("stop_loading not yet implemented for Windows");
+            this->logger->warn("[function] stop_loading not yet implemented for Windows");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1805,7 +1804,7 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("can_go_back not yet implemented for Windows");
+            this->logger->warn("[function] can_go_back not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -1824,7 +1823,7 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->app->logger->warn("can_go_forward not yet implemented for Windows");
+            this->logger->warn("[function] can_go_forward not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();

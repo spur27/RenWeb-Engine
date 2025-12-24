@@ -1,9 +1,11 @@
 #pragma once
 
 // #include <boost/process.hpp>
+#include "interfaces/Ilogger.hpp"
 #include "interfaces/Iroutine_manager.hpp"
 #include <boost/process/io.hpp>
 #include <map>
+#include <memory>
 #include <string>
 #include <boost/process.hpp>
 #include <utility>
@@ -20,10 +22,11 @@ namespace RenWeb {
     template <typename Key>
     class PipeManager : public IRoutineManager<Key> {
         private:
+            std::shared_ptr<ILogger> logger;
             std::map<int, std::pair<struct ipstreams, child>*> pipes_by_pid;
             std::map<Key, std::pair<struct ipstreams, child>> pipes;
         public:
-            PipeManager() { };
+            PipeManager(std::shared_ptr<ILogger> logger) : logger(logger) { };
             ~PipeManager() {
                 for (auto& proc : this->pipes) {
                     if (proc.second.second.running()) {
@@ -47,6 +50,7 @@ namespace RenWeb {
                 );
                 int pid = this->pipes[key].second.id();
                 this->pipes_by_pid[pid] = &this->pipes[key];
+                this->logger->info("[pipe] Added process pipe at PID " + std::to_string(pid));
                 return pid;
             };
             bool hasPID(const int& pid) {
@@ -88,6 +92,7 @@ namespace RenWeb {
                     this->pipes[key].second.join();
                     this->pipes.erase(key);
                     this->pipes_by_pid.erase(id);
+                    this->logger->info("[pipe] Killed process pipe at PID " + std::to_string(id));
             };
             void waitPID(const int& pid) {
                 if (!this->hasPID(pid)) {

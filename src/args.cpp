@@ -10,6 +10,7 @@
 #include "../include/managers/process_manager.hpp"
 #include "app.hpp"
 #include "info.hpp"
+#include "logger.hpp"
 
 using namespace RenWeb;
 using ArgsCM = RenWeb::CallbackManager<std::string, void, boost::any>;
@@ -78,7 +79,7 @@ Args* Args::addDefaults() {
             }
         })
     ->add(
-        "log-silent,ls",
+        "log-silent,s",
         boost::program_options::bool_switch()->default_value(false),
         "Sets whether log prints to console",
         [this](boost::any log_silent)
@@ -86,7 +87,7 @@ Args* Args::addDefaults() {
             this->opts["log_silent"] = boost::any_cast<bool>(log_silent) ? "true" : "false";
         })
     ->add(
-        "log-level,ll",
+        "log-level,l",
         boost::program_options::value<unsigned int>()->default_value(2, "2 (info)"),
         "Sets log level (n>=0)",
         [this](boost::any log_level)
@@ -94,7 +95,7 @@ Args* Args::addDefaults() {
             this->opts["log_level"] = std::to_string(boost::any_cast<unsigned int>(log_level));
         })
     ->add(
-        "log-clear,lc",
+        "log-clear,c",
         boost::program_options::bool_switch()->default_value(false),
         "Clears the log file",
         [this](boost::any bool_switch)
@@ -126,7 +127,7 @@ Args* Args::addDefaults() {
             std::vector<std::string>& pages_vec(boost::any_cast<std::vector<std::string>&>(pages));
             
             if (pages_vec.size() > 1) {
-                auto pm = std::make_unique<PM>();
+                auto pm = std::make_unique<PM>(std::make_shared<FakeLogger>());
                 std::vector<std::string> args;
                 for (int arg_num = 0; arg_num < this->argc; arg_num++) {
                     std::string arg = this->argv[arg_num];
@@ -167,7 +168,7 @@ Args* Args::addDefaults() {
                     exit(3);
                 }
                 if (pages_vec.size() > 1) {
-                    auto pm = std::make_unique<PM>();
+                    auto pm = std::make_unique<PM>(std::make_shared<FakeLogger>());
                     std::vector<std::string> args;
                     for (int arg_num = 0; arg_num < this->argc; arg_num++) {
                         std::string arg = this->argv[arg_num];
@@ -202,7 +203,7 @@ void Args::run() /*override*/ {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "\033[31m[ERROR]\033[0m [RUNNING ARGS] " << e.what() << std::endl;
+        std::cerr << "\033[31m[ERROR]\033[0m [args] " << e.what() << std::endl;
         throw;
     }
 }

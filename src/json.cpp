@@ -16,7 +16,7 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
     if (this->file->exists()) {
         this->json_data = json::parse(this->file->read()->data()).as_object();
     } else {
-        this->logger->error("JSON file at '" + this->file->getPath().string() + "' does not exist. Setting to empty object.");
+        this->logger->error("[json] JSON file at '" + this->file->getPath().string() + "' does not exist. Setting to empty object.");
         this->json_data = json::object{};
     }
 }
@@ -31,13 +31,13 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
             if (json_contents.contains(key)) {
                 return json_contents[key];
             } else {
-                throw std::runtime_error("Could not find key '" + key + "' when peeking on " + file->getPath().string());
+                throw std::runtime_error("[json] Could not find key '" + key + "' when peeking on " + file->getPath().string());
             }
         } catch (...) {
             return json::value(nullptr);
         }
     } else {
-        throw std::runtime_error("File does not exist: " + file->getPath().string());
+        throw std::runtime_error("[json] File does not exist: " + file->getPath().string());
     }
 }
 
@@ -61,7 +61,7 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
     try {
         return this->json_data.as_object().at(key);
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[json] property '" + key + "' not found: " + std::string(e.what()));
         return json::value(nullptr);
     }
 }
@@ -70,7 +70,7 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
     try {
         this->json_data.as_object()[key] = value;
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[json] couldn't set property '" + key + "': " + std::string(e.what()));
     }
 }
 
@@ -115,7 +115,7 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
         }
         this->file->write(pretty);
     } catch (const std::exception& e) {
-        this->logger->error(e.what());
+        this->logger->error("[json] couldn't update json: " + std::string(e.what()));
         this->file->write(json::serialize(this->json_data));
     }
 }

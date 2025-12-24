@@ -1,3 +1,4 @@
+// Compile:  tsc --target es2020 --module es2020 --declaration --sourceMap --strict --moduleResolution node --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck --forceConsistentCasingInFileNames index.ts
 /* 
 * -----------------------------------------------
 * ---------------Helper Functions----------------

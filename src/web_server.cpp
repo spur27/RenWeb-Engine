@@ -11,10 +11,12 @@ using MethodsCM = RenWeb::CallbackManager<std::string, void, const httplib::Requ
 
 
 WebServer::WebServer(
+    std::shared_ptr<ILogger> logger,
     App* app,
     const unsigned short& port, 
     const std::string& ip
-) : app(app)
+) : logger(logger)
+    , app(app)
     , method_callbacks(new MethodsCM())
     , server()
     , port(port)
@@ -26,7 +28,7 @@ WebServer::WebServer(
     } else {
         this->base_path = Locate::currentDirectory();
     }
-    this->app->logger->debug("Base path is " + this->base_path.string());
+    this->logger->debug("[server] Base path is " + this->base_path.string());
     this->setHandles();
     this->setMethodCallbacks();
 }
@@ -34,7 +36,7 @@ WebServer::WebServer(
 WebServer::~WebServer() {
     // Stop the server if it's still running
     if (this->server.is_running()) {
-        this->app->logger->trace("Stopping server during WebServer destruction");
+        this->logger->trace("[server] Stopping server during WebServer destruction");
         try {
             this->server.stop();
         } catch (...) {
@@ -50,8 +52,8 @@ WebServer::~WebServer() {
             // Ignore exceptions during destruction
         }
     }
-    
-    this->app->logger->trace("Deconstructing WebServer");
+
+    this->logger->trace("[server] Deconstructing WebServer");
 }
 
 
@@ -61,33 +63,33 @@ std::string WebServer::getURL() const /*override*/ {
 
 void WebServer::start() /*override*/ {
     if (this->server.is_running()) {
-        this->app->logger->error("Can't start server while it's already running.");
+        this->logger->error("[server] Can't start server while it's already running.");
         return;
     } else if (this->server_thread.joinable()) {
-        this->app->logger->error("Can't start server while the server thread is in use.");
+        this->logger->error("[server] Can't start server while the server thread is in use.");
         return;
     }
     this->server_thread = std::thread([this](){
         for (; this->port < 65535; this->port++) {
             try {
-                this->app->logger->trace("[SERVER] trying port " + std::to_string(this->port));
+                this->logger->trace("[server] trying port " + std::to_string(this->port));
                 this->server.listen(this->ip, this->port);
                 return;
             } catch (...) { }
         }
-        this->app->logger->critical("[SERVER] Exhausted all possible ports.");
-        throw std::runtime_error("Couldn't find port to start webserver on.");
+        this->logger->critical("[server] Exhausted all possible ports.");
+        throw std::runtime_error("[server] Couldn't find port to start webserver on.");
     });
-    this->app->logger->info("[SERVER] running on " + this->getURL());
+    this->logger->info("[server] running on " + this->getURL());
     this->server.wait_until_ready();
 }
 
 void WebServer::stop() /*override*/ {
     if (!this->server.is_running()) {
-        this->app->logger->error("Can't stop server while it isn't running.");
+        this->logger->error("[server] Can't stop server while it isn't running.");
         return;
     } else if (!this->server_thread.joinable()) {
-        this->app->logger->error("Can't stop server while the server thread isn't being used.");
+        this->logger->error("[server] Can't stop server while the server thread isn't being used.");
         return;
     }
     try {
@@ -99,9 +101,9 @@ void WebServer::stop() /*override*/ {
             this->server_thread.join();
         }
     } catch (const std::exception& e) {
-        this->app->logger->error(e.what());
+        this->logger->error("[server] " + std::string(e.what()));
     }
-    this->app->logger->trace("Deconstructing WebServer");
+    this->logger->trace("[server] Deconstructing WebServer");
 }
 
 void WebServer::setHandles() {
@@ -110,11 +112,11 @@ void WebServer::setHandles() {
     this->server.set_write_timeout(10, 0);
     
     this->server.set_logger([this](const httplib::Request& req, const httplib::Response& res) {
-        this->app->logger->info("[SERVER] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
+        this->logger->info("[server] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
     });
     this->server.set_error_logger([this](const httplib::Error& err, const httplib::Request* req) {
         (void)req;
-        this->app->logger->error("[SERVER] " + httplib::to_string(err));
+        this->logger->error("[server] " + httplib::to_string(err));
     });
     this->server.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
         (void)req;
@@ -130,14 +132,14 @@ void WebServer::setHandles() {
         try {
             std::rethrow_exception(ep);
         } catch (const std::exception &e) {
-            this->app->logger->error(std::string("[SERVER]") + e.what());
+            this->logger->error("[server] " + std::string(e.what()));
             snprintf(buf, sizeof(buf), fmt, e.what());
         }
         res.set_content(buf, "text/html");
         res.status = httplib::StatusCode::InternalServerError_500;
     });
     this->server.set_file_request_handler([this](const httplib::Request &req, httplib::Response &res) {
-        this->app->logger->debug("Sending (" + std::to_string(res.body.length()) + ") " + req.target);
+        this->logger->debug("[server] Sending (" + std::to_string(res.body.length()) + ") " + req.target);
     });
 }
 
@@ -188,7 +190,7 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
     std::error_code ec;
     auto file_size = std::filesystem::file_size(path, ec);
     if (ec) {
-        this->app->logger->critical("Error getting file size");
+        this->logger->critical("[server] Error getting file size");
         res.status = 500;
         this->sendStatus(req, res, httplib::StatusCode::PreconditionFailed_412, ec.message());
         return;
@@ -226,4 +228,3 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
         }
     );
 }
-// https://github.com/yhirose/cpp-httplib

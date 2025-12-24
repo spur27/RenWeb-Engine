@@ -16,13 +16,14 @@ namespace RenWeb {
     class AppBuilder;
     class App {
         private:
-          App() = default;
+          std::shared_ptr<ILogger> logger = nullptr;
+          App(std::shared_ptr<ILogger> logger) : logger(logger) {}
           void processPermissions();
+          void setupWindow();
         public:
           ~App() = default;
           std::vector<std::string> orig_args;
 
-          std::shared_ptr<ILogger> logger = nullptr;
           std::unique_ptr<JSON> info = nullptr;
           std::unique_ptr<Config> config = nullptr;
           std::unique_ptr<RenWeb::IRoutineManager<std::string>> procm = nullptr;
@@ -67,7 +68,6 @@ namespace RenWeb {
           AppBuilder* withPipeManager(std::unique_ptr<RenWeb::IRoutineManager<std::string>> pipem);
           AppBuilder* withSignalManager(std::unique_ptr<RenWeb::ISignalManager> signalm);
           AppBuilder* withWebview(std::unique_ptr<RenWeb::IWebview> w);
-
           AppBuilder* withWebServer(std::unique_ptr<RenWeb::IWebServer> ws);
           AppBuilder* withWindowFunctions(std::unique_ptr<RenWeb::WindowFunctions> fns);
 

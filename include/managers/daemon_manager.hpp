@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <boost/process.hpp>
+#include "interfaces/Ilogger.hpp"
 #include "interfaces/Iroutine_manager.hpp"
 
 using child = boost::process::child;
@@ -14,9 +15,10 @@ namespace RenWeb {
         private:
             std::map<int, child*> processes_by_pid;
         protected:
+            std::shared_ptr<ILogger> logger;
             std::map<Key, std::vector<child>> processes;            
         public:
-            DaemonManager() { };
+            DaemonManager(std::shared_ptr<ILogger> logger) : logger(logger) { };
             ~DaemonManager() { 
                 for (auto& [_, proc_vec] : this->processes) {
                     for (auto& proc : proc_vec) {
@@ -39,6 +41,7 @@ namespace RenWeb {
                 );
                 int pid = this->processes[key].back().id();
                 this->processes_by_pid[pid] = &this->processes[key].back();
+                this->logger->info("[proc] Added process at PID " + std::to_string(pid));
                 return pid;
             };
             bool hasPID(const int& pid) {
@@ -73,6 +76,7 @@ namespace RenWeb {
                 for (auto& proc : this->processes[key]) {
                     if (!proc.running()) continue;
                     int id = proc.id();
+
                     #if defined(_WIN32)
                         Log::critical("killProcesses is UNIMPLEMENTED for windows");
                         proc.terminate();
@@ -81,6 +85,7 @@ namespace RenWeb {
                     #endif
                         proc.join();
                         this->processes_by_pid.erase(id);
+                        this->logger->info("[proc] Killed process at PID " + std::to_string(id));
                 }
                 this->processes.erase(key);
             };

@@ -2,6 +2,7 @@
 
 #include "../interfaces/Isignal_manager.hpp"
 #include "app.hpp"
+#include "interfaces/Ilogger.hpp"
 #include <boost/asio.hpp>
 #include <map>
 #include <functional>
@@ -11,7 +12,7 @@
 namespace RenWeb {    
     class SignalManager : public RenWeb::ISignalManager {
         private:
-            RenWeb::App* app;
+            std::shared_ptr<RenWeb::ILogger> logger;
             boost::asio::io_context io_context;
             boost::asio::signal_set signals;
             std::thread io_context_thread;
@@ -34,9 +35,9 @@ namespace RenWeb {
                 
                 if ((!this->signal_callbacks.empty() || !this->required_signal_callbacks.empty()) && this->is_running) {
                     this->signals.async_wait([this](const boost::system::error_code& error, int signal){
-                        (this->app->logger) ? this->app->logger->debug("Signal " + std::to_string(signal) + " triggered.") : void();
+                        this->logger->debug("[signal] Signal " + std::to_string(signal) + " triggered.");
                         if (error) {
-                            (this->app->logger) ? this->app->logger->error("Signal handler error: " + std::string(error.message())) : void();
+                            this->logger->error("[signal] Signal handler error: " + std::string(error.message()));
                             return;
                         }                        
                         if (this->signal_callbacks.find(signal) != this->signal_callbacks.end()) {
@@ -53,35 +54,20 @@ namespace RenWeb {
             }
 
         public:
-            SignalManager(RenWeb::App* app) 
-                : app(app)
+            SignalManager(std::shared_ptr<ILogger> logger,std::map<int, std::function<void(int)>> required_signal_callbacks = {}) 
+                : logger(logger)
                 , io_context()
                 , signals(this->io_context)
                 , signal_callbacks()
-                , required_signal_callbacks({
-                    {SIGINT, [this](int signal) {
-                        (void)signal;
-                        this->app->w->terminate();
-                    }}, {SIGTERM, [this](int signal) {
-                        (void)signal;
-                        this->trigger(SIGINT);
-                    }}, {SIGABRT, [this](int signal) {
-                        (void)signal;
-                        this->trigger(SIGINT);
-                    }}
-                })
+                , required_signal_callbacks(required_signal_callbacks)
                 , is_running(true)
             {
                 this->refreshSignals();
 
                 this->io_context_thread = std::thread([this](){
-                    if (this->app->logger) {
-                        this->app->logger->trace("Starting signal handler thread...");
-                    }
+                    this->logger->trace("[signal] Starting signal handler thread...");
                     this->io_context.run();
-                    if (this->app->logger) {
-                        this->app->logger->trace("Exiting signal handler thread...");
-                    }
+                    this->logger->trace("[signal] Exiting signal handler thread...");
                 });
             }
 
@@ -94,22 +80,20 @@ namespace RenWeb {
                 if (this->io_context_thread.joinable()) {
                     this->io_context_thread.join();
                 }
-                
-                if (this->app->logger) {
-                    this->app->logger->trace("Deconstructing SignalManager");
-                }
+
+                this->logger->trace("[signal] Deconstructing SignalManager");
             }
             ISignalManager* add(int signal_num, std::function<void(int)> callback) override {
                 this->signal_callbacks[signal_num] = callback;
                 this->refreshSignals();
-                this->app->logger->trace("Registered signal handler for signal " + std::to_string(signal_num));
+                this->logger->trace("[signal] Registered signal handler for signal " + std::to_string(signal_num));
                 return this;
             }
             ISignalManager* remove(int signal_num) override {
                 if (this->signal_callbacks.find(signal_num) != this->signal_callbacks.end()) {
                     this->signal_callbacks.erase(signal_num);
                     this->refreshSignals();
-                    this->app->logger->trace("Removed signal handler for signal " + std::to_string(signal_num));
+                    this->logger->trace("[signal] Removed signal handler for signal " + std::to_string(signal_num));
                 }
                 return this;
             }
@@ -125,7 +109,7 @@ namespace RenWeb {
                 this->signal_callbacks.clear();
                 this->signals.cancel();
                 this->signals.clear();
-                this->app->logger->trace("Cleared all signal handlers");
+                this->logger->trace("[signal] Cleared all signal handlers");
                 return this;
             }
             size_t count() override {

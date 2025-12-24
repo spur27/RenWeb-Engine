@@ -1,5 +1,6 @@
 #pragma once
 
+#include "interfaces/Ilogger.hpp"
 #define MAX_NUM_PORTS_TO_TRY 64
 #define BUFFER_SIZE 16 * 1024
 
@@ -16,6 +17,7 @@ namespace RenWeb {
     class WebServer: public RenWeb::IWebServer {
         public:
             WebServer(
+                std::shared_ptr<ILogger> logger,
                 App* app,
                 const unsigned short& port, 
                 const std::string& ip
@@ -25,6 +27,7 @@ namespace RenWeb {
             void start() override;
             void stop() override;
         private:
+            std::shared_ptr<ILogger> logger;
             App* app;
             std::filesystem::path base_path;
             std::unique_ptr<RenWeb::CallbackManager<std::string, void, const httplib::Request&, httplib::Response&>> method_callbacks;
