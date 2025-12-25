@@ -723,15 +723,16 @@ WF* WF::setWindowCallbacks() {
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
         #elif defined(__APPLE__)
-            id window = (__bridge id)this->app->w->window().value();
-            if (window) {
-                SEL selFront = sel_registerName("orderFront:");
-                SEL selOut = sel_registerName("orderOut:");
-                if (show_window) {
-                    ((void (*)(id, SEL, id))objc_msgSend)(window, selFront, nil);
-                } else {
-                    ((void (*)(id, SEL, id))objc_msgSend)(window, selOut, nil);
-                }
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            if (nsWindow) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (show_window) {
+                        [NSApp activateIgnoringOtherApps:YES];
+                        [nsWindow makeKeyAndOrderFront:nil];
+                    } else {
+                        [nsWindow orderOut:nil];
+                    }
+                });
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();

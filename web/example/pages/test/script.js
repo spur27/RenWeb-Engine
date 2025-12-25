@@ -217,6 +217,14 @@ document.querySelector(".is_focus").onclick = async () => {
         document.querySelector(".is_focus").style.backgroundColor = "red";
     }
 };
+document.querySelector(".test_hide").onclick = async () => {
+    await Log.debug(`Hiding for 5 seconds...`);
+    await Window.show(false);
+    setTimeout(async () => {
+        await Log.debug(`Showing window again...`);
+        await Window.show(true);
+    }, 5000);
+};
 
 document.querySelector(".print_page").onclick = async () => {
     await Log.debug(`Printing page...`);
