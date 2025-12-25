@@ -41,7 +41,7 @@ jobs:
         git submodule update --init --recursive libs/process libs/json libs/program_options libs/system libs/config libs/core libs/asio libs/filesystem
         call bootstrap.bat
         b2 headers
-        b2 --with-program_options --with-json link=static runtime-link=shared threading=multi variant=release address-model=64 stage
+        b2 --with-program_options --with-json link=static threading=multi variant=release address-model=64 stage
         if not exist ..\..\lib mkdir ..\..\lib
         xcopy /Y stage\lib\*.lib ..\..\lib\
       shell: cmd
