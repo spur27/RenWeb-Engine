@@ -41,15 +41,16 @@ jobs:
         git submodule update --init --recursive libs/process libs/json libs/program_options libs/system libs/config libs/core libs/asio libs/filesystem
         call bootstrap.bat
         b2 headers
-        REM Build Boost static libraries and link against static CRT (/MT)
-        b2 --with-program_options --with-json toolset=msvc runtime-link=static link=static threading=multi variant=release address-model=64 stage
+        REM Build Boost static libraries (include filesystem, container, system)
+        REM and link against static CRT (/MT)
+        b2 --with-program_options --with-json --with-filesystem --with-system toolset=msvc runtime-link=static link=static threading=multi variant=release address-model=64 stage
         echo "Contents of stage\lib:" & dir stage\lib
         if not exist ..\..\lib mkdir ..\..\lib
         REM Prefer the -s (static CRT) variants; fallback to any .lib if none found
         for %%F in (stage\lib\*-mt-s-*.lib) do (
           xcopy /Y "%%~fF" ..\..\lib\
         )
-        rem Fallback: copy any lib if -mt-s variant not found
+        REM Fallback: copy any lib if -mt-s variant not found
         if not exist ..\..\lib\* (
           xcopy /Y stage\lib\*.lib ..\..\lib\
         )
