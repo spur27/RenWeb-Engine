@@ -1,16 +1,15 @@
 #include "../include/args.hpp"
 
-
-#include <boost/json.hpp>
-#include <iostream>
-#include <memory>
 #include "../include/json.hpp"
 #include "../include/locate.hpp"
 #include "../include/managers/callback_manager.hpp"
 #include "../include/managers/process_manager.hpp"
-#include "app.hpp"
-#include "info.hpp"
-#include "logger.hpp"
+#include "../include/app.hpp"
+#include "../include/info.hpp"
+#include "../include/logger.hpp"
+#include <boost/json.hpp>
+#include <iostream>
+#include <memory>
 
 using namespace RenWeb;
 using ArgsCM = RenWeb::CallbackManager<std::string, void, boost::any>;
@@ -203,7 +202,7 @@ void Args::run() /*override*/ {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "\033[31m[ERROR]\033[0m [args] " << e.what() << std::endl;
+        std::cerr << "\x1b[31m[ERROR]\x1b[0m [args] " << e.what() << std::endl;
         throw;
     }
 }

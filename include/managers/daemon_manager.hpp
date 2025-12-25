@@ -1,11 +1,10 @@
 #pragma once
 
-// #include <boost/process.hpp>
+#include "../interfaces/Ilogger.hpp"
+#include "../interfaces/Iroutine_manager.hpp"
 #include <map>
 #include <string>
 #include <boost/process.hpp>
-#include "interfaces/Ilogger.hpp"
-#include "interfaces/Iroutine_manager.hpp"
 
 using child = boost::process::child;
 
@@ -78,7 +77,7 @@ namespace RenWeb {
                     int id = proc.id();
 
                     #if defined(_WIN32)
-                        Log::critical("killProcesses is UNIMPLEMENTED for windows");
+                        this->logger->critical("killProcesses is UNIMPLEMENTED for windows");
                         proc.terminate();
                     #else
                         ::kill(id, SIGINT);

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "daemon_manager.hpp"
-#include "interfaces/Ilogger.hpp"
 #include <memory>
 
 namespace RenWeb {

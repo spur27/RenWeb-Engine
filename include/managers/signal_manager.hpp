@@ -1,8 +1,7 @@
 #pragma once
 
 #include "../interfaces/Isignal_manager.hpp"
-#include "app.hpp"
-#include "interfaces/Ilogger.hpp"
+#include "../interfaces/Ilogger.hpp"
 #include <boost/asio.hpp>
 #include <map>
 #include <functional>
@@ -97,11 +96,6 @@ namespace RenWeb {
                 }
                 return this;
             }
-            /**
-             * Check if a signal handler is registered
-             * @param signal_num The signal number to check
-             * @return true if handler exists, false otherwise
-             */
             bool has(int signal_num) override {
                 return this->signal_callbacks.find(signal_num) != this->signal_callbacks.end();
             }

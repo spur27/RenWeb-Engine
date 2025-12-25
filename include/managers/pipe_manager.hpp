@@ -1,8 +1,8 @@
 #pragma once
 
 // #include <boost/process.hpp>
-#include "interfaces/Ilogger.hpp"
-#include "interfaces/Iroutine_manager.hpp"
+#include "../interfaces/Ilogger.hpp"
+#include "../interfaces/Iroutine_manager.hpp"
 #include <boost/process/io.hpp>
 #include <map>
 #include <memory>
@@ -84,7 +84,7 @@ namespace RenWeb {
                 }
                 int id = this->pipes[key].second.id();
                 #if defined(_WIN32)
-                    Log::critical("killProcesses is UNIMPLEMENTED for windows");
+                    this->logger->critical("killProcesses is UNIMPLEMENTED for windows");
                     this->pipes[key].second.terminate();
                 #else
                     ::kill(id, SIGINT);

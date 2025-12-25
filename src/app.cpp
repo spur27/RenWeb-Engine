@@ -1,16 +1,14 @@
-#include "web_server.hpp"
-#include "webview.hpp"
 #include "../include/app.hpp"
 
-
-// #include "interfaces/Iroutine_manager.hpp"
-#include "locate.hpp"
-#include "logger.hpp"
-#include "managers/process_manager.hpp"
-#include "managers/daemon_manager.hpp"
-#include "managers/pipe_manager.hpp"
-#include "managers/signal_manager.hpp"
-#include "info.hpp"
+#include "../include/web_server.hpp"
+#include "../include/webview.hpp"
+#include "../include/locate.hpp"
+#include "../include/logger.hpp"
+#include "../include/managers/process_manager.hpp"
+#include "../include/managers/daemon_manager.hpp"
+#include "../include/managers/pipe_manager.hpp"
+#include "../include/managers/signal_manager.hpp"
+#include "../include/info.hpp"
 #include "webview/detail/platform/linux/webkitgtk/compat.hh"
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>

@@ -1,9 +1,9 @@
 #include "../include/config.hpp"
 
-#include "file.hpp"
-#include "info.hpp"
-#include "json.hpp"
-#include "locate.hpp"
+#include "../include/file.hpp"
+#include "../include/info.hpp"
+#include "../include/json.hpp"
+#include "../include/locate.hpp"
 #include <memory>
 
 using Config = RenWeb::Config;

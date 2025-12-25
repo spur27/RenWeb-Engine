@@ -93,7 +93,7 @@ ifeq ($(OS),Windows_NT)
 	EXE_EXT := .exe
 	OBJ_EXT := .obj
 	CXX := cl
-	CXXFLAGS := /std:c++17 /utf-8 /bigobj
+	CXXFLAGS := /std:c++20 /utf-8 /bigobj
 ifneq ($(LINKTYPE),shared)
 	CXXFLAGS += /MT 
 endif
@@ -209,10 +209,10 @@ endef
 BUILD_PATH :=  ./programs
 COPY_PATH :=   ./programs
 LIC_PATH :=    ./licenses
-CONF_PATH :=   ./config.json
 INFO_PATH :=   ./info.json
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
+RC_PATH :=    $(OBJ_PATH)/app.res
 INC_PATH :=    ./include
 EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
@@ -234,7 +234,6 @@ EXTERN_INC_PATHS := \
 	$(addprefix -I, $(wildcard external/boost/libs/*/*/*/include)) \
 	$(addprefix -I, external/webview/core/include) 
 endif
-RC_PATH :=    ./src/.build/app.res
 # -----------------------------------------------------------------------------
 # Static Linked Libraries
 # -----------------------------------------------------------------------------
@@ -282,22 +281,20 @@ OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 # -----------------------------------------------------------------------------
 # Build target
 # -----------------------------------------------------------------------------
-all: $(BUILD_PATH)/$(EXE) copy-license
+all: $(BUILD_PATH)/$(EXE) copy-files
 # -----------------------------------------------------------------------------
 # RULE: Link all object files into executable
 # -----------------------------------------------------------------------------
 $(BUILD_PATH)/$(EXE): $(OBJS) | $(BUILD_PATH)
 	$(call step,Linking Executable,$@,of link type,$(LINKTYPE))
-ifeq ($(OS_NAME), windows)
-	npm run script:gen_resource
-	$(CXX) $(OBJS) ./src/.build/app.res $(CXXFLAGS) /link $(LIBS) /SUBSYSTEM:WINDOWS /OUT:$@
-else 
+# ifeq ($(OS_NAME), windows)
+	# Generate resource file
+# else 
 ifeq ($(LINKTYPE),shared)
 	$(call warn,Shared for unix isn't implemented yet! Using static)
 	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
 else
 	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
-endif
 endif
 	$(call step,Linking Executable [DONE],$@)
 # -----------------------------------------------------------------------------
@@ -410,23 +407,16 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help copy-license copy-info
+.PHONY: all clean run help copy-files
 # -----------------------------------------------------------------------------
-# PHONY TARGET: Copy licenses
+# PHONY TARGET: Copy files
 # -----------------------------------------------------------------------------
-copy-license:
-	$(call step,Copy License(s), Copying License at $@)
+copy-files:
+	$(call step,Copy Files, Copying Files at $@)
 	mkdir -p $(COPY_PATH)
 	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
-	$(call step,Copy License(s) [DONE] Copying License at $@)
-# -----------------------------------------------------------------------------
-# PHONY TARGET: Copy info
-# -----------------------------------------------------------------------------
-# copy-info:
-# 	$(call step,Copy Info(s), Copying Info at $@)
-# 	mkdir -p $(COPY_PATH)
-# 	cp $(INFO_PATH) $(COPY_PATH)/info.json
-# 	$(call step,Copy Info(s) [DONE] Copying Info at $@)
+	cp $(INFO_PATH) $(COPY_PATH)/info.json
+	$(call step,Copy Files [DONE] Copying Files at $@)
 # -----------------------------------------------------------------------------
 # Includes
 # -----------------------------------------------------------------------------

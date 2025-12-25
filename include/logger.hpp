@@ -13,6 +13,7 @@
   #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
     #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
   #endif
+#  include <windows.h>
 #endif
 
 namespace RenWeb {
@@ -87,11 +88,11 @@ namespace RenWeb {
                 const std::string page = (fmt.find("page") != fmt.end()) ? fmt.at("page") : "";
                 std::stringstream colored_log_str, boring_log_str;
                 if (!page.empty()) {
-                    colored_log_str << "[\e[35m" << page << "\e[0m] ";
+                    colored_log_str << "[\x1b[35m" << page << "\x1b[0m] ";
                     boring_log_str << "[" << page << "] ";
                 }
-                colored_log_str << "\e[34m" << date_str << "\e[0m"
-                            << " [\e[3m" << thread_str << "\e[0m] "
+                colored_log_str << "\x1b[34m" << date_str << "\x1b[0m"
+                            << " [\x1b[3m" << thread_str << "\x1b[0m] "
                             << "[" << log_type_str << "] "
                             << msg_str;
                 boring_log_str << date_str
@@ -102,7 +103,7 @@ namespace RenWeb {
                 console_sink->set_level(this->flags->log_level);
                 console_sink->set_pattern(colored_log_str.str());
 
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath(), false);
+                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
                 file_sink->set_level(spdlog::level::trace);
                 file_sink->set_pattern(boring_log_str.str());
                 std::vector<spdlog::sink_ptr> log_sinks;
@@ -115,19 +116,28 @@ namespace RenWeb {
                 this->logger->set_level(spdlog::level::trace);
 
                 #if defined(_WIN32)
-                // https://solarianprogrammer.com/2019/04/08/c-programming-ansi-escape-codes-windows-macos-linux-terminals/
-                    HWND console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-                    DWORD out_mode;
-                    if (console_handle == INVALID_HANDLE_VALUE
-                    && this->flags->log_level < spdlog::level::info) {
-                        AllocConsole();
-                        console_window = GetStdHandle(STD_OUTPUT_HANDLE);
-                        GetConsoleMode(console_handle, &outMode);
-                        outMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-                        SetConsoleMode(console_handle, out_mode)
+                    HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+                    DWORD mode = 0;
+                    BOOL have_console = (console_handle != NULL && console_handle != INVALID_HANDLE_VALUE
+                        && GetConsoleMode(console_handle, &mode));
+
+                    if (have_console) {
+                        if (!(mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
+                            DWORD new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                            SetConsoleMode(console_handle, new_mode);
+                        }
+                    } else if (this->flags->log_level < spdlog::level::info) {
+                        if (AllocConsole()) {
+                            console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+                            if (console_handle != NULL && console_handle != INVALID_HANDLE_VALUE) {
+                                if (GetConsoleMode(console_handle, &mode)) {
+                                    DWORD new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                                    SetConsoleMode(console_handle, new_mode);
+                                }
+                            }
+                        }
                     }
                 #endif
-                // Log::trace("Logger refresh count: " + std::to_string(Log::log_refresh_count));
             };
     };
 }

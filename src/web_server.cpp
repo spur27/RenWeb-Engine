@@ -1,9 +1,9 @@
-#include "web_server.hpp" 
+#include "../include/web_server.hpp"
 
-#include "app.hpp"
-#include "json.hpp"
-#include "info.hpp"
-#include "config.hpp"
+#include "../include/app.hpp"
+#include "../include/json.hpp"
+#include "../include/info.hpp"
+#include "../include/config.hpp"
 
 using WebServer = RenWeb::WebServer;
 using MethodsCM = RenWeb::CallbackManager<std::string, void, const httplib::Request&, httplib::Response&>;

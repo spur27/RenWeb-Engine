@@ -1,5 +1,6 @@
 #include "../include/window_functions.hpp"
-#include "json.hpp"
+
+#include "../include/json.hpp"
 #include <boost/json/object.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
@@ -22,9 +23,9 @@
 #include <regex>
 #include <chrono>
 #include <boost/process.hpp>
-#include "web_server.hpp"
-#include "app.hpp"
-#include "locate.hpp"
+#include "../include/web_server.hpp"
+#include "../include/app.hpp"
+#include "../include/locate.hpp"
 #include "../include/managers/pipe_manager.hpp"
 
 
