@@ -12,6 +12,7 @@
 #elif defined(__APPLE__)
     #include <Cocoa/Cocoa.h>
     #include <WebKit/WebKit.h>
+    #include <objc/message.h>
 #elif defined(__linux__)
     #include <gtk/gtk.h>
     #include "gdk/gdk.h"
@@ -722,11 +723,15 @@ WF* WF::setWindowCallbacks() {
             HWND hwnd = GetActiveWindow();
             ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
         #elif defined(__APPLE__)
-            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-            if (show_window) {
-                [nsWindow orderFront:nil];
-            } else {
-                [nsWindow orderOut:nil];
+            id window = (__bridge id)this->app->w->window().value();
+            if (window) {
+                SEL selFront = sel_registerName("orderFront:");
+                SEL selOut = sel_registerName("orderOut:");
+                if (show_window) {
+                    ((void (*)(id, SEL, id))objc_msgSend)(window, selFront, nil);
+                } else {
+                    ((void (*)(id, SEL, id))objc_msgSend)(window, selOut, nil);
+                }
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
