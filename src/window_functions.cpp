@@ -1581,19 +1581,16 @@ WF* WF::setProcessCallbacks() {
             json::array params = req.as_array();
             std::string uri = params[0].as_string().c_str();
             bool is_single = params[1].as_bool();
-            
+            std::vector<std::string> args;
+            for (const auto& i : this->app->orig_args) {
+                if (i.substr(0, 2) != "-P") {
+                    args.push_back(i);
+                }
+            }
+            args.push_back("-P"+uri);
             if (is_single) {
                 if (!this->app->procm->has(uri)) {
                     this->logger->debug("[function] Attempting to start single process for uri '" + uri + "'");
-                    
-                    std::vector<std::string> args = this->app->orig_args;
-                    if (args.size() > 1) {
-                        args.resize(2);
-                        args[1] = uri;
-                    } else {
-                        args.push_back(uri);
-                    }
-                    
                     int pid = this->app->procm->add(uri, args);
                     return json::value(pid);
                 } else {
@@ -1602,17 +1599,7 @@ WF* WF::setProcessCallbacks() {
                 }
             } else {
                 this->logger->debug("[function] Attempting to start process for uri '" + uri + "'");
-                
                 std::string unique_key = uri + "_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-                
-                std::vector<std::string> args = this->app->orig_args;
-                if (args.size() > 1) {
-                    args.resize(2);
-                    args[1] = uri;
-                } else {
-                    args.push_back(uri);
-                }
-                
                 int pid = this->app->procm->add(unique_key, args);
                 return json::value(pid);
             }
