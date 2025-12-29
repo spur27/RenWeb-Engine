@@ -779,7 +779,16 @@ WF* WF::setWindowCallbacks() {
     }))->add("reload_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->w->navigate(this->app->ws->getURL());
+            static const std::regex uri_regex(
+                R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
+            );
+            if (std::regex_match(this->app->config->current_page, uri_regex)) {
+                this->logger->warn("[function] Reloading URI " + this->app->config->current_page);
+                this->app->w->navigate(this->app->config->current_page);
+            } else {
+                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + this->app->config->current_page);
+                this->app->w->navigate(this->app->ws->getURL());
+            }
             return json::value(nullptr);
     }))->add("navigate_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "info.hpp"
 #include "interfaces/Ilogger.hpp"
 #include "file.hpp"
 #include "json.hpp"
@@ -44,10 +45,14 @@ namespace RenWeb {
             )
             : flags(std::move(flags))
             { 
-                std::shared_ptr<File> info_file(new File(Locate::currentDirectory() / "info.json"));
-                auto log_path = JSON::peek(info_file.get(), "log_path");
-                if (log_path.is_string()) {
-                    this->file = std::shared_ptr<File>(new File(std::filesystem::path(log_path.as_string().c_str())));
+                auto info_file = RenWeb::Info::getInfoFile();
+                auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
+                if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["log_path"].is_string()) {
+                    std::filesystem::path log_path = (info_packaging_obj.as_object()["log_path"].as_string().c_str());
+                    if (!log_path.is_absolute()) {
+                        log_path = RenWeb::Locate::currentDirectory() / log_path;
+                    }
+                    this->file = std::shared_ptr<File>(new File(log_path));
                 } else {
                     this->file = std::shared_ptr<File>(new File(Locate::currentDirectory() / "log.txt"));
                 }

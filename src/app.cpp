@@ -213,8 +213,7 @@ std::unique_ptr<App> AppBuilder::build() {
         this->validateOpt("page");
         this->withConfig(std::make_unique<Config>(
             this->logger,
-            opts.at("page"),
-            std::make_unique<File>(Locate::currentDirectory() / "config.json")
+            opts.at("page")
         ));
     }
     app->config = std::move(this->config);
@@ -441,7 +440,7 @@ void App::run() {
         this->setupWindow();
         this->fns->setState(current_state);
     });
-    
-    this->w->navigate(this->ws->getURL());
+
+    this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     this->w->run();
 }

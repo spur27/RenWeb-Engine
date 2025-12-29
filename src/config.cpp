@@ -13,11 +13,16 @@ using File = RenWeb::File;
 namespace {
     std::shared_ptr<File> getConfigFile() {
         auto info_file = RenWeb::Info::getInfoFile();
-        json::value config_path_val = JSON::peek(info_file.get(), "config_path");
-        if (config_path_val.is_string()) {
-            return std::make_shared<File>(std::filesystem::path(config_path_val.as_string().c_str()));
+        auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
+        if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["config_path"].is_string()) {
+            std::filesystem::path config_path = (info_packaging_obj.as_object()["config_path"].as_string().c_str());
+            if (!config_path.is_absolute()) {
+                config_path = RenWeb::Locate::currentDirectory() / config_path;
+            }
+            return std::make_shared<File>(config_path);
+        } else {
+            return std::make_shared<File>(RenWeb::Locate::currentDirectory() / "config.json");
         }
-        return std::make_shared<File>(RenWeb::Locate::currentDirectory() / "config.json");
     }
 }
 

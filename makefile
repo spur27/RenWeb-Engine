@@ -206,8 +206,8 @@ endef
 # -----------------------------------------------------------------------------
 # Paths 
 # -----------------------------------------------------------------------------
-BUILD_PATH :=  ./programs
-COPY_PATH :=   ./programs
+BUILD_PATH :=  ./build
+COPY_PATH :=   ./build
 LIC_PATH :=    ./licenses
 INFO_PATH :=   ./info.json
 SRC_PATH :=    ./src
@@ -414,7 +414,7 @@ help:
 copy-files:
 	$(call step,Copy Files, Copying Files at $@)
 	mkdir -p $(COPY_PATH)
-	cp -R $(LIC_PATH) $(COPY_PATH)/licenses
+	cp -R $(LIC_PATH) $(COPY_PATH)
 	cp $(INFO_PATH) $(COPY_PATH)/info.json
 	$(call step,Copy Files [DONE] Copying Files at $@)
 # -----------------------------------------------------------------------------

@@ -224,8 +224,8 @@ build_linux() {
     echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
-        print_info "Built executables are located in: ./programs/"
-        ls -lh ./programs/ 2>/dev/null | grep -E "renweb-.*-linux-" || true
+        print_info "Built executables are located in: ./build/"
+        ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-linux-" || true
     fi
 }
 
@@ -293,13 +293,13 @@ build_macos() {
         print_info "Creating universal binary (arm64 + x86_64)..."
         
         # Find the two binaries
-        local arm64_bin=$(ls ./programs/renweb-*-apple-arm64 2>/dev/null | head -1)
-        local x86_64_bin=$(ls ./programs/renweb-*-apple-x86_64 2>/dev/null | head -1)
+        local arm64_bin=$(ls ./build/renweb-*-apple-arm64 2>/dev/null | head -1)
+        local x86_64_bin=$(ls ./build/renweb-*-apple-x86_64 2>/dev/null | head -1)
         
         if [ -n "$arm64_bin" ] && [ -n "$x86_64_bin" ]; then
             # Extract version from info.json
             local version=$(grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4)
-            local universal_bin="./programs/renweb-${version}-apple-universal"
+            local universal_bin="./build/renweb-${version}-apple-universal"
             
             if lipo -create "$arm64_bin" "$x86_64_bin" -output "$universal_bin" 2>/dev/null; then
                 print_success "Universal binary created: $universal_bin"
@@ -323,8 +323,8 @@ build_macos() {
     echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
-        print_info "Built executables are located in: ./programs/"
-        ls -lh ./programs/ 2>/dev/null | grep -E "renweb-.*-apple-" || true
+        print_info "Built executables are located in: ./build/"
+        ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-apple-" || true
     fi
 }
 
@@ -407,8 +407,8 @@ build_windows() {
     echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
-        print_info "Built executables are located in: ./programs/"
-        ls -lh ./programs/ 2>/dev/null | grep -E "renweb-.*-windows-" || true
+        print_info "Built executables are located in: ./build/"
+        ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-windows-" || true
     fi
     
     echo ""

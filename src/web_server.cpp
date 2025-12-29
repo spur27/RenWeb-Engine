@@ -22,9 +22,16 @@ WebServer::WebServer(
     , port(port)
     , ip(ip)
 { 
-    auto base_path = this->app->info->getProperty("base_path");
-    if (base_path.is_string()) {
-        this->base_path = std::filesystem::path(base_path.as_string().c_str());
+    auto info_file = RenWeb::Info::getInfoFile();
+    auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
+    if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["base_path"].is_string()) {
+        std::filesystem::path unformatted_base_path = std::filesystem::path(
+            info_packaging_obj.as_object().at("base_path").as_string().c_str()
+        );
+        if (!unformatted_base_path.is_absolute()) {
+            unformatted_base_path = Locate::currentDirectory() / unformatted_base_path;
+        }
+        this->base_path = unformatted_base_path;
     } else {
         this->base_path = Locate::currentDirectory();
     }

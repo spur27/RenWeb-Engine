@@ -106,7 +106,7 @@ make
 ```bash
 make run
 # Or directly:
-./programs/renweb-0.0.4-linux-<arch>
+./build/renweb-0.0.4-linux-<arch>
 ```
 
 ### MacOS
@@ -122,7 +122,7 @@ You should be able to compile it with XCode tools (min MacOS version 10.15) and 
 RenWeb looks for files relative to the executable location:
 
 ```
-programs/
+build/
 ├── renweb-0.0.4-linux-<arch>     [executable]
 ├── info.json                     [application metadata - required]
 ├── config.json        [moveable] [window configuration - auto-generated or prewritten]
@@ -180,13 +180,10 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   "description": "Base RenWeb engine",
   "license": "BSL",
   "repository": "https://github.com/spur27/RenWeb-Engine",
-  "category": "Utility",
+  "categories": ["Utility"]
   "copyright": "Copyright © 2025 Spur27",
-  "appId": "io.github.spur27.renweb",
+  "app_id": "io.github.spur27.renweb",
   "starting_pages": ["test"],
-  "config_path": "./config.json",
-  "log_path": "./log.txt",
-  "base_path": ".",
   "permissions": {
     "geolocation": false,
     "notifications": true,
@@ -194,6 +191,17 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
     "pointer_lock": false,
     "install_missing_media_plugins": true,
     "device_info": true
+  },
+  "packaging": {
+    "pkg_id": "renweb",
+    "resource_path": "[Immutable] path to icons",
+    "config_path": "[Mutable] path to config.json", 
+    "log_path": "[Mutable] path to log.txt",
+    "base_path": "[Mutable] path to content, custom, backup, asset, etc.",
+    "desktop_path": "[Immutable] path to sym file",
+    "static_path": "[Immutable] path to executable and info.json",
+    "bin_path": "[Immutable] path to wrapper executable script",
+    "startup_notify": false
   }
 }
 ```
@@ -221,6 +229,19 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   - `pointer_lock` - Allow mouse pointer locking
   - `install_missing_media_plugins` - Auto-install codecs
   - `device_info` - Allow hardware information access
+- `packaging` - Contains paths and info for where to find files
+  - `pkg_id` - Unused in app; only used by packaging tools
+  - `resource_path` - Unused in app; only used by packaging tools
+  - `config_path` - USED in app AND packaging tools: tells app where to find and write to config file
+  - `log_path` - USED in app AND packaging tools: tells app where to find and write to log file
+  - `base_path` - USED in app AND packaging tools: tells app where to look for `content`, `assets`, `backup`, and `custom` directories.
+  - `desktop_path` - Unused in app; only used by packaging tools
+  - `static_path` - Unused in app; only used by packaging tools
+  - `bin_path` - Unused in app; only used by packaging tools
+  - `startup_notify` - Unused in app; only used by packaging tools
+
+__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable.
+- It is recommended not to touch any `packaging.*` properties unless you have a good reason.
 
 ### config.json
 
@@ -339,6 +360,9 @@ This repository uses the following open-source libraries:
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
   - Problem on MacOS 10.15 and will likely persist on applications with lesser hardware
 - `print_page` doesn't work on mac (prints blank screen)
+- Very limited functionality in windows (WIP)
+- Apple has different empty window screen flash when `initially_shown` is true for a page.
+- Server ports are never considered used
 
 ## License
 
