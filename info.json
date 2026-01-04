@@ -3,7 +3,7 @@
     "description": "Base RenWeb engine. Use with build files to see what it can do!",
     "license": "BSL",
     "title": "RenWeb",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "repository": "https://github.com/spur27/RenWeb",
     "category": "Utility",
     "copyright": "Copyright © 2025 Spur27",

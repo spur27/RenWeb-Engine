@@ -847,29 +847,26 @@ WF* WF::setWindowCallbacks() {
         #if defined(_WIN32)
             this->logger->warn("[function] print_page not yet implemented for Windows");
         #elif defined(__APPLE__)
-        this->logger->error("[function] print_page BROKEN on apple");
-        auto window_result = this->app->w->window();
+            auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
                 if (webview) {
-                    // Retain the webview to prevent deallocation before block executes
-                    id retainedWebview = [webview retain];
-                    
-                    // Use dispatch_async to ensure print dialog appears on main thread
                     dispatch_async(dispatch_get_main_queue(), ^{
-                        // Create print info with default settings
+                        NSView* webViewAsView = (NSView*)webview;
+                        
                         NSPrintInfo* printInfo = [NSPrintInfo sharedPrintInfo];
+                        [printInfo setHorizontalPagination:NSPrintingPaginationModeAutomatic];
+                        [printInfo setVerticalPagination:NSPrintingPaginationModeAutomatic];
+                        [printInfo setVerticallyCentered:NO];
                         
-                        // Create print operation
-                        NSPrintOperation* printOp = [NSPrintOperation printOperationWithView:retainedWebview printInfo:printInfo];
-                        [printOp setShowsPrintPanel:YES];
-                        [printOp setShowsProgressPanel:YES];
-                        
-                        // Run the print operation
-                        [printOp runOperation];
-                        
-                        // Release after use
-                        [retainedWebview release];
+                        NSPrintOperation* printOp = [webViewAsView printOperationWithPrintInfo:printInfo];
+                        if (printOp) {
+                            [printOp setShowsPrintPanel:YES];
+                            [printOp setShowsProgressPanel:YES];
+                            [printOp runOperation];
+                        } else {
+                            this->logger->error("[function] (apple-only) Failed to create print operation");
+                        }
                     });
                 }
             }
@@ -2369,8 +2366,6 @@ WF* WF::setInternalCallbacks() {
                 id navDelegate = [[navDelegateClass alloc] init];
                 objc_setAssociatedObject(navDelegate, "wf", (__bridge id)this, OBJC_ASSOCIATION_ASSIGN);
                 [webview setNavigationDelegate:navDelegate];
-                
-                this->logger->info("[security] WKWebView navigation delegate installed");
             #endif
             
             return json::value(nullptr);
@@ -2481,7 +2476,6 @@ WF* WF::setInternalCallbacks() {
                     }
                 } @catch (NSException *exception) { }
                 
-                this->logger->info("[function] Performance settings applied");
             #endif
             
             return json::value(nullptr);
