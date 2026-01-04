@@ -6,19 +6,6 @@
 #include <boost/json/value.hpp>
 #include <memory>
 #include <sstream>
-
-#if defined(_WIN32)
-    #include <windows.h>
-#elif defined(__APPLE__)
-    #include <Cocoa/Cocoa.h>
-    #include <WebKit/WebKit.h>
-    #include <objc/message.h>
-#elif defined(__linux__)
-    #include <gtk/gtk.h>
-    #include "gdk/gdk.h"
-    #include <webkit2/webkit2.h>
-#endif
-
 #include <string>
 #include <fstream>
 #include <regex>
@@ -28,6 +15,27 @@
 #include "../include/app.hpp"
 #include "../include/locate.hpp"
 #include "../include/managers/pipe_manager.hpp"
+
+#if defined(_WIN32)
+    #include <windows.h>
+    #include <urlmon.h>
+    #include <shellapi.h>
+    #pragma comment(lib, "urlmon.lib")
+    #pragma comment(lib, "shell32.lib")
+#elif defined(__APPLE__)
+    #import <Foundation/Foundation.h>
+    #import <objc/runtime.h>
+    #import <objc/message.h>
+    #include <Cocoa/Cocoa.h>
+    #include <WebKit/WebKit.h>
+    #include <objc/message.h>
+#elif defined(__linux__)
+    #include "webview/detail/platform/linux/webkitgtk/compat.hh"
+    #include <dlfcn.h>
+    #include <gtk/gtk.h>
+    #include "gdk/gdk.h"
+    #include <webkit2/webkit2.h>
+#endif
 
 
 using WF = RenWeb::WindowFunctions;
@@ -40,7 +48,6 @@ static id getWKWebViewFromWindow(void* window_ptr) {
     id nsWindow = (__bridge id)window_ptr;
     id contentView = [nsWindow contentView];
     
-    // Find the WKWebView in the view hierarchy
     NSArray* subviews = [contentView subviews];
     for (id view in subviews) {
         if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
@@ -55,8 +62,8 @@ using CM = RenWeb::CallbackManager<std::string, json::value, const json::value&>
 WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
     : logger(logger),
       app(app),
+      internal_callbacks(new CM()),
       getsets(new IOM()),
-    //   startstops(new IOM()),
       window_callbacks(new CM()),
       log_callbacks(new CM()),
       filesystem_callbacks(new CM()),
@@ -78,7 +85,8 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
         ->setSignalCallbacks()
         ->setDebugCallbacks()
         ->setNetworkCallbacks()
-        ->setNavigateCallbacks();
+        ->setNavigateCallbacks()
+        ->setInternalCallbacks();
     this->bindDefaults();
 }
 
@@ -283,11 +291,6 @@ void WF::setState(const json::object& json) {
             this->set(property.key(), property.value());
         } catch (...) { }
     }
-}
-void WF::saveState() {
-    // this->app->config->update(this->getState())
-    // Page::savePageConfig(this->getState());
-    this->logger->critical("[function] SAVE STATE NOT IMPLEMENTED");
 }
 #pragma region GetSet
 WF* WF::setGetSets() {
@@ -1464,7 +1467,7 @@ WF* WF::setProcessCallbacks() {
             
             std::string unique_key = "duplicate_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
             
-            int pid = this->app->procm->add(unique_key, this->app->orig_args);
+            int pid = this->app->daem->add(unique_key, this->app->orig_args);
             this->logger->debug("[function] Duplicated process with PID: " + std::to_string(pid));
             
             return json::value(pid);
@@ -1845,3 +1848,435 @@ WF* WF::setNavigateCallbacks() {
     return this;
 }
 #pragma endregion
+#pragma region InternalCallbacks
+WF* WF::setInternalCallbacks() {
+    this->internal_callbacks->add("dependency_check",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(__linux__)
+                if (system("which gst-inspect-1.0 > /dev/null 2>&1") != 0) {
+                    this->logger->warn("[function] gst-inspect-1.0 not found. GStreamer may not be installed.");
+                    this->logger->warn("[function] HTML5 media playback will not work without GStreamer.");
+                    this->logger->warn("[function] Installation guide: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
+                } else {
+                    if (system("gst-inspect-1.0 x264enc > /dev/null 2>&1") != 0) {
+                        this->logger->warn("[function] GStreamer plugins-ugly not detected (MP3 codec support missing).");
+                        this->logger->warn("[function] This package may have patent/licensing restrictions in some jurisdictions.");
+                        this->logger->warn("[function] Install at your own discretion: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
+                    }
+                }
+            #elif defined(_WIN32)
+                HKEY hKey;
+                LONG result = RegOpenKeyExA(
+                    HKEY_LOCAL_MACHINE,
+                    "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                    0,
+                    KEY_READ,
+                    &hKey
+                );
+                
+                if (result != ERROR_SUCCESS) {
+                    this->logger->warn("[function] WebView2 Runtime not found. Downloading installer...");
+                    
+                    // Download to temp directory
+                    char tempPath[MAX_PATH];
+                    GetTempPathA(MAX_PATH, tempPath);
+                    std::string installerPath = std::string(tempPath) + "MicrosoftEdgeWebview2Setup.exe";
+                    
+                    // Download bootstrapper (~2MB)
+                    HRESULT hr = URLDownloadToFileA(
+                        nullptr,
+                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+                        installerPath.c_str(),
+                        0,
+                        nullptr
+                    );
+                    
+                    if (FAILED(hr)) {
+                        this->logger->error("[function] Failed to download WebView2 installer.");
+                        this->logger->error("[function] Please download manually: https://developer.microsoft.com/microsoft-edge/webview2/");
+                        throw std::runtime_error("[function] WebView2 not installed");
+                    }
+
+                    this->logger->info("[function] Download complete. Launching installer...");
+                    
+                    // Launch installer and wait for completion
+                    SHELLEXECUTEINFOA sei = { sizeof(sei) };
+                    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+                    sei.lpFile = installerPath.c_str();
+                    sei.nShow = SW_SHOW;
+                    
+                    if (!ShellExecuteExA(&sei) || !sei.hProcess) {
+                        DeleteFileA(installerPath.c_str());
+                        this->logger->error("[function] Failed to launch WebView2 installer.");
+                        throw std::runtime_error("[function] Failed to launch installer");
+                    }
+                    
+                    // Wait for installer to complete
+                    WaitForSingleObject(sei.hProcess, INFINITE);
+                    CloseHandle(sei.hProcess);
+                    
+                    // Clean up
+                    DeleteFileA(installerPath.c_str());
+
+                    this->logger->info("[function] WebView2 installation complete. Continuing...");
+                } else {
+                    RegCloseKey(hKey);
+                }
+            #endif
+            return json::value(nullptr);
+        }))->add("process_permissions",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(__linux__)
+                auto widget_result = this->app->w->widget();
+                if (!widget_result.has_value()) {
+                    this->logger->error("[function] Failed to get webview widget for permission setup");
+                    return json::value(nullptr);
+                }
+                WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
+                
+                WebKitSettings* settings = webkit_web_view_get_settings(webview);
+                webkit_settings_set_enable_developer_extras(settings, TRUE);
+
+                struct PermissionCtx { App* app; std::shared_ptr<ILogger> logger; };
+                auto *ctx = new PermissionCtx{ this->app, this->logger };
+                g_object_set_data_full(G_OBJECT(webview), "renweb-perm-ctx", ctx,
+                                    [](gpointer p){ delete static_cast<PermissionCtx*>(p); });
+                g_signal_connect(webview, "permission-request", G_CALLBACK(+[](WebKitWebView* /*webview*/, WebKitPermissionRequest* request, gpointer user_data) -> gboolean {
+                    auto *ctx = static_cast<PermissionCtx*>(user_data);
+                    App* app = ctx->app;
+                    std::shared_ptr<ILogger> logger = ctx->logger;
+                    (void)user_data;
+                    
+                    const json::value& perms_from_info = app->info->getProperty("permissions");
+                    const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+                    
+                    auto check_permission = [&](const char* key, bool default_value) -> bool {
+                        return (perms.contains(key) && perms.at(key).is_bool())
+                            ? perms.at(key).as_bool()
+                            : default_value;
+                    };
+
+                    bool allowed = false;
+                    if (WEBKIT_IS_GEOLOCATION_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("geolocation", false);
+                        logger->info("[function] Geolocation permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    } else if (WEBKIT_IS_NOTIFICATION_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("notifications", true);
+                        logger->info("[function] Notifications permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    } else if (WEBKIT_IS_USER_MEDIA_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("media_devices", false);
+                        logger->info("[function] Media devices permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    } else if (WEBKIT_IS_POINTER_LOCK_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("pointer_lock", false);
+                        logger->info("[function] Pointer lock permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    } else if (WEBKIT_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("install_missing_media_plugins", true);
+                        logger->info("[function] Install missing media plugins permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    } else if (WEBKIT_DEVICE_INFO_PERMISSION_REQUEST(request)) {
+                        allowed = check_permission("device_info", true);
+                        logger->info("[function] Device info permission request: " + std::string(allowed ? "allowing" : "denying"));
+                    }
+                    allowed ? webkit_permission_request_allow(request) : webkit_permission_request_deny(request);
+                    return TRUE;
+                }), ctx);
+            #elif defined(_WIN32)
+                // Windows WebView2 permissions are handled via ICoreWebView2::add_PermissionRequested
+                // TODO: Implement permission request handler
+                this->logger->critical("[function] Windows permission handling not yet implemented");
+                
+            #elif defined(__APPLE__)
+                // Implement using plist keys
+                // TODO: Implement permission request handler
+                this->logger->critical("[function] apple permission handling not yet implemented");
+            #endif
+            return json::value(nullptr);
+    }))->add("process_security",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(__linux__)
+                auto widget_result = this->app->w->widget();
+                if (!widget_result.has_value()) {
+                    this->logger->error("[function] Failed to get webview widget for security setup");
+                    return json::value(nullptr);
+                }
+                WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
+                
+                // Navigation policy handler - blocks disallowed URIs
+                g_signal_connect(webview, "decide-policy", G_CALLBACK(+[](
+                    WebKitWebView* web_view, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer user_data) -> gboolean {
+                    auto* wf = static_cast<WF*>(user_data);
+                    const char* uri = nullptr;
+                    
+                    if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION || type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
+                        uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(
+                            webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(decision))));
+                    } else if (type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
+                        uri = webkit_uri_request_get_uri(webkit_response_policy_decision_get_request(WEBKIT_RESPONSE_POLICY_DECISION(decision)));
+                    }
+                    
+                    std::string uri_str = uri ? uri : "";
+                    if (uri_str.find("about:") == 0 || uri_str.find("file:") == 0) {
+                        webkit_policy_decision_use(decision);
+                        return TRUE;
+                    }
+                    
+                    if (uri && !wf->app->ws->isURIAllowed(uri)) {
+                        wf->logger->warn("[security] Blocked: " + std::string(uri));
+                        webkit_policy_decision_ignore(decision);
+                        webkit_web_view_load_html(web_view, IWebServer::generateBlockedNavigationHTML(uri,
+                            "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.").c_str(), "about:blank");
+                        return TRUE;
+                    }
+                    webkit_policy_decision_use(decision);
+                    return TRUE;
+                }), this);
+                
+                // Build content blocker using origins whitelist
+                auto extract_domain = [](const std::string& url) {
+                    size_t start = url.find("://");
+                    if (start == std::string::npos) return std::string("");
+                    start += 3;
+                    size_t end = url.find('/', start);
+                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
+                };
+                
+                std::vector<std::string> allowed_domains;
+                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
+                
+                const auto origins = this->app->info->getProperty("origins");
+                if (origins.is_array()) {
+                    for (const auto& origin : origins.as_array()) {
+                        if (origin.is_string()) {
+                            std::string domain = extract_domain(origin.as_string().c_str());
+                            if (!domain.empty()) allowed_domains.push_back(domain);
+                        }
+                    }
+                }
+                
+                json::array rules;
+                if (!allowed_domains.empty()) {
+                    json::array unless_domains;
+                    for (const auto& d : allowed_domains) unless_domains.emplace_back(d);
+                    
+                    rules.emplace_back(json::object{
+                        {"trigger", json::object{
+                            {"url-filter", ".*"},
+                            {"resource-type", json::array{"image", "style-sheet", "script", "font", "raw", "svg-document", "media"}},
+                            {"load-type", json::array{"third-party"}},
+                            {"unless-domain", unless_domains}
+                        }},
+                        {"action", json::object{{"type", "block"}}}
+                    });
+                }
+                
+                std::string rules_json = json::serialize(rules);
+                this->logger->debug("[security] Content filter: " + std::to_string(allowed_domains.size()) + " allowed domains");
+                
+                GBytes* rules_bytes = g_bytes_new(rules_json.c_str(), rules_json.length());
+                WebKitUserContentFilterStore* store = webkit_user_content_filter_store_new("/tmp/renweb-filters");
+                
+                webkit_user_content_filter_store_save(store, "renweb-filter", rules_bytes, nullptr,
+                    +[](GObject* src, GAsyncResult* res, gpointer data) {
+                        auto* wf = static_cast<WF*>(data);
+                        GError* err = nullptr;
+                        auto* filter = webkit_user_content_filter_store_save_finish(WEBKIT_USER_CONTENT_FILTER_STORE(src), res, &err);
+                        
+                        if (filter) {
+                            webkit_user_content_manager_add_filter(
+                                webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(wf->app->w->widget().value())), filter);
+                            webkit_user_content_filter_unref(filter);
+                            wf->logger->info("[security] Content filter active");
+                        } else {
+                            wf->logger->error("[security] Content filter failed: " + std::string(err ? err->message : "unknown"));
+                            if (err) g_error_free(err);
+                        }
+                    }, this);
+                
+                g_bytes_unref(rules_bytes);
+                g_object_unref(store);
+                
+                // Load failure handler - only show error page for main frame navigation, log resource failures
+                g_signal_connect(webview, "load-failed", G_CALLBACK(+[](
+                    WebKitWebView* web_view, WebKitLoadEvent, gchar* failing_uri, GError* error, gpointer user_data) -> gboolean {
+                    auto* wf = static_cast<WF*>(user_data);
+                    if (failing_uri && std::string(failing_uri).find("about:") == 0) return FALSE;
+                    
+                    std::string uri_str = failing_uri ? failing_uri : "unknown";
+                    std::string error_msg = error ? error->message : "unknown";
+                    
+                    // Check if this is the main page URI (not a resource)
+                    const char* page_uri = webkit_web_view_get_uri(web_view);
+                    bool is_main_page = !page_uri || (failing_uri && std::string(page_uri) == uri_str);
+                    
+                    if (is_main_page) {
+                        // Main page failed to load - show full error page
+                        wf->logger->error("[security] Page load failed: " + uri_str + " - " + error_msg);
+                        webkit_web_view_load_html(web_view, IWebServer::generateErrorHTML(error ? error->code : 0, 
+                            "Failed to Load Page", "Could not load: " + uri_str + 
+                            (error ? std::string("<br><br><strong>Details:</strong> ") + error_msg : "")).c_str(), failing_uri);
+                        return TRUE;
+                    }
+                    
+                    // Resource failed - just log, don't disrupt the page
+                    wf->logger->warn("[security] Resource load failed: " + uri_str + " - " + error_msg);
+                    return FALSE;
+                }), this);
+                
+                
+            #elif defined(_WIN32)
+                auto webview_opt = this->app->w->widget();
+                if (!webview_opt.has_value()) {
+                    this->logger->warn("[function] WebView2 not ready - call process_security after initialization");
+                    return json::value(nullptr);
+                }
+                // TODO: Implement ICoreWebView2::add_NavigationStarting handler for URI filtering
+                // Pattern: Check isURIAllowed(), cancel navigation, use NavigateToString() for error page
+                this->logger->warn("[function] Windows WebView2 security requires COM interface setup (see code comments)");
+                
+            #elif defined(__APPLE__)
+                auto window_result = this->app->w->window();
+                if (!window_result.has_value()) {
+                    this->logger->error("[function] Failed to get window for security setup");
+                    return json::value(nullptr);
+                }
+                
+                id nsWindow = (__bridge id)window_result.value();
+                id webview = nil;
+                for (id view in [[nsWindow contentView] subviews]) {
+                    if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+                        webview = view;
+                        break;
+                    }
+                }
+                
+                if (!webview) {
+                    this->logger->error("[function] Failed to find WKWebView");
+                    return json::value(nullptr);
+                }
+                
+                static Class navDelegateClass = nil;
+                if (!navDelegateClass) {
+                    navDelegateClass = objc_allocateClassPair([NSObject class], "RenWebNavigationDelegate", 0);
+                    
+                    auto (^checkPolicy)(id, id, NSURL*, void (^)(int)) = ^(id self, id webView, NSURL* url, void (^handler)(int)) {
+                        App* app = (__bridge App*)objc_getAssociatedObject(self, "app");
+                        std::string uri_str([[url absoluteString] UTF8String]);
+                        
+                        if (uri_str.find("about:") == 0) {
+                            handler(1);
+                            return;
+                        }
+                        
+                        if (!app->ws->isURIAllowed(uri_str)) {
+                            app->logger->warn("[security] Blocked: " + uri_str);
+                            [webView loadHTMLString:[NSString stringWithUTF8String:IWebServer::generateBlockedNavigationHTML(uri_str,
+                                "This URL is not in the list of allowed origins.").c_str()] baseURL:[NSURL URLWithString:@"about:blank"]];
+                            handler(0);
+                        } else {
+                            handler(1);
+                        }
+                    };
+                    
+                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationAction:decisionHandler:"),
+                        imp_implementationWithBlock(^(id self, id webView, id navAction, void (^handler)(int)) {
+                            checkPolicy(self, webView, [[navAction valueForKey:@"request"] URL], handler);
+                        }), "v@:@@?");
+                    
+                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationResponse:decisionHandler:"),
+                        imp_implementationWithBlock(^(id self, id webView, id navResponse, void (^handler)(int)) {
+                            checkPolicy(self, webView, [[navResponse valueForKey:@"response"] URL], handler);
+                        }), "v@:@@?");
+                    
+                    objc_registerClassPair(navDelegateClass);
+                }
+                
+                id navDelegate = [[navDelegateClass alloc] init];
+                objc_setAssociatedObject(navDelegate, "app", (__bridge id)this->app, OBJC_ASSOCIATION_ASSIGN);
+                [webview setNavigationDelegate:navDelegate];
+                
+                this->logger->info("[security] WKWebView navigation delegate installed");
+            #endif
+            
+            return json::value(nullptr);
+    }))->add("performance_settings",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(__linux__)
+                auto widget_result = this->app->w->widget();
+                if (!widget_result.has_value()) {
+                    this->logger->warn("[function] Webview widget not ready yet - skipping performance settings");
+                    return json::value(nullptr);
+                }
+                WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
+                WebKitSettings* settings = webkit_web_view_get_settings(webview);
+                                
+                webkit_settings_set_hardware_acceleration_policy(settings, 
+                    WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS);
+                webkit_settings_set_enable_2d_canvas_acceleration(settings, TRUE);
+                webkit_settings_set_enable_webgl(settings, TRUE);
+                webkit_settings_set_enable_page_cache(settings, TRUE);
+                webkit_settings_set_enable_media(settings, TRUE);
+                webkit_settings_set_enable_media_capabilities(settings, TRUE);
+                webkit_settings_set_enable_mediasource(settings, TRUE);
+                webkit_settings_set_enable_encrypted_media(settings, TRUE);
+                webkit_settings_set_enable_html5_local_storage(settings, TRUE);
+                webkit_settings_set_enable_html5_database(settings, TRUE);
+                webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
+                webkit_settings_set_enable_back_forward_navigation_gestures(settings, TRUE);
+                webkit_settings_set_enable_javascript_markup(settings, TRUE);
+                webkit_settings_set_enable_resizable_text_areas(settings, TRUE);
+                webkit_settings_set_enable_site_specific_quirks(settings, TRUE);
+                webkit_settings_set_enable_tabs_to_links(settings, TRUE);
+                webkit_settings_set_enable_fullscreen(settings, TRUE);
+                webkit_settings_set_enable_webaudio(settings, TRUE);
+                webkit_settings_set_enable_media_stream(settings, TRUE);
+                webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
+                webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE); 
+                webkit_settings_set_zoom_text_only(settings, FALSE); 
+                webkit_settings_set_default_charset(settings, "UTF-8");
+                webkit_settings_set_enable_caret_browsing(settings, FALSE);
+                webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE); 
+                webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
+                
+            #elif defined(_WIN32)
+                this->logger->warn("[function] performance_settings not yet implemented for Windows");
+                
+            #elif defined(__APPLE__)
+                this->logger->warn("[function] performance_settings not yet implemented for macOS");
+            #endif
+            
+            return json::value(nullptr);
+    }));
+    return this;
+}
+
+WF* WF::setup() {
+    const json::value req = json::value(nullptr);
+    const json::value& prop = this->app->config->getProperty("initially_shown");
+    if (prop.is_bool() && !prop.as_bool()) {
+        this->window_callbacks->run(
+            "show", 
+            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
+        );
+    }
+    if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
+        this->logger->warn("[function] Setup has already been completed previously - skipping");
+        return this;
+    }
+    for (const auto& [key, fn] : this->internal_callbacks->getMap()) {
+        try {
+            fn(req);
+        } catch (const std::exception& e) {
+            this->logger->error("[function] Exception during internal callback '" + key + "': " + e.what());
+        }
+    }
+    this->saved_states["setup_complete"] = json::value(true);
+    return this;
+}
+
+WF* WF::teardown() {
+    /* nothing here atm */
+    return this;
+}

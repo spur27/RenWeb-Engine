@@ -1,3 +1,4 @@
+// Compile:  tsc --target es2020 --module es2020 --declaration --sourceMap --strict --moduleResolution node --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck --forceConsistentCasingInFileNames index.ts
 /*
 * -----------------------------------------------
 * ---------------Helper Functions----------------
@@ -119,8 +120,8 @@ export var Window;
     Window.currentTitle = currentTitle;
     async function reloadPage() { await BIND_reload_page(null); }
     Window.reloadPage = reloadPage;
-    async function closeWindow() { await BIND_close_window(null); }
-    Window.closeWindow = closeWindow;
+    async function navigatePage(uri) { await BIND_navigate_page(encode(uri)); }
+    Window.navigatePage = navigatePage;
     async function terminate() { await BIND_terminate(null); }
     Window.terminate = terminate;
     async function startWindowDrag() { await BIND_start_window_drag(null); }

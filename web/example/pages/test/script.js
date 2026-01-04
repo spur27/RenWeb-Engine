@@ -379,7 +379,7 @@ document.querySelector(".terminate").onclick = async () => {
 document.querySelector(".navigate_page").onclick = async () => {
     const page_name = document.querySelector(".page_input").value;
     await Log.debug(`Navigating to "${page_name}"`);
-    await Log.warn("navigate_page not in new API, use browser back/forward instead");
+    await Window.navigatePage(page_name);
 };
 document.querySelector(".open_uri").onclick = async () => {
     const uri = document.querySelector(".page_input").value;

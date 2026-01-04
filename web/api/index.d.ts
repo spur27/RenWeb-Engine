@@ -35,7 +35,7 @@ export declare namespace Window {
     function resetTitle(): Promise<void>;
     function currentTitle(): Promise<string>;
     function reloadPage(): Promise<void>;
-    function closeWindow(): Promise<void>;
+    function navigatePage(uri: string): Promise<void>;
     function terminate(): Promise<void>;
     function startWindowDrag(): Promise<void>;
     function printPage(): Promise<void>;

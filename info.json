@@ -18,5 +18,8 @@
         "pointer_lock": false,
         "install_missing_media_plugins": true,
         "device_info": true
-    }
+    },
+    "origins": [
+        "https://www.google.com"
+    ]
 }

@@ -202,6 +202,17 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
     "static_path": "[Immutable] path to executable and info.json",
     "bin_path": "[Immutable] path to wrapper executable script",
     "startup_notify": false
+  },
+  "origins": [
+    "https://example.one",
+    "http://example.two/sequel"
+  ],
+  "server": {
+    "ip": "127.0.0.1",
+    "port": 8270,
+    "https": false,
+    "ssl_cert_path": "/absolute/path/example",
+    "ssl_key_path": "./relative/path/example"
   }
 }
 ```
@@ -239,9 +250,17 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   - `static_path` - Unused in app; only used by packaging tools
   - `bin_path` - Unused in app; only used by packaging tools
   - `startup_notify` - Unused in app; only used by packaging tools
+- `origins` - Contains array of base urls with protocols
+- `web_server`
+  - `ip` - IP address for webserver (default is 127.0.0.1)
+  - `port` - Port (default is random)
+  - `https` - Boolean that enables HTTPS as opposed to http
+  - `ssl_cert_path` - HTTPS only - path to SSL certificate file
+  - `ssl_key_path` - HTTPS only - path to SSL key
 
-__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable.
+__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable. If `base_path` is set in `packaging`, then that will be used as the relative path and default directory for when the client requests the application directory.
 - It is recommended not to touch any `packaging.*` properties unless you have a good reason.
+- `ssl_cert_path` and `ssl_key_path` search from `base_path` when they are relative. Both are required only for HTTPS; fallback to HTTP is automatic when things go wrong.
 
 ### config.json
 
@@ -332,11 +351,7 @@ Logging:
   -s, --log-silent             Suppress console log output
   -l, --log-level <n>          Set log level (0=trace, 5=critical, default=2)
   -c, --log-clear              Clear log.txt before starting
-  
-Server:
-  -i, --ip <address>            Web server IP (default: 127.0.0.1)
-  -p, --port <n>                Web server port (default: 8270)
-  
+    
 Pages:
   -P, --pages <name> [names...] Open specific page(s) (default from info.json)
 ```
@@ -363,6 +378,21 @@ This repository uses the following open-source libraries:
 - Very limited functionality in windows (WIP)
 - Apple has different empty window screen flash when `initially_shown` is true for a page.
 - Server ports are never considered used
+
+## Planned Activities
+- Disable internet connectivity of the RenWeb Webview instance
+  - This will be my approach to security
+  - Implementation could be CORS enforcement in webview or proxy funneling
+- Create HTTP client in engine to allow careful internet usage
+  - This would basically be making a custom fetch command
+- Add binding to get info (if one doesn't already exist)
+- Look into artifacting scripts and whatnot
+- Look into an improved approach over the webserver
+- Look into webview CORS (would be rad if it exists)
+- Fully  implement windows
+- Finish packaging tool
+- Change webserver IP and Port to be set in info.json
+  - Maybe revise all program options and see what's even necessary
 
 ## License
 

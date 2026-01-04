@@ -18,8 +18,6 @@ namespace RenWeb {
         private:
           std::shared_ptr<ILogger> logger = nullptr;
           App(std::shared_ptr<ILogger> logger) : logger(logger) {}
-          void processPermissions();
-          void setupWindow();
         public:
           ~App() = default;
           std::vector<std::string> orig_args;
@@ -56,7 +54,6 @@ namespace RenWeb {
           std::unique_ptr<RenWeb::WindowFunctions> fns = nullptr;
 
           void validateOpt(const std::string& opt);
-          void performDependencyCheck();
       public:
           AppBuilder(const std::map<std::string, std::string>& opts, int argc, char** argv);
 

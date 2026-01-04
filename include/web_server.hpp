@@ -18,23 +18,26 @@ namespace RenWeb {
         public:
             WebServer(
                 std::shared_ptr<ILogger> logger,
-                App* app,
-                const unsigned short& port, 
-                const std::string& ip
+                App* app
             );
             ~WebServer();
             std::string getURL() const override;
             void start() override;
             void stop() override;
+            bool isURIAllowed(const std::string& uri) const override;
         private:
             std::shared_ptr<ILogger> logger;
             App* app;
             std::filesystem::path base_path;
             std::unique_ptr<RenWeb::CallbackManager<std::string, void, const httplib::Request&, httplib::Response&>> method_callbacks;
-            httplib::Server server;
+            std::unique_ptr<httplib::Server> server;
             std::thread server_thread;
-            unsigned short port;
-            const std::string ip;
+            unsigned short port = 0;
+            std::string ip = "127.0.0.1";
+            bool https = false;
+            std::filesystem::path ssl_cert_path;
+            std::filesystem::path ssl_key_path;
+            std::string cached_allowed_origins;
             void setHandles();
             void setMethodCallbacks();
             void sendFile(
