@@ -1987,9 +1987,82 @@ WF* WF::setInternalCallbacks() {
                 this->logger->critical("[function] Windows permission handling not yet implemented");
                 
             #elif defined(__APPLE__)
-                // Implement using plist keys
-                // TODO: Implement permission request handler
-                this->logger->critical("[function] apple permission handling not yet implemented");
+                // macOS WKWebView permission handling via WKUIDelegate
+                auto window_result = this->app->w->window();
+                if (!window_result.has_value()) {
+                    this->logger->error("[function] Failed to get window for permission setup");
+                    return json::value(nullptr);
+                }
+                
+                id nsWindow = (__bridge id)window_result.value();
+                id webview = nil;
+                for (id view in [[nsWindow contentView] subviews]) {
+                    if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+                        webview = view;
+                        break;
+                    }
+                }
+                
+                if (!webview) {
+                    this->logger->error("[function] Failed to find WKWebView for permission setup");
+                    return json::value(nullptr);
+                }
+                
+                // Enable developer extras
+                id config = [webview configuration];
+                id preferences = [config preferences];
+                [preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+                [preferences setValue:@YES forKey:@"javaScriptEnabled"];
+                
+                const json::value& perms_from_info = this->app->info->getProperty("permissions");
+                const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+                
+                auto check_permission = [&](const char* key, bool default_value) -> bool {
+                    return (perms.contains(key) && perms.at(key).is_bool())
+                        ? perms.at(key).as_bool()
+                        : default_value;
+                };
+                
+                // Create and configure permission delegate
+                static Class delegateClass = nil;
+                if (!delegateClass) {
+                    delegateClass = objc_allocateClassPair([NSObject class], "RenWebPermissionDelegate", 0);
+                    
+                    // Consolidated permission handler
+                    auto addPermHandler = [](Class cls, SEL selector, const char* permKey, bool defVal, const char* sig) {
+                        IMP imp = imp_implementationWithBlock(^(id self, id wv, id org, id frm, id typeOrHandler, id handler) {
+                            App* app = (__bridge App*)objc_getAssociatedObject(self, "app");
+                            auto* logPtr = (std::shared_ptr<ILogger>*)[(NSValue*)objc_getAssociatedObject(self, "logger") pointerValue];
+                            
+                            const json::value& pInfo = app->info->getProperty("permissions");
+                            const json::object perms = pInfo.is_object() ? pInfo.as_object() : json::object{};
+                            bool allowed = perms.contains(permKey) && perms.at(permKey).is_bool() ? perms.at(permKey).as_bool() : defVal;
+                            
+                            if (logPtr) (*logPtr)->info(std::string("[function] ") + permKey + ": " + (allowed ? "allow" : "deny"));
+                            
+                            void (^h)(int) = handler ? handler : typeOrHandler;
+                            h(allowed ? 1 : 0);
+                        });
+                        class_addMethod(cls, selector, imp, sig);
+                    };
+                    
+                    addPermHandler(delegateClass, 
+                        NSSelectorFromString(@"webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:"),
+                        "media_devices", false, "v@:@@@@@");
+                    addPermHandler(delegateClass,
+                        NSSelectorFromString(@"webView:requestDeviceOrientationAndMotionPermissionForOrigin:initiatedByFrame:decisionHandler:"),
+                        "device_info", true, "v@:@@@@");
+                    
+                    objc_registerClassPair(delegateClass);
+                }
+                
+                id delegate = [[delegateClass alloc] init];
+                objc_setAssociatedObject(delegate, "app", (__bridge id)this->app, OBJC_ASSOCIATION_ASSIGN);
+                auto* logger_ptr = new std::shared_ptr<ILogger>(this->logger);
+                objc_setAssociatedObject(delegate, "logger", [NSValue valueWithPointer:logger_ptr], OBJC_ASSOCIATION_RETAIN);
+                [webview setUIDelegate:delegate];
+                
+                this->logger->info("[function] Permission delegate installed");
             #endif
             return json::value(nullptr);
     }))->add("process_security",
@@ -2152,48 +2225,149 @@ WF* WF::setInternalCallbacks() {
                 }
                 
                 if (!webview) {
-                    this->logger->error("[function] Failed to find WKWebView");
+                    this->logger->error("[function] Failed to find WKWebView for security setup");
                     return json::value(nullptr);
                 }
                 
+                // Build allowed domains list
+                auto extract_domain = [](const std::string& url) {
+                    size_t start = url.find("://");
+                    if (start == std::string::npos) return std::string("");
+                    start += 3;
+                    size_t end = url.find('/', start);
+                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
+                };
+                
+                std::vector<std::string> allowed_domains;
+                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
+                
+                const auto origins = this->app->info->getProperty("origins");
+                if (origins.is_array()) {
+                    for (const auto& origin : origins.as_array()) {
+                        if (origin.is_string()) {
+                            std::string domain = extract_domain(origin.as_string().c_str());
+                            if (!domain.empty()) allowed_domains.push_back(domain);
+                        }
+                    }
+                }
+                
+                this->logger->debug("[security] Content filter: " + std::to_string(allowed_domains.size()) + " allowed domains");
+                
+                // Set up WKContentRuleList for blocking third-party resources
+                if (!allowed_domains.empty()) {
+                    json::array unless_domains;
+                    for (const auto& d : allowed_domains) unless_domains.emplace_back(d);
+                    
+                    json::array rules;
+                    rules.emplace_back(json::object{
+                        {"trigger", json::object{
+                            {"url-filter", ".*"},
+                            {"resource-type", json::array{"image", "style-sheet", "script", "font", "raw", "svg-document", "media"}},
+                            {"load-type", json::array{"third-party"}},
+                            {"unless-domain", unless_domains}
+                        }},
+                        {"action", json::object{{"type", "block"}}}
+                    });
+                    
+                    std::string rules_json = json::serialize(rules);
+                    NSString* rulesString = [NSString stringWithUTF8String:rules_json.c_str()];
+                    
+                    id ruleStore = [NSClassFromString(@"WKContentRuleListStore") defaultStore];
+                    [ruleStore compileContentRuleListForIdentifier:@"RenWebContentBlocker"
+                                                 encodedContentRuleList:rulesString
+                                                      completionHandler:^(id ruleList, NSError* error) {
+                        if (ruleList) {
+                            id userContentController = [[webview configuration] userContentController];
+                            [userContentController addContentRuleList:ruleList];
+                            this->logger->info("[security] Content filter active");
+                        } else {
+                            this->logger->error("[security] Content filter failed: " + 
+                                std::string(error ? [[error localizedDescription] UTF8String] : "unknown"));
+                        }
+                    }];
+                }
+                
+                // Set up WKNavigationDelegate for URI filtering and error handling
                 static Class navDelegateClass = nil;
                 if (!navDelegateClass) {
-                    navDelegateClass = objc_allocateClassPair([NSObject class], "RenWebNavigationDelegate", 0);
+                    navDelegateClass = objc_allocateClassPair([NSObject class], "RenWebSecurityNavigationDelegate", 0);
                     
+                    // Shared policy check logic
                     auto (^checkPolicy)(id, id, NSURL*, void (^)(int)) = ^(id self, id webView, NSURL* url, void (^handler)(int)) {
-                        App* app = (__bridge App*)objc_getAssociatedObject(self, "app");
+                        WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
                         std::string uri_str([[url absoluteString] UTF8String]);
                         
-                        if (uri_str.find("about:") == 0) {
-                            handler(1);
+                        // Allow about: and file: URLs
+                        if (uri_str.find("about:") == 0 || uri_str.find("file:") == 0) {
+                            handler(1); // WKNavigationActionPolicyAllow
                             return;
                         }
                         
-                        if (!app->ws->isURIAllowed(uri_str)) {
-                            app->logger->warn("[security] Blocked: " + uri_str);
-                            [webView loadHTMLString:[NSString stringWithUTF8String:IWebServer::generateBlockedNavigationHTML(uri_str,
-                                "This URL is not in the list of allowed origins.").c_str()] baseURL:[NSURL URLWithString:@"about:blank"]];
-                            handler(0);
+                        // Check if URI is allowed
+                        if (!wf->app->ws->isURIAllowed(uri_str)) {
+                            wf->logger->warn("[security] Blocked: " + uri_str);
+                            NSString* htmlString = [NSString stringWithUTF8String:
+                                IWebServer::generateBlockedNavigationHTML(uri_str,
+                                    "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.").c_str()];
+                            [webView loadHTMLString:htmlString baseURL:[NSURL URLWithString:@"about:blank"]];
+                            handler(0); // WKNavigationActionPolicyCancel
                         } else {
-                            handler(1);
+                            handler(1); // WKNavigationActionPolicyAllow
                         }
                     };
                     
+                    // decidePolicyForNavigationAction
                     class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationAction:decisionHandler:"),
                         imp_implementationWithBlock(^(id self, id webView, id navAction, void (^handler)(int)) {
-                            checkPolicy(self, webView, [[navAction valueForKey:@"request"] URL], handler);
+                            NSURL* url = [[navAction valueForKey:@"request"] URL];
+                            checkPolicy(self, webView, url, handler);
                         }), "v@:@@?");
                     
+                    // decidePolicyForNavigationResponse
                     class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationResponse:decisionHandler:"),
                         imp_implementationWithBlock(^(id self, id webView, id navResponse, void (^handler)(int)) {
-                            checkPolicy(self, webView, [[navResponse valueForKey:@"response"] URL], handler);
+                            NSURL* url = [[navResponse valueForKey:@"response"] URL];
+                            checkPolicy(self, webView, url, handler);
                         }), "v@:@@?");
+                    
+                    // didFailProvisionalNavigation - handle main page load failures
+                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:didFailProvisionalNavigation:withError:"),
+                        imp_implementationWithBlock(^(id self, id webView, id navigation, NSError* error) {
+                            WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
+                            NSURL* failingURL = [error.userInfo objectForKey:NSURLErrorFailingURLErrorKey];
+                            std::string uri_str = failingURL ? [[failingURL absoluteString] UTF8String] : "unknown";
+                            std::string error_msg = [[error localizedDescription] UTF8String];
+                            
+                            // Skip about: URLs
+                            if (uri_str.find("about:") == 0) return;
+                            
+                            wf->logger->error("[security] Page load failed: " + uri_str + " - " + error_msg);
+                            
+                            NSString* htmlString = [NSString stringWithUTF8String:
+                                IWebServer::generateErrorHTML(static_cast<int>([error code]),
+                                    "Failed to Load Page",
+                                    "Could not load: " + uri_str + "<br><br><strong>Details:</strong> " + error_msg).c_str()];
+                            [webView loadHTMLString:htmlString baseURL:failingURL];
+                        }), "v@:@@@");
+                    
+                    // didFailNavigation - handle resource failures (NOT page-breaking, just log)
+                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:didFailNavigation:withError:"),
+                        imp_implementationWithBlock(^(id self, id webView, id navigation, NSError* error) {
+                            WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
+                            NSURL* failingURL = [error.userInfo objectForKey:NSURLErrorFailingURLErrorKey];
+                            std::string uri_str = failingURL ? [[failingURL absoluteString] UTF8String] : "unknown";
+                            
+                            if (uri_str.find("about:") == 0) return;
+                            
+                            // Resource load failure - just log, don't show error page
+                            wf->logger->warn("[security] Resource load failed: " + uri_str);
+                        }), "v@:@@@");
                     
                     objc_registerClassPair(navDelegateClass);
                 }
                 
                 id navDelegate = [[navDelegateClass alloc] init];
-                objc_setAssociatedObject(navDelegate, "app", (__bridge id)this->app, OBJC_ASSOCIATION_ASSIGN);
+                objc_setAssociatedObject(navDelegate, "wf", (__bridge id)this, OBJC_ASSOCIATION_ASSIGN);
                 [webview setNavigationDelegate:navDelegate];
                 
                 this->logger->info("[security] WKWebView navigation delegate installed");
@@ -2244,7 +2418,70 @@ WF* WF::setInternalCallbacks() {
                 this->logger->warn("[function] performance_settings not yet implemented for Windows");
                 
             #elif defined(__APPLE__)
-                this->logger->warn("[function] performance_settings not yet implemented for macOS");
+                auto window_result = this->app->w->window();
+                if (!window_result.has_value()) {
+                    this->logger->warn("[function] Window not ready yet - skipping performance settings");
+                    return json::value(nullptr);
+                }
+                
+                id nsWindow = (__bridge id)window_result.value();
+                id webview = nil;
+                for (id view in [[nsWindow contentView] subviews]) {
+                    if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+                        webview = view;
+                        break;
+                    }
+                }
+                
+                if (!webview) {
+                    this->logger->warn("[function] WKWebView not ready yet - skipping performance settings");
+                    return json::value(nullptr);
+                }
+                
+                id config = [webview configuration];
+                id prefs = [config preferences];
+                
+                // Core JavaScript
+                [prefs setJavaScriptEnabled:YES];
+                [prefs setJavaScriptCanOpenWindowsAutomatically:YES];
+                
+                // Media settings (10.15+ compatible)
+                if ([config respondsToSelector:@selector(setMediaTypesRequiringUserActionForPlayback:)]) {
+                    [config setMediaTypesRequiringUserActionForPlayback:0]; // Allow autoplay
+                }
+                if ([config respondsToSelector:@selector(setAllowsInlineMediaPlayback:)]) {
+                    [config setAllowsInlineMediaPlayback:YES];
+                }
+                if ([config respondsToSelector:@selector(setAllowsAirPlayForMediaPlayback:)]) {
+                    [config setAllowsAirPlayForMediaPlayback:YES];
+                }
+                if ([config respondsToSelector:@selector(setAllowsPictureInPictureMediaPlayback:)]) {
+                    [config setAllowsPictureInPictureMediaPlayback:YES];
+                }
+                
+                // Advanced features via KVC (safe fallback for older versions)
+                @try {
+                    NSArray* advancedSettings = @[
+                        @[@"webGLEnabled", @YES],
+                        @[@"acceleratedCompositingEnabled", @YES],
+                        @[@"accelerated2dCanvasEnabled", @YES],
+                        @[@"webGPUEnabled", @YES],  // WebGPU (macOS 11.3+)
+                        @[@"offlineWebApplicationCacheEnabled", @YES],
+                        @[@"localStorageEnabled", @YES],
+                        @[@"databasesEnabled", @YES],
+                        @[@"mediaCaptureRequiresSecureConnection", @NO]
+                    ];
+                    
+                    for (NSArray* setting in advancedSettings) {
+                        @try {
+                            if ([prefs respondsToSelector:@selector(setValue:forKey:)]) {
+                                [prefs setValue:setting[1] forKey:setting[0]];
+                            }
+                        } @catch (NSException *e) { /* Skip unavailable */ }
+                    }
+                } @catch (NSException *exception) { }
+                
+                this->logger->info("[function] Performance settings applied");
             #endif
             
             return json::value(nullptr);

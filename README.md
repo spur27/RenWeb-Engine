@@ -380,18 +380,15 @@ This repository uses the following open-source libraries:
 - Server ports are never considered used
 
 ## Planned Activities
-- Disable internet connectivity of the RenWeb Webview instance
+✅ Disable internet connectivity of the RenWeb Webview instance
   - This will be my approach to security
   - Implementation could be CORS enforcement in webview or proxy funneling
-- Create HTTP client in engine to allow careful internet usage
-  - This would basically be making a custom fetch command
 - Add binding to get info (if one doesn't already exist)
-- Look into artifacting scripts and whatnot
 - Look into an improved approach over the webserver
-- Look into webview CORS (would be rad if it exists)
+✅ Look into webview CORS (would be rad if it exists)
 - Fully  implement windows
 - Finish packaging tool
-- Change webserver IP and Port to be set in info.json
+✅ Change webserver IP and Port to be set in info.json
   - Maybe revise all program options and see what's even necessary
 
 ## License

@@ -369,12 +369,20 @@ run: $(BUILD_PATH)/$(EXE)
 	./$(BUILD_PATH)/$(EXE) $(ARGS)
 	$(call step,Running [DONE])
 # -----------------------------------------------------------------------------
-# COMMAND: Test the program
-# additional settings: --leak-check=full --show-leak-kinds=all
+# COMMAND: Test the program with memory analysis tools
+# Linux (valgrind):   --leak-check=full --show-leak-kinds=all
+# macOS (leaks):      MallocStackLogging=1 for detailed stack traces
+# Windows (drmemory): -light for faster analysis
 # -----------------------------------------------------------------------------
 test: $(BUILD_PATH)/$(EXE)
 	$(call step,Testing)
-	ulimit -n 20000 && valgrind  ./$(BUILD_PATH)/$(EXE) -l0
+ifeq ($(OS_NAME),linux)
+	ulimit -n 20000 && valgrind --leak-check=full --show-leak-kinds=all ./$(BUILD_PATH)/$(EXE) -l0
+else ifeq ($(OS_NAME),apple)
+	MallocStackLogging=1 leaks --atExit -- ./$(BUILD_PATH)/$(EXE) -l0
+else ifeq ($(OS_NAME),windows)
+	drmemory -light -- $(BUILD_PATH)\\$(EXE) -l0 || $(BUILD_PATH)\\$(EXE) -l0
+endif
 	$(call step,Testing [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Info about the makefile
