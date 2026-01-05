@@ -375,6 +375,7 @@ This repository uses the following open-source libraries:
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
 - Fix policies to respond with the proper response types 
   - back button on linux doesn't work
+- Context menus and clipboard access is inconsistent amongst OS's
 
 ## Planned Activities
 ✅ Disable internet connectivity of the RenWeb Webview instance
