@@ -161,12 +161,9 @@ else
 		else
 			CXXFLAGS += $(SYSROOT) -O3 -flto -s
 		endif
-		# For cross-compilation, add Boost 1.82 include path
+		# For cross-compilation, add Boost 1.90 include path
 		ifdef TOOLCHAIN
 			CXXFLAGS += -isystem /usr/$(TOOLCHAIN)/usr/local/include
-		else
-			# For native builds, also use Boost 1.82 from /usr/local
-			CXXFLAGS += -isystem /usr/local/include
 		endif
 		# For x86_32 builds on Linux, use -m32 flag if TOOLCHAIN not set
 		ifeq ($(ARCH),x86_32)
@@ -226,7 +223,6 @@ endef
 define step
 	@printf "$(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "$(1)" "$(2)" "$(3)" "$(4)"
 endef
-# endif
 # -----------------------------------------------------------------------------
 # Paths 
 # -----------------------------------------------------------------------------
@@ -323,11 +319,13 @@ endif
 ifeq ($(OS_NAME), linux)
 	ifdef TOOLCHAIN
 		# For all cross-compilation targets, use explicit sysroot path and link boost statically
-		LIBS := -L/usr/$(TOOLCHAIN)/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -Wl,-Bdynamic -ldl
+		LIBS := -L/usr/$(TOOLCHAIN)/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -lboost_container -Wl,-Bdynamic -ldl
 		LDFLAGS := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
 	else
-		# Native build: use Boost 1.82 from /usr/local/lib
-		LIBS := -L/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -Wl,-Bdynamic -ldl
+		# Native build: use external/boost/stage/lib (Boost 1.90.0 with required symbols)
+		# Use full paths to libraries to avoid /usr/local/lib taking precedence
+		BOOST_STAGE_PATH := external/boost/stage/lib
+		LIBS := $(BOOST_STAGE_PATH)/libboost_program_options.a $(BOOST_STAGE_PATH)/libboost_json.a $(BOOST_STAGE_PATH)/libboost_container.a -ldl
 		LDFLAGS :=
 	endif
 endif
@@ -337,8 +335,6 @@ endif
 ifeq ($(OS_NAME),linux)
     ifdef TOOLCHAIN
         PKG_CONFIG := pkg-config
-        # For all cross-compilers, use sysroot-aware pkg-config
-        # Include both standard and multiarch paths (i386-linux-gnu for i686, lib for others)
         PKG_CONFIG_PATH := /usr/$(TOOLCHAIN)/usr/local/lib/pkgconfig:/usr/$(TOOLCHAIN)/usr/lib/pkgconfig:/usr/$(TOOLCHAIN)/usr/lib/i386-linux-gnu/pkgconfig:/usr/$(TOOLCHAIN)/usr/share/pkgconfig:/usr/$(TOOLCHAIN)/lib/pkgconfig
         PKG_CONFIG_LIBDIR := /usr/$(TOOLCHAIN)/usr/local/lib/pkgconfig
         PKG_CONFIG_SYSROOT_DIR := /usr/$(TOOLCHAIN)
@@ -356,7 +352,6 @@ endif
 SRCS := $(wildcard $(SRC_PATH)/*.cpp)
 OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 
-# Windows resource file
 ifeq ($(OS_NAME), windows)
 	RC := rc.exe
 	RES_FILE := $(OBJ_PATH)/app.res

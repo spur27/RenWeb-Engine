@@ -373,6 +373,8 @@ This repository uses the following open-source libraries:
 ## Known Bugs
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
+- Fix policies to respond with the proper response types 
+  - back button on linux doesn't work
 
 ## Planned Activities
 ✅ Disable internet connectivity of the RenWeb Webview instance
