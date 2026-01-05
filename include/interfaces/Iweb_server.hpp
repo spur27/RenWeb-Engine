@@ -67,7 +67,7 @@ namespace RenWeb {
                 rgba(28,127,238,1) 60%, rgba(95,21,242,1) 70%, rgba(186,12,248,1) 80%,
                 rgba(251,7,217,1) 90%, rgba(255,0,0,1) 100%) 1;
         }
-        .restart-button {
+        .back-button {
             display: inline-block;
             margin-top: 20px;
             padding: 12px 24px;
@@ -81,7 +81,7 @@ namespace RenWeb {
             font-size: 1em;
             transition: background 0.2s;
         }
-        .restart-button:hover {
+        .back-button:hover {
             background: #e53935;
         }
     </style>
@@ -94,20 +94,8 @@ namespace RenWeb {
         <div class='reason'>
             <strong>Reason:</strong> {{REASON}}
         </div>
-        <button class='restart-button' onclick='window.history.back()'>← Restart</button>
+        <button class='back-button' onclick='window.history.back()'>← Go Back</button>
     </div>
-    <script>
-        document.querySelector('.restart-button').addEventListener('click', async (e) => {
-            e.preventDefault();
-            try {
-                await BIND_duplicate_process();
-                await BIND_terminate();
-            } catch (err) {
-                console.error('Failed to restart:', err);
-                window.location.reload();
-            }
-        });
-    </script>
 </body>
 </html>)";
                 
@@ -203,19 +191,24 @@ namespace RenWeb {
         <div class='status-code'>{{CODE}}</div>
         <h1>{{MESSAGE}}</h1>
         {{DESCRIPTION}}
-        <button class='restart-button' onclick='window.history.back()'>← Restart</button>
+        <button class='restart-button' onclick='restartApp()'>&larr; Restart</button>
     </div>
     <script>
-        document.querySelector('.restart-button').addEventListener('click', async (e) => {
-            e.preventDefault();
+        async function restartApp() {
             try {
-                await BIND_duplicate_process();
-                await BIND_terminate();
+                // Try using the bindings
+                if (typeof BIND_duplicate_process !== 'undefined' && typeof BIND_terminate !== 'undefined') {
+                    await BIND_duplicate_process(null);
+                    await BIND_terminate(null);
+                } else {
+                    // Fallback: reload the page
+                    window.location.reload();
+                }
             } catch (err) {
                 console.error('Failed to restart:', err);
                 window.location.reload();
             }
-        });
+        }
     </script>
 </body>
 </html>)";

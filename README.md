@@ -74,7 +74,7 @@ Clone with submodules:
 ```bash
 git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
 ```
-NOTE: you can remove the boost library submodule if you've installed boost as a package in linux. It's included as a submodule for convenience when compiling for windows and mac. Use version 1.82 if you install it as a package on linux!!
+NOTE: you can remove the boost library submodule if you've installed boost as a package in linux. It's included as a submodule for convenience when compiling for windows and mac. Use version 1.90 if you install it as a package on linux!!
 
 **Prerequisites (All Platforms):**
 - C++ Compiler (g++ recommended, C++17 or later)
@@ -175,7 +175,7 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
 ```json
 {
   "title": "RenWeb",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "author": "Spur27",
   "description": "Base RenWeb engine",
   "license": "BSL",
@@ -368,28 +368,25 @@ This repository uses the following open-source libraries:
 - Windows and Apple are still a WIP, so having these fully implmented at some point would be nice.
 - Auto-Updating by checking the repository URI in `info.json`
 - Full unit testing (planning on using gtest at some point)
-- More fool-proof testing
+- Create custom renweb icon
 
 ## Known Bugs
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
-  - Problem on MacOS 10.15 and will likely persist on applications with lesser hardware
-- `print_page` doesn't work on mac (prints blank screen)
-- Very limited functionality in windows (WIP)
-- Apple has different empty window screen flash when `initially_shown` is true for a page.
-- Server ports are never considered used
 
 ## Planned Activities
 ✅ Disable internet connectivity of the RenWeb Webview instance
   - This will be my approach to security
   - Implementation could be CORS enforcement in webview or proxy funneling
 - Add binding to get info (if one doesn't already exist)
-- Look into an improved approach over the webserver
+✅ Look into an improved approach over the webserver
 ✅ Look into webview CORS (would be rad if it exists)
-- Fully  implement windows
+✅ Fully  implement windows
 - Finish packaging tool
 ✅ Change webserver IP and Port to be set in info.json
   - Maybe revise all program options and see what's even necessary
+- Switch to using boost version 1.90.0 across all OS's
+- Ensure makefile still works when trying to compile using locally installed boost on windows
 
 ## License
 

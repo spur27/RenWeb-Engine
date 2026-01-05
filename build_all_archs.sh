@@ -76,12 +76,11 @@ toolchain_exists() {
 build_for_toolchain() {
     local toolchain=$1
     local arch_name=$2
-    local target=${3:-release}
     
     print_building "$arch_name" "$toolchain"
     
-    if make clear TOOLCHAIN="$toolchain" TARGET="$target"; then
-        if make TOOLCHAIN="$toolchain" TARGET="$target" -j$(nproc 2>/dev/null || echo 4); then
+    if make clear TOOLCHAIN="$toolchain" TARGET=release; then
+        if make TOOLCHAIN="$toolchain" TARGET=release -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built for $arch_name successfully"
             return 0
         else
@@ -97,12 +96,11 @@ build_for_toolchain() {
 # Build native (no cross-compilation)
 build_native() {
     local arch_name=$1
-    local target=${2:-release}
     
     print_building "$arch_name" "native"
     
-    if make clear TARGET="$target"; then
-        if make TARGET="$target" -j$(nproc 2>/dev/null || echo 4); then
+    if make clear TARGET=release; then
+        if make TARGET=release -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built native for $arch_name successfully"
             return 0
         else
@@ -157,7 +155,6 @@ detect_os() {
 # =============================================================================
 
 build_linux() {
-    local target=${1:-release}
     local success_count=0
     local fail_count=0
     local total_count=0
@@ -187,7 +184,7 @@ build_linux() {
     # First, try to build native (host architecture)
     print_info "Building native (host architecture: $HOST_ARCH)..."
     total_count=$((total_count + 1))
-    if build_native "native ($HOST_ARCH)" "$target"; then
+    if build_native "native ($HOST_ARCH)"; then
         success_count=$((success_count + 1))
     else
         fail_count=$((fail_count + 1))
@@ -205,7 +202,7 @@ build_linux() {
         total_count=$((total_count + 1))
         
         if toolchain_exists "$toolchain"; then
-            if build_for_toolchain "$toolchain" "$toolchain" "$target"; then
+            if build_for_toolchain "$toolchain" "$toolchain"; then
                 success_count=$((success_count + 1))
             else
                 fail_count=$((fail_count + 1))
@@ -230,7 +227,6 @@ build_linux() {
 }
 
 build_macos() {
-    local target=${1:-release}
     local success_count=0
     local fail_count=0
     local total_count=0
@@ -278,7 +274,7 @@ build_macos() {
         
         # Pass ARCH to makefile for filename and ARCH_FLAGS for compilation
         # The makefile will use ARCH in the output name and append ARCH_FLAGS to CXXFLAGS/LDFLAGS
-        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET="$target" -j$ncpu 2>&1; then
+        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release -j$ncpu 2>&1; then
             print_success "Built for $arch successfully"
             success_count=$((success_count + 1))
         else
@@ -329,78 +325,86 @@ build_macos() {
 }
 
 build_windows() {
-    local target=${1:-release}
     local success_count=0
     local fail_count=0
-    local total_count=0
+    local total_count=3
     
-    print_header "Building for Windows - All Architectures (4 total)"
-    print_info "Host architecture: $HOST_ARCH"
+    print_header "Building for Windows - All Architectures (3 total)"
+    print_info "Detected Windows environment"
     echo ""
     
-    # Check if cl.exe is available
-    if ! command_exists "cl"; then
-        print_error "cl.exe not found in PATH"
-        print_warning "Please run this script in Git Bash with Visual Studio environment set up"
-        print_info "Setup instructions:"
-        echo "  1. Find your Visual Studio installation (usually in C:\\Program Files\\Microsoft Visual Studio\\)"
-        echo "  2. In Git Bash, source the vcvars script for your target architecture:"
-        echo "     - x64:   cmd //c 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat && bash'"
-        echo "     - x86:   cmd //c 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars32.bat && bash'"
-        echo "     - ARM64: cmd //c 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsamd64_arm64.bat && bash'"
-        echo "     - ARM32: cmd //c 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsamd64_arm.bat && bash'"
-        echo "  3. Run this script"
-        echo ""
-        print_info "Alternatively, use build_all_archs_windows.bat to build all architectures sequentially"
+    # Find Visual Studio installation
+    local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+    if [ ! -f "$vswhere" ]; then
+        vswhere="/c/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"
+    fi
+    
+    local vs_path=""
+    if [ -f "$vswhere" ]; then
+        vs_path=$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>/dev/null | head -1)
+    fi
+    
+    if [ -z "$vs_path" ]; then
+        # Try common locations
+        if [ -d "/c/Program Files/Microsoft Visual Studio/2022/Community" ]; then
+            vs_path="/c/Program Files/Microsoft Visual Studio/2022/Community"
+        elif [ -d "/c/Program Files/Microsoft Visual Studio/2022/Professional" ]; then
+            vs_path="/c/Program Files/Microsoft Visual Studio/2022/Professional"
+        fi
+    fi
+    
+    if [ -z "$vs_path" ]; then
+        print_error "Could not find Visual Studio installation"
+        print_info "Please install Visual Studio 2022 with C++ tools"
         return 1
     fi
     
-    print_info "Detected cl.exe compiler"
+    print_info "Visual Studio: $vs_path"
     
-    # Detect which architecture environment is currently active
-    local current_arch=""
-    local current_arch_name=""
-    
-    if [ -n "$VSCMD_ARG_TGT_ARCH" ]; then
-        current_arch="$VSCMD_ARG_TGT_ARCH"
-        print_info "Detected VS target architecture from VSCMD_ARG_TGT_ARCH: $current_arch"
-    elif [ -n "$PROCESSOR_ARCHITECTURE" ]; then
-        case "$PROCESSOR_ARCHITECTURE" in
-            AMD64) current_arch="x64" ;;
-            x86) current_arch="x86" ;;
-            ARM64) current_arch="arm64" ;;
-            ARM) current_arch="arm" ;;
-            *) current_arch="$PROCESSOR_ARCHITECTURE" ;;
-        esac
-        print_info "Detected architecture from PROCESSOR_ARCHITECTURE: $current_arch"
+    local vcvars_path="$vs_path/VC/Auxiliary/Build"
+    if [ ! -d "$vcvars_path" ]; then
+        print_error "Could not find vcvars at: $vcvars_path"
+        return 1
     fi
     
-    if [ -z "$current_arch" ]; then
-        print_warning "Could not detect target architecture, defaulting to x64"
-        current_arch="x64"
-    fi
+    # Build each architecture
+    local architectures="x64:x86_64:vcvars64.bat x86:x86_32:vcvars32.bat arm64:arm64:vcvarsamd64_arm64.bat"
     
-    # Build for the current architecture environment
-    print_info "Building for $current_arch (VS environment)"
-    total_count=$((total_count + 1))
-    
-    print_building "$current_arch" "cl.exe"
-    
-    if make clear TARGET="$target" 2>&1 | grep -v "^make"; then
-        if make TARGET="$target" -j4 2>&1; then
-            print_success "Built for $current_arch successfully"
+    for arch_spec in $architectures; do
+        IFS=':' read -r win_arch make_arch vcvars <<< "$arch_spec"
+        
+        echo ""
+        print_building "$win_arch" "$vcvars"
+        
+        # Convert paths for Windows cmd
+        local vcvars_win=$(cygpath -w "$vcvars_path/$vcvars" 2>/dev/null || echo "$vcvars_path\\$vcvars")
+        
+        # Create a temporary batch file for this build
+        local temp_bat=$(mktemp --suffix=.bat)
+        cat > "$temp_bat" <<EOF
+@echo off
+call "$vcvars_win" >nul 2>&1
+if errorlevel 1 exit /b 1
+make clear ARCH=$make_arch TARGET=release >nul 2>&1
+if errorlevel 1 exit /b 1
+make ARCH=$make_arch TARGET=release -j4
+EOF
+        
+        # Run the batch file
+        if cmd //c "$(cygpath -w "$temp_bat" 2>/dev/null || echo "$temp_bat")" 2>&1; then
+            print_success "Built $win_arch successfully"
             success_count=$((success_count + 1))
         else
-            print_error "Failed to build for $current_arch"
+            print_error "Build failed for $win_arch"
             fail_count=$((fail_count + 1))
         fi
-    else
-        print_error "Failed to clear for $current_arch"
-        fail_count=$((fail_count + 1))
-    fi
-    echo ""
+        
+        # Clean up temp file
+        rm -f "$temp_bat"
+    done
     
     # Print summary
+    echo ""
     print_header "Build Summary"
     echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
     echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
@@ -411,22 +415,10 @@ build_windows() {
         ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-windows-" || true
     fi
     
-    echo ""
-    print_info "Note: This script builds for ONE architecture at a time (the active VS environment)"
-    print_info "To build all 4 Windows architectures, run build_all_archs_windows.bat instead"
-    print_info "Or manually run this script in different VS Developer Command Prompt sessions:"
-    echo ""
-    echo "  For each architecture:"
-    for arch in $WINDOWS_ARCHITECTURES; do
-        local vcvars_script=""
-        case "$arch" in
-            x64) vcvars_script="vcvars64.bat" ;;
-            x86) vcvars_script="vcvars32.bat" ;;
-            arm64) vcvars_script="vcvarsamd64_arm64.bat" ;;
-            arm) vcvars_script="vcvarsamd64_arm.bat" ;;
-        esac
-        echo "    $arch: Run $vcvars_script then this script"
-    done
+    if [ $fail_count -gt 0 ]; then
+        print_warning "Failed builds may be due to missing toolchains"
+        print_info "Install via Visual Studio Installer: MSVC v143 ARM64 build tools"
+    fi
 }
 
 # =============================================================================
@@ -434,39 +426,23 @@ build_windows() {
 # =============================================================================
 
 main() {
-    local target="release"
-    
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --debug)
-                target="debug"
-                shift
-                ;;
-            --release)
-                target="release"
-                shift
-                ;;
             --help|-h)
-                echo "Usage: $0 [OPTIONS]"
-                echo ""
-                echo "Options:"
-                echo "  --debug          Build in debug mode (default: release)"
-                echo "  --release        Build in release mode"
-                echo "  --help, -h       Show this help message"
+                echo "Usage: $0"
                 echo ""
                 echo "Description:"
-                echo "  Automatically detects your operating system and builds for all"
-                echo "  supported architectures on that platform."
+                echo "  Automatically detects your operating system and builds release"
+                echo "  versions for all supported architectures on that platform."
                 echo ""
                 echo "Supported platforms:"
                 echo "  - Linux:   13 architectures (x86_64, i686, ARM, MIPS, PowerPC, RISC-V, S390x, SPARC)"
-                echo "  - macOS:   4 architectures (x86_64, arm64, x86_32, armv7)"
-                echo "  - Windows: 4 architectures (x64, x86, arm64, arm)"
+                echo "  - macOS:   2 architectures (x86_64, arm64)"
+                echo "  - Windows: 3 architectures (x64, x86, arm64)"
                 echo ""
-                echo "Examples:"
-                echo "  $0                    # Build all architectures for current OS in release mode"
-                echo "  $0 --debug            # Build all architectures for current OS in debug mode"
+                echo "Example:"
+                echo "  $0    # Build all architectures for current OS"
                 exit 0
                 ;;
             *)
@@ -483,7 +459,6 @@ main() {
     print_header "RenWeb Multi-Architecture Build Script"
     print_info "Detected OS: $OS_NAME"
     print_info "Host architecture: $HOST_ARCH"
-    print_info "Build target: $target"
     echo ""
     
     # Check if make is available (not needed for Windows batch file approach)
@@ -500,13 +475,13 @@ main() {
     # Build based on detected OS
     case "$OS_NAME" in
         Linux)
-            build_linux "$target"
+            build_linux
             ;;
         macOS)
-            build_macos "$target"
+            build_macos
             ;;
         Windows)
-            build_windows "$target"
+            build_windows
             ;;
         *)
             print_error "Unsupported operating system: $OS_NAME"

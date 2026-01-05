@@ -44,13 +44,41 @@ namespace RenWeb {
             void eval(const std::string& js) override {
                 webview_impl->eval(js);
             }
+            
             std::optional<void*> window() override {
                 auto result = webview_impl->window();
                 return result.has_value() ? std::optional<void*>(result.value()) : std::nullopt;
             }
+            
+            // Windows: ICoreWebView2*, Linux: WebKitWebView*, macOS: WKWebView*
             std::optional<void*> widget() override {
-                auto result = webview_impl->widget();
-                return result.has_value() ? std::optional<void*>(result.value()) : std::nullopt;
+                #if defined(_WIN32)
+                    // On Windows, widget() from library returns HWND, not the webview interface
+                    // Use engine's get_webview() to get the actual ICoreWebView2* interface
+                    auto engine_ptr = static_cast<webview::detail::win32_edge_engine*>(webview_impl.get());
+                    if (!engine_ptr) return std::nullopt;
+                    auto webview = engine_ptr->get_webview();
+                    // get_webview() may return nullptr if WebView2 hasn't finished initializing yet
+                    return webview ? std::optional<void*>(webview) : std::nullopt;
+                #else
+                    // Linux/macOS: widget() returns the correct type (WebKitWebView*/WKWebView*)
+                    auto result = webview_impl->widget();
+                    return result.has_value() ? std::optional<void*>(result.value()) : std::nullopt;
+                #endif
             }
+            
+            #if defined(_WIN32)
+                std::optional<void*> get_controller() override {
+                    auto result = webview_impl->browser_controller();
+                    return result.has_value() ? std::optional<void*>(result.value()) : std::nullopt;
+                }
+                
+                void register_navigation_handler(std::function<bool(const std::string&)> callback) override {
+                    auto engine_ptr = static_cast<webview::detail::win32_edge_engine*>(webview_impl.get());
+                    if (engine_ptr) {
+                        engine_ptr->set_navigation_callback(callback);
+                    }
+                }
+            #endif
     };
 }

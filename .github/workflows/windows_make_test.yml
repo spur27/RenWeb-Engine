@@ -31,9 +31,12 @@ jobs:
 
     - name: Get and unzip WebView2
       run: |
-        curl -L https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3405.78 -o C:\webview2.nupkg
-        mkdir C:\webview2
-        tar -xf C:\webview2.nupkg -C C:\webview2
+        curl -L https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3405.78 -o webview2.nupkg
+        mkdir -p external/webview2_sdk
+        tar -xf webview2.nupkg -C external/webview2_sdk
+        mkdir -p external/webview2_sdk/build/native/include/webview2
+        mv external/webview2_sdk/build/native/include/WebView2.h external/webview2_sdk/build/native/include/webview2/
+        mv external/webview2_sdk/build/native/include/WebView2EnvironmentOptions.h external/webview2_sdk/build/native/include/webview2/
       
     - name: Build Boost from submodule
       run: |
@@ -59,7 +62,7 @@ jobs:
         
     - name: Set Include
       run: |
-        echo "INCLUDE=C:\webview2\build\native\include;${{ github.workspace }}\external\boost;${env:INCLUDE}" >> $env:GITHUB_ENV
+        echo "INCLUDE=${{ github.workspace }}\external\webview2_sdk\build\native\include;${{ github.workspace }}\external\boost;${env:INCLUDE}" >> $env:GITHUB_ENV
 
     - name: Set Lib
       run: |

@@ -10,7 +10,8 @@
 #include <fstream>
 #include <regex>
 #include <chrono>
-#include <boost/process.hpp>
+#include <thread>
+#include <boost/process/v1.hpp>
 #include "../include/web_server.hpp"
 #include "../include/app.hpp"
 #include "../include/locate.hpp"
@@ -20,6 +21,9 @@
     #include <windows.h>
     #include <urlmon.h>
     #include <shellapi.h>
+    #include <wrl/client.h>
+    #include <wrl.h>
+    #include "webview2/WebView2.h"
     #pragma comment(lib, "urlmon.lib")
     #pragma comment(lib, "shell32.lib")
 #elif defined(__APPLE__)
@@ -40,6 +44,78 @@
 
 using WF = RenWeb::WindowFunctions;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
+
+#if defined(_WIN32)
+// Helper to get ICoreWebView2 from the widget (which returns controller)
+namespace WebView2Helper {
+    using Microsoft::WRL::ComPtr;
+    
+    static ICoreWebView2* GetWebViewFromController(void* controller_ptr) {
+        if (!controller_ptr) return nullptr;
+        
+        ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_ptr);
+        ICoreWebView2* webview = nullptr;
+        
+        HRESULT hr = controller->get_CoreWebView2(&webview);
+        if (SUCCEEDED(hr) && webview) {
+            return webview;  // Caller must Release when done
+        }
+        return nullptr;
+    }
+}
+
+namespace WindowHelper {
+    static HWND GetHWND(RenWeb::App* app) {
+        auto window_result = app->w->window();
+        if (!window_result.has_value()) {
+            return nullptr;
+        }
+        return static_cast<HWND>(window_result.value());
+    }
+    
+    static DWORD GetExStyle(HWND hwnd) {
+        if (!hwnd) return 0;
+        return static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE));
+    }
+    
+    static DWORD GetStyle(HWND hwnd) {
+        if (!hwnd) return 0;
+        return static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE));
+    }
+    
+    static bool HasExStyle(HWND hwnd, DWORD style) {
+        return (GetExStyle(hwnd) & style) != 0;
+    }
+    
+    static bool HasStyle(HWND hwnd, DWORD style) {
+        return (GetStyle(hwnd) & style) != 0;
+    }
+    
+    static void SetExStyleBit(HWND hwnd, DWORD bit, bool set) {
+        if (!hwnd) return;
+        DWORD exStyle = GetExStyle(hwnd);
+        if (set) {
+            exStyle |= bit;
+        } else {
+            exStyle &= ~bit;
+        }
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+    
+    static void SetStyleBit(HWND hwnd, DWORD bit, bool set) {
+        if (!hwnd) return;
+        DWORD style = GetStyle(hwnd);
+        if (set) {
+            style |= bit;
+        } else {
+            style &= ~bit;
+        }
+        SetWindowLongPtr(hwnd, GWL_STYLE, style);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+}
+#endif
 
 #if defined(__APPLE__)
 static id getWKWebViewFromWindow(void* window_ptr) {
@@ -301,12 +377,17 @@ WF* WF::setGetSets() {
             json::object dims = json::object();
         #if defined(_WIN32)
             RECT rect;
-            HWND hwnd = GetActiveWindow();
-            GetClientRect(hwnd, &rect);
-            width = rect.right - rect.left;
-            height = rect.bottom - rect.top;
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                GetClientRect(hwnd, &rect);
+                width = rect.right - rect.left;
+                height = rect.bottom - rect.top;
+            } else {
+                width = 0;
+                height = 0;
+            }
         #elif defined(__APPLE__)
-            // On macOS, get the window content size
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect contentRect = [nsWindow contentRectForFrameRect:[nsWindow frame]];
             width = (int)contentRect.size.width;
@@ -322,8 +403,8 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req) {
             json::object obj = this->getSingleParameter(req).as_object();
-            int width = obj.at("width").as_int64();
-            int height = obj.at("height").as_int64();
+            int width = static_cast<int>(obj.at("width").as_int64());
+            int height = static_cast<int>(obj.at("height").as_int64());
             this->app->w->set_size(width, height);
         })
     ))
@@ -333,13 +414,17 @@ WF* WF::setGetSets() {
             int x, y;
             json::object position = json::object();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            RECT rect;
-            GetWindowRect(hwnd, &rect);
-            x = rect.left;
-            y = rect.top;
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                RECT rect;
+                GetWindowRect(hwnd, &rect);
+                x = rect.left;
+                y = rect.top;
+            } else {
+                x = 0;
+                y = 0;
+            }
         #elif defined(__APPLE__)
-            // On macOS, get the window origin
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect frame = [nsWindow frame];
             NSRect screenFrame = [[NSScreen mainScreen] frame];
@@ -356,13 +441,14 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
             json::object obj = this->getSingleParameter(req).as_object();
-            int x = obj.at("x").as_int64();
-            int y = obj.at("y").as_int64();
+            int x = static_cast<int>(obj.at("x").as_int64());
+            int y = static_cast<int>(obj.at("y").as_int64());
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
         #elif defined(__APPLE__)
-            // On macOS, set the window origin
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSRect screenFrame = [[NSScreen mainScreen] frame];
             NSPoint newOrigin = NSMakePoint(x, screenFrame.size.height - y); // Convert to Cocoa coordinates
@@ -377,9 +463,11 @@ WF* WF::setGetSets() {
     ->add("decorated", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-            return json::value((style & (WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME)) != 0);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                return json::value(WindowHelper::HasStyle(hwnd, WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME));
+            }
+            return json::value(true);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
@@ -393,16 +481,10 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool decorated = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-            if (decorated) {
-                style |= (WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME);
-            } else {
-                style &= ~(WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                WindowHelper::SetStyleBit(hwnd, WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME, decorated);
             }
-            SetWindowLongPtr(hwnd, GWL_STYLE, style);
-            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
@@ -422,9 +504,13 @@ WF* WF::setGetSets() {
     ->add("resizable", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-            return json::value((style & (WS_THICKFRAME | WS_MAXIMIZEBOX)) != 0);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+                return json::value((style & (WS_THICKFRAME | WS_MAXIMIZEBOX)) != 0);
+            }
+            return json::value(true);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskResizable) != 0);
@@ -437,16 +523,10 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool resizable = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
-            if (resizable) {
-                style |= (WS_THICKFRAME | WS_MAXIMIZEBOX);
-            } else {
-                style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                WindowHelper::SetStyleBit(hwnd, WS_THICKFRAME | WS_MAXIMIZEBOX, resizable);
             }
-            SetWindowLongPtr(hwnd, GWL_STYLE, style);
-            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
@@ -466,9 +546,11 @@ WF* WF::setGetSets() {
     ->add("keepabove", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-            return json::value((exStyle & WS_EX_TOPMOST) != 0);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                return json::value(WindowHelper::HasExStyle(hwnd, WS_EX_TOPMOST));
+            }
+            return json::value(false);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow level] == NSFloatingWindowLevel);
@@ -485,9 +567,11 @@ WF* WF::setGetSets() {
             const bool keep_above = this->getSingleParameter(req).as_bool();
             this->saved_states["keepabove"] = json::value(keep_above);
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            SetWindowPos(hwnd, (keep_above) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                SetWindowPos(hwnd, (keep_above) ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             [nsWindow setLevel:(keep_above) ? NSFloatingWindowLevel : NSNormalWindowLevel];
@@ -501,8 +585,12 @@ WF* WF::setGetSets() {
     ->add("minimize", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
             #if defined(_WIN32)
-                HWND hwnd = GetActiveWindow();
-                return json::value(IsIconic(hwnd) != 0);
+                auto window_result = this->app->w->window();
+                if (window_result.has_value()) {
+                    HWND hwnd = static_cast<HWND>(window_result.value());
+                    return json::value(IsIconic(hwnd) != 0);
+                }
+                return json::value(false);
             #elif defined(__APPLE__)
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 return json::value([nsWindow isMiniaturized]);
@@ -516,8 +604,11 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool minimize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
+            }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (minimize) {
@@ -540,8 +631,12 @@ WF* WF::setGetSets() {
     ->add("maximize", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            return json::value(IsZoomed(hwnd) != 0);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                return json::value(IsZoomed(hwnd) != 0);
+            }
+            return json::value(false);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow isZoomed]);
@@ -555,8 +650,11 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool maximize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
+            }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (maximize != [nsWindow isZoomed]) {
@@ -577,9 +675,13 @@ WF* WF::setGetSets() {
     ->add("fullscreen", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            DWORD style = GetWindowLongPtr(hwnd, GWL_STYLE);
-            return json::value((style & WS_POPUP) != 0 && (style & (WS_CAPTION | WS_THICKFRAME)) == 0);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                DWORD style = static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE));
+                return json::value((style & WS_POPUP) != 0 && (style & (WS_CAPTION | WS_THICKFRAME)) == 0);
+            }
+            return json::value(false);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0);
@@ -593,15 +695,18 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool fullscreen = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            if (fullscreen) {
-                SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-                ShowWindow(hwnd, SW_MAXIMIZE);
-            } else {
-                SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
-                ShowWindow(hwnd, SW_RESTORE);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                if (fullscreen) {
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+                    ShowWindow(hwnd, SW_MAXIMIZE);
+                } else {
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
+                SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
-            SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             BOOL isCurrentlyFullscreen = ([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0;
@@ -623,12 +728,14 @@ WF* WF::setGetSets() {
     ->add("taskbar_show", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-            return json::value((exStyle & WS_EX_TOOLWINDOW) == 0); // Inverted: toolwindow hides from taskbar
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                return json::value(!WindowHelper::HasExStyle(hwnd, WS_EX_TOOLWINDOW));
+            }
+            return json::value(true);
         #elif defined(__APPLE__)
             this->logger->warn("[function] getTaskbarShow can't be set via RenWeb on Apple");
-            return json::value(true); // Default assumption
+            return json::value(true); 
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             return json::value(!gtk_window_get_skip_taskbar_hint(GTK_WINDOW(window_widget))); // Inverted: skip means not shown
@@ -638,15 +745,10 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
         #if defined(_WIN32)
             const bool taskbar_show = this->getSingleParameter(req).as_bool();
-            HWND hwnd = GetActiveWindow();
-            DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-            if (taskbar_show) {
-                exStyle &= ~WS_EX_TOOLWINDOW; // Remove toolwindow to show in taskbar
-            } else {
-                exStyle |= WS_EX_TOOLWINDOW; // Add toolwindow to hide from taskbar
+            HWND hwnd = WindowHelper::GetHWND(this->app);
+            if (hwnd) {
+                WindowHelper::SetExStyleBit(hwnd, WS_EX_TOOLWINDOW, !taskbar_show);  // Inverted logic
             }
-            SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
-            SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
         #elif defined(__APPLE__)
             (void)req; 
             this->logger->warn("[function] setTaskbarShow can't be set via RenWeb on Apple");
@@ -661,11 +763,14 @@ WF* WF::setGetSets() {
     ->add("opacity", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            BYTE alpha;
-            DWORD flags;
-            if (GetLayeredWindowAttributes(hwnd, NULL, &alpha, &flags) && (flags & LWA_ALPHA)) {
-                return json::value(static_cast<float>(alpha) / 255.0f);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                BYTE alpha;
+                DWORD flags;
+                if (GetLayeredWindowAttributes(hwnd, NULL, &alpha, &flags) && (flags & LWA_ALPHA)) {
+                    return json::value(static_cast<float>(alpha) / 255.0f);
+                }
             }
             return json::value(1.0f); // Default fully opaque
         #elif defined(__APPLE__)
@@ -684,11 +789,14 @@ WF* WF::setGetSets() {
                 this->logger->error("[function] Invalid opacity: " + std::to_string(opacity_amt) + " only enter values between 0.0 and 1.0 inclusive");
             } else {
         #if defined(_WIN32)
-                HWND hwnd = GetActiveWindow();
-                DWORD exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-                SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                BYTE alpha = static_cast<BYTE>(opacity_amt * 255.0f);
-                SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+                auto window_result = this->app->w->window();
+                if (window_result.has_value()) {
+                    HWND hwnd = static_cast<HWND>(window_result.value());
+                    DWORD exStyle = static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE));
+                    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+                    BYTE alpha = static_cast<BYTE>(opacity_amt * 255.0f);
+                    SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
+                }
         #elif defined(__APPLE__)
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 [nsWindow setAlphaValue:opacity_amt];
@@ -710,8 +818,12 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
         (void)req;
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            return json::value(hwnd == GetForegroundWindow());
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                return json::value(hwnd == GetForegroundWindow());
+            }
+            return json::value(false);
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow isKeyWindow]);
@@ -723,8 +835,16 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const bool show_window = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                if (hwnd) {
+                    ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
+                    if (show_window) {
+                        SetForegroundWindow(hwnd);
+                    }
+                }
+            }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (nsWindow) {
@@ -817,9 +937,12 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            HWND hwnd = GetActiveWindow();
-            ReleaseCapture();
-            SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                ReleaseCapture();
+                SendMessage(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             [nsWindow performWindowDragWithEvent:[NSApp currentEvent]];
@@ -827,7 +950,6 @@ WF* WF::setWindowCallbacks() {
             auto window_widget = this->app->w->window().value();
             GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window_widget));
             
-            // Get the current pointer position
             GdkDisplay* display = gdk_window_get_display(gdk_window);
             GdkSeat* seat = gdk_display_get_default_seat(display);
             GdkDevice* device = gdk_seat_get_pointer(seat);
@@ -837,7 +959,6 @@ WF* WF::setWindowCallbacks() {
 
             this->logger->info("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
 
-            // Use gdk_window_begin_move_drag instead - it doesn't require an event
             gdk_window_begin_move_drag(gdk_window, 1, root_x, root_y, GDK_CURRENT_TIME);
         #endif
             return json::value(nullptr);
@@ -845,7 +966,26 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] print_page not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    ICoreWebView2_16* webview2_16 = nullptr;
+                    HRESULT hr = webview2->QueryInterface(IID_PPV_ARGS(&webview2_16));
+                    if (SUCCEEDED(hr) && webview2_16) {
+                        hr = webview2_16->ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER);
+                        if (FAILED(hr)) {
+                            this->logger->error("[function] Failed to show print dialog, HRESULT: " + std::to_string(hr));
+                        } else {
+                            this->logger->info("[function] Print dialog opened via ICoreWebView2_16::ShowPrintUI");
+                        }
+                        webview2_16->Release();
+                    } else {
+                        this->app->w->eval("window.print();");
+                        this->logger->info("[function] WebView2 Runtime < 1.0.1462, using window.print() fallback");
+                    }
+                }
+            }
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -881,7 +1021,17 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] zoom_in not yet implemented for Windows");
+            auto controller_opt = this->app->w->get_controller();
+            if (!controller_opt.has_value()) {
+                this->logger->error("[function] WebView2 controller not available");
+                return json::value(nullptr);
+            }
+            
+            ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_opt.value());
+            double current_zoom = 1.0;
+            controller->get_ZoomFactor(&current_zoom);
+            controller->put_ZoomFactor(current_zoom + 0.1);
+            this->logger->debug("[function] Zoom increased to " + std::to_string(current_zoom + 0.1));
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -901,7 +1051,17 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] zoom_out not yet implemented for Windows");
+            auto controller_opt = this->app->w->get_controller();
+            if (!controller_opt.has_value()) {
+                this->logger->error("[function] WebView2 controller not available");
+                return json::value(nullptr);
+            }
+            
+            ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_opt.value());
+            double current_zoom = 1.0;
+            controller->get_ZoomFactor(&current_zoom);
+            controller->put_ZoomFactor(current_zoom - 0.1);
+            this->logger->debug("[function] Zoom decreased to " + std::to_string(current_zoom - 0.1));
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -921,7 +1081,15 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] zoom_reset not yet implemented for Windows");
+            auto controller_opt = this->app->w->get_controller();
+            if (!controller_opt.has_value()) {
+                this->logger->error("[function] WebView2 controller not available");
+                return json::value(nullptr);
+            }
+            
+            ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_opt.value());
+            controller->put_ZoomFactor(1.0);
+            this->logger->debug("[function] Zoom reset to 1.0");
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -939,8 +1107,16 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] get_zoom_level not yet implemented for Windows");
-            return json::value(1.0);
+            auto controller_opt = this->app->w->get_controller();
+            if (!controller_opt.has_value()) {
+                this->logger->error("[function] WebView2 controller not available");
+                return json::value(1.0);
+            }
+            
+            ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_opt.value());
+            double zoom = 1.0;
+            controller->get_ZoomFactor(&zoom);
+            return json::value(zoom);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -960,7 +1136,15 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             double zoom_level = this->getSingleParameter(req).as_double();
         #if defined(_WIN32)
-            this->logger->warn("[function] set_zoom_level not yet implemented for Windows");
+            auto controller_opt = this->app->w->get_controller();
+            if (!controller_opt.has_value()) {
+                this->logger->error("[function] WebView2 controller not available");
+                return json::value(nullptr);
+            }
+            
+            ICoreWebView2Controller* controller = static_cast<ICoreWebView2Controller*>(controller_opt.value());
+            controller->put_ZoomFactor(zoom_level);
+            this->logger->debug("[function] Zoom set to " + std::to_string(zoom_level));
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -978,7 +1162,18 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string search_text = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
-            this->logger->warn("[function] find_in_page not yet implemented for Windows");
+            // Use window.find() - most reliable cross-version approach
+            // Escape single quotes in search text
+            std::string escaped_text = search_text;
+            size_t pos = 0;
+            while ((pos = escaped_text.find("'", pos)) != std::string::npos) {
+                escaped_text.replace(pos, 1, "\\'");
+                pos += 2;
+            }
+            
+            std::string js = "window.find('" + escaped_text + "', false, false, true, false, true, false);";
+            this->app->w->eval(js);
+            this->logger->debug("[function] Searching for: " + search_text);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1017,7 +1212,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] find_next not yet implemented for Windows");
+            // Use window.find() with forward direction
+            std::string js = "window.find('', false, false, false, false, true, false);";
+            this->app->w->eval(js);
         #elif defined(__APPLE__)
             this->logger->warn("[function] apple doesn't have bindings for this findNext");
         #elif defined(__linux__)
@@ -1030,7 +1227,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] find_previous not yet implemented for Windows");
+            // Use window.find() with backward direction
+            std::string js = "window.find('', false, true, false, false, true, false);";
+            this->app->w->eval(js);
         #elif defined(__APPLE__)
             this->logger->warn("apple doesn't have bindings for this findPrevious");
         #elif defined(__linux__)
@@ -1043,7 +1242,9 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] clear_find not yet implemented for Windows");
+            // Clear selection by collapsing the range
+            std::string js = "if (window.getSelection) { window.getSelection().removeAllRanges(); }";
+            this->app->w->eval(js);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1296,7 +1497,10 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string uri = this->getSingleParameter(req).as_string().c_str();
         #if defined(_WIN32)
-            this->logger->warn("[function] download_uri not yet implemented for Windows");
+            // Navigate to URI - WebView2 will automatically prompt download for non-HTML content
+            std::wstring wuri(uri.begin(), uri.end());
+            this->app->w->navigate(uri);
+            this->logger->info("[function] Initiated download for: " + uri);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1427,7 +1631,7 @@ WF* WF::setProcessCallbacks() {
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
             std::string process_type = params[0].as_string().c_str();
-            int pid = params[1].as_int64();
+            int pid = static_cast<int>(params[1].as_int64());
             
             return json::value(getManager(process_type)->hasPID(pid));
     }))->add("process_has_running",
@@ -1449,7 +1653,7 @@ WF* WF::setProcessCallbacks() {
         std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
             json::array params = req.as_array();
             std::string process_type = params[0].as_string().c_str();
-            int pid = params[1].as_int64();
+            int pid = static_cast<int>(params[1].as_int64());
             
             getManager(process_type)->waitPID(pid);
             return json::value(nullptr);
@@ -1465,7 +1669,13 @@ WF* WF::setProcessCallbacks() {
             std::string unique_key = "duplicate_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
             
             int pid = this->app->daem->add(unique_key, this->app->orig_args);
-            this->logger->debug("[function] Duplicated process with PID: " + std::to_string(pid));
+            this->logger->info("[function] Duplicated process with PID: " + std::to_string(pid) + ", terminating current process");
+            
+            // Schedule termination after a short delay to allow response to be sent
+            std::thread([this]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                this->app->w->terminate();
+            }).detach();
             
             return json::value(pid);
     }))
@@ -1516,7 +1726,7 @@ WF* WF::setProcessCallbacks() {
     }))->add("pipe_read_pid",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            int pid = params[0].as_int64();
+            int pid = static_cast<int>(params[0].as_int64());
             bool read_all = params.size() > 1 && !params[1].is_null() ? true : false;
             
             auto* pipemgr = dynamic_cast<RenWeb::PipeManager<std::string>*>(this->app->pipem.get());
@@ -1613,7 +1823,7 @@ WF* WF::setSignalCallbacks() {
     ->add("signal_add",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            int signal_num = params[0].as_int64();
+            int signal_num = static_cast<int>(params[0].as_int64());
             std::string callback_name = params[1].as_string().c_str();
             
             this->app->signalm->add(signal_num, [this, callback_name](int sig) {
@@ -1624,12 +1834,12 @@ WF* WF::setSignalCallbacks() {
             return json::value(nullptr);
     }))->add("signal_remove",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_array()[0].as_int64();
+            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
             this->app->signalm->remove(signal_num);
             return json::value(nullptr);
     }))->add("signal_has",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_array()[0].as_int64();
+            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
             return json::value(this->app->signalm->has(signal_num));
     }))->add("signal_clear",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1642,7 +1852,7 @@ WF* WF::setSignalCallbacks() {
             return json::value(static_cast<int64_t>(this->app->signalm->count()));
     }))->add("signal_trigger",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = req.as_array()[0].as_int64();
+            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
             this->app->signalm->trigger(signal_num);
             return json::value(nullptr);
     }));
@@ -1661,7 +1871,21 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] open_devtools not yet implemented for Windows");
+            auto widget_opt = this->app->w->widget();
+            if (!widget_opt.has_value()) {
+                this->logger->error("[function] WebView2 widget not available");
+                return json::value(nullptr);
+            }
+            
+            // Use proper WebView2 API to open DevTools
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    webview2->OpenDevToolsWindow();
+                    this->logger->info("[function] DevTools opened via ICoreWebView2::OpenDevToolsWindow()");
+                }
+            }
         #elif defined(__APPLE__)
             // macOS WKWebView inspector
             auto window_result = this->app->w->window();
@@ -1685,7 +1909,7 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] close_devtools not yet implemented for Windows");
+            this->logger->error("[function] Can't close devtools programmatically on windows.");
         #elif defined(__APPLE__)
             // macOS WKWebView inspector close
             auto window_result = this->app->w->window();
@@ -1759,7 +1983,13 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] navigate_back not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    webview2->GoBack();
+                }
+            }
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1775,7 +2005,13 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] navigate_forward not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    webview2->GoForward();
+                }
+            }
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1791,7 +2027,13 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] stop_loading not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    webview2->Stop();
+                }
+            }
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1807,7 +2049,15 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] can_go_back not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    BOOL can_go = FALSE;
+                    webview2->get_CanGoBack(&can_go);
+                    return json::value(static_cast<bool>(can_go));
+                }
+            }
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -1826,7 +2076,15 @@ WF* WF::setNavigateCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] can_go_forward not yet implemented for Windows");
+            auto webview2_opt = this->app->w->widget();
+            if (webview2_opt.has_value()) {
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (webview2) {
+                    BOOL can_go = FALSE;
+                    webview2->get_CanGoForward(&can_go);
+                    return json::value(static_cast<bool>(can_go));
+                }
+            }
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -1979,10 +2237,116 @@ WF* WF::setInternalCallbacks() {
                     return TRUE;
                 }), ctx);
             #elif defined(_WIN32)
-                // Windows WebView2 permissions are handled via ICoreWebView2::add_PermissionRequested
-                // TODO: Implement permission request handler
-                this->logger->critical("[function] Windows permission handling not yet implemented");
+                // Windows WebView2: Implement proper permission handling
                 
+                auto webview2_opt = this->app->w->widget();
+                if (!webview2_opt.has_value()) {
+                    this->logger->warn("[permissions] WebView2 not available, permission handling skipped");
+                    return json::value(nullptr);
+                }
+                
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (!webview2) {
+                    this->logger->warn("[permissions] WebView2 pointer invalid, permission handling skipped");
+                    return json::value(nullptr);
+                }
+                
+                // Get permissions configuration from info.json
+                const json::value& perms_from_info = this->app->info->getProperty("permissions");
+                const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
+                
+                auto check_permission = [&](const char* key, bool default_value) -> bool {
+                    return (perms.contains(key) && perms.at(key).is_bool())
+                        ? perms.at(key).as_bool()
+                        : default_value;
+                };
+                
+                // Log the permission configuration
+                this->logger->info("[permissions] Permission policy from info.json:");
+                this->logger->info("  - Geolocation: " + std::string(check_permission("geolocation", false) ? "allowed" : "denied"));
+                this->logger->info("  - Media devices: " + std::string(check_permission("media_devices", false) ? "allowed" : "denied"));
+                this->logger->info("  - Notifications: " + std::string(check_permission("notifications", true) ? "allowed" : "denied"));
+                
+                // Create permission context to hold settings
+                struct PermissionContext {
+                    bool allow_geolocation;
+                    bool allow_media_devices;
+                    bool allow_notifications;
+                    std::shared_ptr<ILogger> logger;
+                };
+                
+                auto* perm_ctx = new PermissionContext{
+                    check_permission("geolocation", false),
+                    check_permission("media_devices", false),
+                    check_permission("notifications", true),
+                    this->logger
+                };
+                
+                // Register PermissionRequested event handler
+                HRESULT hr = webview2->add_PermissionRequested(
+                    Microsoft::WRL::Callback<ICoreWebView2PermissionRequestedEventHandler>(
+                        [perm_ctx](ICoreWebView2* sender, ICoreWebView2PermissionRequestedEventArgs* args) -> HRESULT {
+                            (void)sender;
+                            
+                            COREWEBVIEW2_PERMISSION_KIND kind;
+                            args->get_PermissionKind(&kind);
+                            
+                            COREWEBVIEW2_PERMISSION_STATE state = COREWEBVIEW2_PERMISSION_STATE_DENY;
+                            std::string permission_name = "unknown";
+                            
+                            switch (kind) {
+                                case COREWEBVIEW2_PERMISSION_KIND_MICROPHONE:
+                                case COREWEBVIEW2_PERMISSION_KIND_CAMERA:
+                                    permission_name = "media device";
+                                    if (perm_ctx->allow_media_devices) {
+                                        state = COREWEBVIEW2_PERMISSION_STATE_ALLOW;
+                                    }
+                                    break;
+                                    
+                                case COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION:
+                                    permission_name = "geolocation";
+                                    if (perm_ctx->allow_geolocation) {
+                                        state = COREWEBVIEW2_PERMISSION_STATE_ALLOW;
+                                    }
+                                    break;
+                                    
+                                case COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS:
+                                    permission_name = "notifications";
+                                    if (perm_ctx->allow_notifications) {
+                                        state = COREWEBVIEW2_PERMISSION_STATE_ALLOW;
+                                    }
+                                    break;
+                                    
+                                case COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ:
+                                    permission_name = "clipboard read";
+                                    state = COREWEBVIEW2_PERMISSION_STATE_ALLOW;  // Allow clipboard
+                                    break;
+                                    
+                                default:
+                                    // For other permissions, deny by default
+                                    break;
+                            }
+                            
+                            args->put_State(state);
+                            
+                            if (state == COREWEBVIEW2_PERMISSION_STATE_ALLOW) {
+                                perm_ctx->logger->info("[permissions] Granted " + permission_name + " permission");
+                            } else {
+                                perm_ctx->logger->info("[permissions] Denied " + permission_name + " permission");
+                            }
+                            
+                            return S_OK;
+                        }
+                    ).Get(),
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    this->logger->info("[permissions] PermissionRequested event handler registered successfully");
+                } else {
+                    this->logger->error("[permissions] Failed to register PermissionRequested handler, HRESULT: " + std::to_string(hr));
+                    delete perm_ctx;
+                }                
             #elif defined(__APPLE__)
                 // macOS WKWebView permission handling via WKUIDelegate
                 auto window_result = this->app->w->window();
@@ -2196,14 +2560,246 @@ WF* WF::setInternalCallbacks() {
                 
                 
             #elif defined(_WIN32)
-                auto webview_opt = this->app->w->widget();
-                if (!webview_opt.has_value()) {
-                    this->logger->warn("[function] WebView2 not ready - call process_security after initialization");
+                // Windows WebView2: Implement navigation filtering using NavigationStarting event
+                
+                auto webview2_opt = this->app->w->widget();
+                if (!webview2_opt.has_value()) {
+                    this->logger->warn("[security] WebView2 not available, navigation filtering skipped");
                     return json::value(nullptr);
                 }
-                // TODO: Implement ICoreWebView2::add_NavigationStarting handler for URI filtering
-                // Pattern: Check isURIAllowed(), cancel navigation, use NavigateToString() for error page
-                this->logger->warn("[function] Windows WebView2 security requires COM interface setup (see code comments)");
+                
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (!webview2) {
+                    this->logger->warn("[security] WebView2 pointer invalid, navigation filtering skipped");
+                    return json::value(nullptr);
+                }
+                
+                // Get allowed origins from info.json
+                auto extract_domain = [](const std::string& url) {
+                    size_t start = url.find("://");
+                    if (start == std::string::npos) return std::string("");
+                    start += 3;
+                    size_t end = url.find('/', start);
+                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
+                };
+                
+                std::vector<std::string> allowed_domains;
+                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
+                
+                const auto origins = this->app->info->getProperty("origins");
+                if (origins.is_array()) {
+                    for (const auto& origin : origins.as_array()) {
+                        if (origin.is_string()) {
+                            std::string domain = extract_domain(origin.as_string().c_str());
+                            if (!domain.empty()) {
+                                allowed_domains.push_back(domain);
+                            }
+                        }
+                    }
+                }
+                
+                // Log the security configuration
+                this->logger->info("[security] Security policy from info.json:");
+                this->logger->info("[security] Allowed origins: " + std::to_string(allowed_domains.size()) + " domains");
+                for (const auto& domain : allowed_domains) {
+                    this->logger->info("  - " + domain);
+                }
+                
+                // Create navigation handler context
+                struct NavigationContext {
+                    std::vector<std::string> allowed_domains;
+                    std::shared_ptr<ILogger> logger;
+                    std::string last_blocked_uri;  // Track last blocked URI
+                };
+                
+                auto* nav_ctx = new NavigationContext{allowed_domains, this->logger, ""};
+                
+                // Register NavigationStarting event handler
+                HRESULT hr = webview2->add_NavigationStarting(
+                    Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                        [nav_ctx](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                            (void)sender;
+                            
+                            LPWSTR uri_wide = nullptr;
+                            args->get_Uri(&uri_wide);
+                            
+                            if (!uri_wide) return S_OK;
+                            
+                            // Convert wide string to UTF-8
+                            int size_needed = WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, nullptr, 0, nullptr, nullptr);
+                            std::string uri(size_needed - 1, 0);
+                            WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, &uri[0], size_needed, nullptr, nullptr);
+                            CoTaskMemFree(uri_wide);
+                            
+                            // Allow about:, data:, blob:, and file: URLs
+                            if (uri.find("about:") == 0 || uri.find("data:") == 0 || 
+                                uri.find("blob:") == 0 || uri.find("file:") == 0) {
+                                return S_OK;
+                            }
+                            
+                            // Check if URL matches any allowed domain
+                            bool allowed = false;
+                            for (const auto& domain : nav_ctx->allowed_domains) {
+                                if (uri.find(domain) != std::string::npos) {
+                                    nav_ctx->logger->debug("[security] Allowed navigation to: " + uri);
+                                    allowed = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (!allowed) {
+                                nav_ctx->logger->warn("[security] Blocked navigation to: " + uri);
+                                nav_ctx->last_blocked_uri = uri;  // Store for error handler
+                                args->put_Cancel(TRUE);
+                            }
+                            
+                            return S_OK;
+                        }
+                    ).Get(),
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    this->logger->info("[security] NavigationStarting event handler registered successfully");
+                } else {
+                    this->logger->error("[security] Failed to register NavigationStarting handler, HRESULT: " + std::to_string(hr));
+                    delete nav_ctx;
+                }
+                
+                // Register NavigationCompleted event handler for error pages
+                struct ErrorContext {
+                    WF* wf;
+                    std::shared_ptr<ILogger> logger;
+                    NavigationContext* nav_ctx;  // Reference to navigation context
+                };
+                
+                auto* error_ctx = new ErrorContext{this, this->logger, nav_ctx};
+                
+                hr = webview2->add_NavigationCompleted(
+                    Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                        [error_ctx](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                            BOOL is_success = FALSE;
+                            args->get_IsSuccess(&is_success);
+                            
+                            if (!is_success) {
+                                COREWEBVIEW2_WEB_ERROR_STATUS error_status;
+                                args->get_WebErrorStatus(&error_status);
+                                
+                                // For canceled operations (security blocks), show blocked page
+                                if (error_status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
+                                    if (!error_ctx->nav_ctx->last_blocked_uri.empty()) {
+                                        std::string blocked_html = IWebServer::generateBlockedNavigationHTML(
+                                            error_ctx->nav_ctx->last_blocked_uri,
+                                            "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.");
+                                        
+                                        int wide_size = MultiByteToWideChar(CP_UTF8, 0, blocked_html.c_str(), -1, nullptr, 0);
+                                        std::wstring blocked_html_wide(wide_size, 0);
+                                        MultiByteToWideChar(CP_UTF8, 0, blocked_html.c_str(), -1, &blocked_html_wide[0], wide_size);
+                                        
+                                        sender->NavigateToString(blocked_html_wide.c_str());
+                                        
+                                        // Clear the blocked URI
+                                        error_ctx->nav_ctx->last_blocked_uri.clear();
+                                    }
+                                    return S_OK;
+                                }
+                                
+                                LPWSTR uri_wide = nullptr;
+                                sender->get_Source(&uri_wide);
+                                
+                                std::string uri = "unknown";
+                                if (uri_wide) {
+                                    int size_needed = WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, nullptr, 0, nullptr, nullptr);
+                                    uri = std::string(size_needed - 1, 0);
+                                    WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, &uri[0], size_needed, nullptr, nullptr);
+                                    CoTaskMemFree(uri_wide);
+                                }
+                                
+                                std::string error_msg;
+                                int error_code = static_cast<int>(error_status);
+                                
+                                switch (error_status) {
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN:
+                                        error_msg = "Unknown error";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
+                                        error_msg = "Certificate common name is incorrect";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
+                                        error_msg = "Certificate expired";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS:
+                                        error_msg = "Client certificate contains errors";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
+                                        error_msg = "Certificate revoked";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
+                                        error_msg = "Certificate is invalid";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
+                                        error_msg = "Server unreachable";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
+                                        error_msg = "Connection timeout";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE:
+                                        error_msg = "Invalid server response";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
+                                        error_msg = "Connection aborted";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
+                                        error_msg = "Connection reset";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
+                                        error_msg = "Disconnected";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
+                                        error_msg = "Cannot connect";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
+                                        error_msg = "Host name not resolved";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
+                                        error_msg = "Navigation blocked by security policy or canceled by user";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED:
+                                        error_msg = "Redirect failed";
+                                        break;
+                                    case COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR:
+                                        error_msg = "Unexpected error";
+                                        break;
+                                    default:
+                                        error_msg = "Error " + std::to_string(error_code);
+                                        break;
+                                }
+                                
+                                error_ctx->logger->error("[security] Page load failed: " + uri + " - " + error_msg);
+                                
+                                std::string error_html = IWebServer::generateErrorHTML(error_code, 
+                                    "Failed to Load Page", 
+                                    "Could not load: " + uri + "<br><br><strong>Details:</strong> " + error_msg);
+                                
+                                int wide_size = MultiByteToWideChar(CP_UTF8, 0, error_html.c_str(), -1, nullptr, 0);
+                                std::wstring error_html_wide(wide_size, 0);
+                                MultiByteToWideChar(CP_UTF8, 0, error_html.c_str(), -1, &error_html_wide[0], wide_size);
+                                
+                                sender->NavigateToString(error_html_wide.c_str());
+                            }
+                            
+                            return S_OK;
+                        }
+                    ).Get(),
+                    nullptr
+                );
+                
+                if (SUCCEEDED(hr)) {
+                    this->logger->info("[security] NavigationCompleted event handler registered successfully");
+                } else {
+                    this->logger->error("[security] Failed to register NavigationCompleted handler, HRESULT: " + std::to_string(hr));
+                    delete error_ctx;
+                }
                 
             #elif defined(__APPLE__)
                 auto window_result = this->app->w->window();
@@ -2410,7 +3006,75 @@ WF* WF::setInternalCallbacks() {
                 webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
                 
             #elif defined(_WIN32)
-                this->logger->warn("[function] performance_settings not yet implemented for Windows");
+                // Windows WebView2: Configure performance and feature settings
+                
+                auto webview2_opt = this->app->w->widget();
+                if (!webview2_opt.has_value()) {
+                    this->logger->warn("[function] WebView2 not yet initialized - skipping performance settings");
+                    return json::value(nullptr);
+                }
+                
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (!webview2) {
+                    this->logger->warn("[function] WebView2 pointer invalid - skipping performance settings");
+                    return json::value(nullptr);
+                }
+                
+                ICoreWebView2Settings* settings = nullptr;
+                HRESULT hr = webview2->get_Settings(&settings);
+                if (FAILED(hr) || !settings) {
+                    this->logger->error("[function] Failed to get WebView2 settings interface");
+                    return json::value(nullptr);
+                }
+                
+                // Configure base settings for optimal performance and UX
+                settings->put_IsZoomControlEnabled(TRUE);
+                settings->put_AreDefaultContextMenusEnabled(FALSE);
+                settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+                settings->put_IsBuiltInErrorPageEnabled(FALSE);
+                settings->put_IsStatusBarEnabled(FALSE);
+                settings->put_AreDevToolsEnabled(TRUE);
+                
+                this->logger->info("[function] WebView2 base settings configured");
+                
+                // ICoreWebView2Settings2 (WebView2 SDK 1.0.721+): User agent
+                ICoreWebView2Settings2* settings2 = nullptr;
+                hr = settings->QueryInterface(IID_PPV_ARGS(&settings2));
+                if (SUCCEEDED(hr) && settings2) {
+                    settings2->put_UserAgent(L"RenWeb-Engine/0.0.5");
+                    this->logger->info("[function] User agent set to RenWeb-Engine/0.0.5");
+                    settings2->Release();
+                }
+                
+                // ICoreWebView2Settings3 (WebView2 SDK 1.0.1018+): Accelerator keys
+                ICoreWebView2Settings3* settings3 = nullptr;
+                hr = settings->QueryInterface(IID_PPV_ARGS(&settings3));
+                if (SUCCEEDED(hr) && settings3) {
+                    settings3->put_AreBrowserAcceleratorKeysEnabled(TRUE);
+                    this->logger->info("[function] Browser accelerator keys enabled");
+                    settings3->Release();
+                }
+                                
+                // ICoreWebView2Settings5 (WebView2 SDK 1.0.1150+): Pinch zoom
+                ICoreWebView2Settings5* settings5 = nullptr;
+                hr = settings->QueryInterface(IID_PPV_ARGS(&settings5));
+                if (SUCCEEDED(hr) && settings5) {
+                    settings5->put_IsPinchZoomEnabled(TRUE);
+                    this->logger->info("[function] Pinch zoom enabled");
+                    settings5->Release();
+                }
+                
+                // ICoreWebView2Settings6 (WebView2 SDK 1.0.1185+): Swipe navigation
+                ICoreWebView2Settings6* settings6 = nullptr;
+                hr = settings->QueryInterface(IID_PPV_ARGS(&settings6));
+                if (SUCCEEDED(hr) && settings6) {
+                    settings6->put_IsSwipeNavigationEnabled(TRUE);
+                    this->logger->info("[function] Swipe navigation enabled");
+                    settings6->Release();
+                }
+                
+                settings->Release();
+                this->logger->info("[function] WebView2 performance settings configured successfully");
                 
             #elif defined(__APPLE__)
                 auto window_result = this->app->w->window();
@@ -2485,6 +3149,7 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup() {
     const json::value req = json::value(nullptr);
+    // #ifndef _WIN32
     const json::value& prop = this->app->config->getProperty("initially_shown");
     if (prop.is_bool() && !prop.as_bool()) {
         this->window_callbacks->run(
@@ -2492,6 +3157,7 @@ WF* WF::setup() {
             json::value((prop.is_bool()) ? (prop.as_bool()) : true)
         );
     }
+    // #endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;

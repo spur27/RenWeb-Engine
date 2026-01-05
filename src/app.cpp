@@ -129,11 +129,11 @@ std::unique_ptr<App> AppBuilder::build() {
     app->pipem = std::move(this->pipem);
 
     if (this->w == nullptr) {
-        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
+        this->withWebview(std::make_unique<RenWeb::Webview>(true, nullptr));
     }
     app->w = std::move(this->w);
     this->logger->critical("#####WINDOW CREATED");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+    // std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     if (this->signalm == nullptr) {
         this->withSignalManager(std::make_unique<SignalManager>(
@@ -184,17 +184,12 @@ void App::run() {
         ? this->config->getJson().as_object() : json::object{};
 
     this->ws->start();
-
     this->fns->setup();
-    this->logger->critical("#####SETUP RUN");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     this->w->dispatch([this, current_state](){
         this->fns->setup();
         this->fns->setState(current_state);
     });
-    this->logger->critical("#####DISPATCHED");
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     this->w->run();

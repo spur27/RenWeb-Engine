@@ -93,17 +93,31 @@ ifeq ($(OS),Windows_NT)
 	EXE_EXT := .exe
 	OBJ_EXT := .obj
 	CXX := cl
-	CXXFLAGS := /std:c++20 /utf-8 /bigobj
+	CXXFLAGS := /std:c++20 /utf-8 /bigobj /DBOOST_ALL_NO_LIB /experimental:external /external:W0
 ifneq ($(LINKTYPE),shared)
 	CXXFLAGS += /MT 
 endif
 ifeq ($(TARGET),debug)
-	CXXFLAGS += /EHsc /Zi /Od /W3
+	CXXFLAGS += /EHsc /Zi /Od /W3 /FS
+	LDFLAGS += /DEBUG
 else
-	CXXFLAGS += /EHsc /O2
+	CXXFLAGS += /EHsc /O2 /Ox /Oi /Ot /GL /GS- /Gy /W3 /FS
+	LDFLAGS += /LTCG /OPT:REF /OPT:ICF
 endif
+	
+	# Add architecture-specific flags
+	ifeq ($(ARCH), x86_32)
+		LDFLAGS += /MACHINE:X86
+	else ifeq ($(ARCH), x86_64)
+		LDFLAGS += /MACHINE:X64
+	else ifeq ($(ARCH), arm64)
+		LDFLAGS += /MACHINE:ARM64
+	else ifeq ($(ARCH), arm32)
+		LDFLAGS += /MACHINE:ARM
+	endif
+	
 	# Detect architecture from cl.exe environment
-	# Use VSCMD_ARG_TGT_ARCH if set, otherwise check PROCESSOR_ARCHITECTURE
+	# Use VSCMD_ARG_TGT_ARCH if set, otherwise check PROCESSOR_ARCHITEW6432 (for 32-bit make on 64-bit system) or PROCESSOR_ARCHITECTURE
 	ifdef VSCMD_ARG_TGT_ARCH
 		ifeq ($(VSCMD_ARG_TGT_ARCH),x86)
 			ARCH := x86_32
@@ -114,6 +128,13 @@ endif
 		else ifeq ($(VSCMD_ARG_TGT_ARCH),arm64)
 			ARCH := arm64
 		endif
+	else ifdef PROCESSOR_ARCHITEW6432
+		# This is set when running 32-bit processes on 64-bit Windows (like 32-bit make)
+		ifeq ($(PROCESSOR_ARCHITEW6432),AMD64)
+			ARCH := x86_64
+		else ifeq ($(PROCESSOR_ARCHITEW6432),ARM64)
+			ARCH := arm64
+		endif
 	else ifdef PROCESSOR_ARCHITECTURE
 		ifeq ($(PROCESSOR_ARCHITECTURE),AMD64)
 			ARCH := x86_64
@@ -122,6 +143,9 @@ endif
 		else ifeq ($(PROCESSOR_ARCHITECTURE),ARM64)
 			ARCH := arm64
 		endif
+	else
+		# Default to x86_64 if no architecture can be detected
+		ARCH := x86_64
 	endif
 else
 	SHELL := /bin/bash
@@ -212,18 +236,29 @@ LIC_PATH :=    ./licenses
 INFO_PATH :=   ./info.json
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
-RC_PATH :=    $(OBJ_PATH)/app.res
 INC_PATH :=    ./include
+PATCH_PATH :=  ./patches
 EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
 EXE := $(EXE_NAME)-$(EXE_VERSION)-$(OS_NAME)-$(ARCH)$(EXE_EXT)
 ifeq ($(OS_NAME), windows)
+	# Boost 1.90.0 paths - prefer C:/local, fallback to external/boost
+	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
+		BOOST_ROOT := C:/local/boost_1_90_0
+		BOOST_INCLUDE := /external:I$(BOOST_ROOT)
+	else
+		BOOST_ROOT := external/boost
+		BOOST_INCLUDE := /external:I$(BOOST_ROOT)
+	endif
+	
 EXTERN_INC_PATHS := \
-	$(addprefix /I, $(wildcard external/*/)) \
-	$(addprefix /I, $(wildcard external/*/include)) \
-	$(addprefix /I, $(wildcard external/boost/libs/*/include)) \
-	$(addprefix /I, $(wildcard external/boost/libs/*/*/include)) \
-	$(addprefix /I, $(wildcard external/boost/libs/*/*/*/include)) \
+	$(BOOST_INCLUDE) \
+	$(addprefix /I, $(wildcard external/cpp-httplib/)) \
+	$(addprefix /I, $(wildcard external/spdlog/)) \
+	$(addprefix /I, $(wildcard external/spdlog/include)) \
+	$(addprefix /I, $(wildcard external/webview/)) \
+	$(addprefix /I, $(wildcard external/webview2_sdk/)) \
+	/Iexternal/webview2_sdk/build/native/include \
 	$(addprefix /I, external/webview/core/include) 
 else 
 EXTERN_INC_PATHS := \
@@ -238,7 +273,49 @@ endif
 # Static Linked Libraries
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME), windows)
-	LIBS := comdlg32.lib
+	# Architecture-specific Boost library paths - prefer C:/local, fallback to external/boost
+	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
+		BOOST_ROOT := C:/local/boost_1_90_0
+		ifeq ($(ARCH), x86_64)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-msvc-14.3-static
+			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else ifeq ($(ARCH), x86_32)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/lib32-msvc-14.3-static
+			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else ifeq ($(ARCH), arm64)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-arm-msvc-14.3-static
+			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else
+			$(error Unsupported architecture: $(ARCH))
+		endif
+	else
+		BOOST_ROOT := external/boost
+		ifeq ($(ARCH), x86_64)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else ifeq ($(ARCH), x86_32)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else ifeq ($(ARCH), arm64)
+			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
+			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_SYSTEM_LIB :=
+		else
+			$(error Unsupported architecture: $(ARCH))
+		endif
+	endif
+	
+	LIBS := \
+		comdlg32.lib \
+		$(BOOST_LIB_PATH)/boost_program_options$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/boost_json$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/boost_filesystem$(BOOST_LIB_SUFFIX) \
+		$(BOOST_SYSTEM_LIB)
 endif
 ifeq ($(OS_NAME), apple)
 	LIBS := -L./external/boost/stage/lib -lboost_program_options -lboost_json -framework Cocoa -framework WebKit -ldl 
@@ -278,6 +355,14 @@ endif
 # -----------------------------------------------------------------------------
 SRCS := $(wildcard $(SRC_PATH)/*.cpp)
 OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
+
+# Windows resource file
+ifeq ($(OS_NAME), windows)
+	RC := rc.exe
+	RES_FILE := $(OBJ_PATH)/app.res
+	OBJS += $(RES_FILE)
+endif
+
 # -----------------------------------------------------------------------------
 # Build target
 # -----------------------------------------------------------------------------
@@ -287,28 +372,43 @@ all: $(BUILD_PATH)/$(EXE) copy-files
 # -----------------------------------------------------------------------------
 $(BUILD_PATH)/$(EXE): $(OBJS) | $(BUILD_PATH)
 	$(call step,Linking Executable,$@,of link type,$(LINKTYPE))
-# ifeq ($(OS_NAME), windows)
-	# Generate resource file
-# else 
 ifeq ($(LINKTYPE),shared)
 	$(call warn,Shared for unix isn't implemented yet! Using static)
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
+ifeq ($(OS_NAME),windows)
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LIBS) $(PKG_LIBS) /link $(LDFLAGS) /out:$@
 else
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
+endif
+else
+ifeq ($(OS_NAME),windows)
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LIBS) $(PKG_LIBS) /link $(LDFLAGS) /out:$@
+else
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) $^ $(LDFLAGS) $(LIBS) $(PKG_LIBS) -o $@
+endif
 endif
 	$(call step,Linking Executable [DONE],$@)
+
+# -----------------------------------------------------------------------------
+# RULE: Compile Windows resource file
+# -----------------------------------------------------------------------------
+ifeq ($(OS_NAME), windows)
+$(RES_FILE): resource/app.rc resource/app.ico resource/app.manifest | $(OBJ_PATH)
+	$(call step,Compiling Resource File,$@)
+	$(RC) /fo $@ /I resource resource/app.rc
+	$(call step,Compiling Resource File [DONE],$@)
+endif
 # -----------------------------------------------------------------------------
 # RULE: Special compilation for window_functions.cpp and app.cpp on macOS (Objective-C++)
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME), apple)
 $(OBJ_PATH)/window_functions$(OBJ_EXT): $(SRC_PATH)/window_functions.cpp | $(OBJ_PATH)
 	$(call step,Compiling (Objective-C++),$<)
-	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
 	$(call step,Compiling [DONE],$<)
 
 $(OBJ_PATH)/app$(OBJ_EXT): $(SRC_PATH)/app.cpp | $(OBJ_PATH)
 	$(call step,Compiling (Objective-C++),$<)
-	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
 	$(call step,Compiling [DONE],$<)
 endif
 # -----------------------------------------------------------------------------
@@ -318,16 +418,16 @@ $(OBJ_PATH)/%$(OBJ_EXT): $(SRC_PATH)/%.cpp | $(OBJ_PATH)
 	$(call step,Compiling,$<)
 ifeq ($(OS_NAME),windows)
 ifeq ($(LINKTYPE),shared)
-	$(CXX) $(CXXFLAGS) /I$(INC_PATH) /MD /DBOOST_ALL_DYN_LINK $(EXTERN_INC_PATHS) /c $< /Fo$@
+	$(CXX) $(CXXFLAGS) /I$(PATCH_PATH) /I$(INC_PATH) /MD /DBOOST_ALL_DYN_LINK $(EXTERN_INC_PATHS) /c $< /Fo$@
 else
-	$(CXX) $(CXXFLAGS) /I$(INC_PATH) $(EXTERN_INC_PATHS) /c $< /Fo$@
+	$(CXX) $(CXXFLAGS) /I$(PATCH_PATH) /I$(INC_PATH) $(EXTERN_INC_PATHS) /c $< /Fo$@
 endif
 else 
 ifeq ($(LINKTYPE),shared)
 	$(call warn,Shared for unix isn't implemented yet! Using static)
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
 else
-	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(PKG_CFLAGS) -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
 endif
 endif
 	$(call step,Compiling [DONE],$<)
@@ -381,7 +481,8 @@ ifeq ($(OS_NAME),linux)
 else ifeq ($(OS_NAME),apple)
 	MallocStackLogging=1 leaks --atExit -- ./$(BUILD_PATH)/$(EXE) -l0
 else ifeq ($(OS_NAME),windows)
-	drmemory -light -- $(BUILD_PATH)\\$(EXE) -l0 || $(BUILD_PATH)\\$(EXE) -l0
+	@echo "Running Dr. Memory for 10 seconds (GUI app will be terminated)..."
+	/c/Users/spur/DrMemory-Windows-2.6.0/bin64/drmemory.exe -light -brief -batch -ignore_asserts -quiet -- ./$(BUILD_PATH)/$(EXE) -l1
 endif
 	$(call step,Testing [DONE])
 # -----------------------------------------------------------------------------
