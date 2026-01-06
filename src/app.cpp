@@ -129,7 +129,7 @@ std::unique_ptr<App> AppBuilder::build() {
     app->pipem = std::move(this->pipem);
 
     if (this->w == nullptr) {
-        this->withWebview(std::make_unique<RenWeb::Webview>(true, nullptr));
+        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
     }
     app->w = std::move(this->w);
     this->logger->critical("#####WINDOW CREATED");

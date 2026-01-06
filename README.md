@@ -68,6 +68,176 @@ The purpose of this project is to provide an easy and fun way to make creative d
 - [Boost](https://www.boost.org/) - Program options and JSON parsing
 - Standard C++ libraries (C++17 or later)
 
+## Platform Support
+
+### Supported Architectures
+
+RenWeb supports multiple architectures across different operating systems:
+
+**Linux (13 architectures):**
+- x86_64 (64-bit Intel/AMD)
+- x86_32 (32-bit Intel/AMD via i686)
+- ARM64 (aarch64)
+- ARM32 (arm-linux-gnueabihf)
+- MIPS32 (big-endian)
+- MIPS32el (little-endian)
+- MIPS64 (big-endian)
+- MIPS64el (little-endian)
+- PowerPC 32-bit
+- PowerPC 64-bit
+- RISC-V 64-bit
+- s390x (IBM Z)
+- SPARC64
+
+**macOS (2 architectures):**
+- ARM64 (Apple Silicon)
+- x86_64 (Intel Macs)
+
+**Windows (planned - 4 architectures):**
+- x64 (64-bit Intel/AMD)
+- x86 (32-bit Intel/AMD)
+- ARM64
+- ARM
+
+### Feature Comparison Matrix
+
+| Feature | Linux (WebKitGTK 4.1) | Windows (WebView2) | macOS (WKWebView) |
+|---------|----------------------|-------------------|------------------|
+| **Graphics & Rendering** | | | |
+| Hardware Acceleration | ✅ Always enabled | ✅ Chromium GPU | ✅ Metal backend |
+| WebGL | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| WebGPU | ❌ Not yet | ✅ Chromium support | ✅ macOS 11.3+ |
+| 2D Canvas Acceleration | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| 3D Compositing | ✅ Enabled | ✅ Chromium | ✅ Metal |
+| | | | |
+| **Media** | | | |
+| Media Playback | ✅ Optimized | ✅ Chromium | ✅ Optimized |
+| Autoplay | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| WebAudio | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| MediaSource | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Encrypted Media (EME) | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Media Stream | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Picture-in-Picture | ⚠️ Limited | ✅ Chromium | ✅ Enabled |
+| AirPlay | ❌ N/A | ❌ N/A | ✅ Enabled |
+| | | | |
+| **JavaScript & APIs** | | | |
+| JavaScript Enabled | ✅ Yes | ✅ Yes | ✅ Yes |
+| Clipboard Access | ✅ Enabled | ✅ Enabled | ⚠️ Limited |
+| Window Opening | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| Local Storage | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| IndexedDB | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Web Workers | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Service Workers | ⚠️ Limited | ✅ Chromium | ⚠️ Limited |
+| | | | |
+| **Permissions** | | | |
+| Geolocation | ✅ Configurable | ✅ Configurable | ✅ Configurable |
+| Camera/Microphone | ✅ Configurable | ✅ Configurable | ✅ Configurable |
+| Notifications | ✅ Configurable | ✅ Configurable | ❌ Not exposed |
+| Clipboard Read | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
+| Autoplay | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
+| Local Fonts | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
+| MIDI | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
+| Pointer Lock | ✅ Configurable | ❌ Not exposed | ❌ Not exposed |
+| Device Orientation | ✅ Configurable | ❌ Not exposed | ✅ Configurable |
+| | | | |
+| **Performance** | | | |
+| Page Caching | ✅ Enabled | ✅ Chromium | ✅ Back/Forward cache |
+| Smooth Scrolling | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| JIT Compilation | ✅ Enabled | ✅ V8 | ✅ JSC |
+| Multithreading | ✅ Process model | ✅ Chromium | ✅ Process model |
+| | | | |
+| **Developer Tools** | | | |
+| DevTools | ✅ WebKit Inspector | ✅ Chromium DevTools | ✅ Web Inspector |
+| Console Messages | ✅ Stdout logging | ✅ DevTools | ✅ Console logging |
+| Network Inspector | ✅ Available | ✅ Full Chromium | ✅ Available |
+| | | | |
+| **UI Features** | | | |
+| Zoom Controls | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| Find in Page | ✅ Basic | ✅ Advanced | ✅ Advanced |
+| Print Support | ✅ GTK dialogs | ✅ Windows dialogs | ✅ macOS dialogs |
+| Context Menus | ✅ DevTools enabled | ✅ Enabled | ✅ Default enabled |
+| PDF Viewer | ✅ Basic | ✅ Chromium PDF | ✅ PDFKit |
+| Fullscreen | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| | | | |
+| **Security** | | | |
+| URI Allowlist | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| HTTPS Support | ✅ Full | ✅ Full | ✅ Full |
+| CORS Enforcement | ✅ WebKit | ✅ Chromium | ✅ WebKit |
+| CSP Support | ✅ WebKit | ✅ Chromium | ✅ WebKit |
+| | | | |
+| **Backend** | | | |
+| Rendering Engine | WebKit/WebKitGTK | Chromium/Blink | WebKit |
+| JavaScript Engine | JavaScriptCore | V8 | JavaScriptCore |
+| Minimum Version | WebKitGTK 2.40+ | WebView2 Runtime | macOS 10.15+ |
+
+**Legend:**
+- ✅ **Enabled** - Feature fully supported and enabled by default
+- ✅ **Configurable** - Feature supported with permission control
+- ⚠️ **Limited** - Feature partially supported or version-dependent
+- ❌ **Not exposed** - Backend supports but not exposed in RenWeb API
+- ❌ **Not yet** - Feature not currently available
+- ❌ **N/A** - Feature not applicable to this platform
+
+**Notes:**
+- **WebGPU**: Windows/macOS have native support; Linux WebKitGTK 4.1 doesn't expose WebGPU yet (requires WebKitGTK 6.0+)
+- **Clipboard**: Windows has granular permission control via WebView2; Linux/macOS have JavaScript clipboard API access but no permission request UI
+- **Service Workers**: Full support in Windows (Chromium); limited/experimental in Linux/macOS WebKit
+- **Context Menus**: 
+  - **Linux**: Enabled via developer extras (includes inspect element, reload, view source)
+  - **Windows**: Enabled (`AreDefaultContextMenusEnabled = TRUE`) - provides standard Chromium context menu
+  - **macOS**: Default WebKit context menus enabled (standard macOS web context menu)
+- **Permissions - Not exposed**: These permissions are handled automatically by the backend but don't generate permission request events that RenWeb can intercept
+- **Copy/Paste**: All platforms support clipboard operations via JavaScript API, but permission models differ
+- **Find in Page**: Linux uses basic WebKit find; Windows/macOS have advanced highlighting and navigation
+- **Hardware Acceleration**: Linux uses WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS; Windows uses Chromium GPU acceleration; macOS uses Metal backend
+
+### WebKitGTK Capabilities (Linux)
+
+RenWeb uses WebKitGTK 4.1 (WebKit2 API) with the following features enabled:
+
+**Core Features:**
+- Hardware-accelerated rendering (always-on policy)
+- 2D canvas acceleration
+- WebGL support
+- Page caching
+- Media playback optimization
+- HTML5 local storage and databases
+- Smooth scrolling
+- Back/forward navigation gestures
+- Fullscreen API
+- WebAudio API
+- MediaStream API
+- Encrypted media (EME)
+- MediaSource extensions
+- Site-specific quirks handling
+- Console message logging to stdout
+
+**JavaScript:**
+- JavaScript markup parsing
+- Clipboard access via JavaScript API
+- Automatic window opening
+- Resizable text areas
+
+**Media:**
+- Audio/video playback without user gesture requirement
+- Media capabilities API
+- Media devices access (with permission)
+
+**File Access:**
+- File URL to file URL access (enabled for local development)
+- Universal access from file URLs (enabled for local development)
+
+**System Integration:**
+- GStreamer backend for media codecs
+- GTK3 print dialogs
+- Caret browsing (disabled by default)
+- UTF-8 charset
+
+**Version Requirements:**
+- Minimum: WebKitGTK 2.40.0
+- Recommended: WebKitGTK 2.50.0+
+- Current tested: WebKitGTK 2.50.2
+
 ## Compilation
 
 Clone with submodules:
@@ -353,7 +523,7 @@ Logging:
   -c, --log-clear              Clear log.txt before starting
     
 Pages:
-  -P, --pages <name> [names...] Open specific page(s) (default from info.json)
+  -p, --pages <name> [names...] Open specific page(s) (default from info.json)
 ```
 ## Credits
 
