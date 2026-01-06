@@ -483,20 +483,6 @@ This repository uses the following open-source libraries:
   - back button on linux doesn't work
 - Context menus and clipboard access is inconsistent amongst OS's
 
-## Planned Activities
-✅ Disable internet connectivity of the RenWeb Webview instance
-  - This will be my approach to security
-  - Implementation could be CORS enforcement in webview or proxy funneling
-- Add binding to get info (if one doesn't already exist)
-✅ Look into an improved approach over the webserver
-✅ Look into webview CORS (would be rad if it exists)
-✅ Fully  implement windows
-- Finish packaging tool
-✅ Change webserver IP and Port to be set in info.json
-  - Maybe revise all program options and see what's even necessary
-- Switch to using boost version 1.90.0 across all OS's
-- Ensure makefile still works when trying to compile using locally installed boost on windows
-
 ## License
 
 Boost Software License - Version 1.0 - August 17th, 2003
