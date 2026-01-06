@@ -40,8 +40,8 @@ jobs:
     - name: Build Boost 1.90.0 from submodule
       run: |
         cd external/boost
-        ./bootstrap.sh --prefix=/usr/local --with-libraries=program_options,json,system
-        ./b2 install --prefix=/usr/local link=static runtime-link=shared threading=multi variant=release -j$(nproc)
+        ./bootstrap.sh --with-libraries=program_options,json,container
+        ./b2 --with-program_options --with-json --with-container link=static runtime-link=shared threading=multi variant=release -j$(nproc) stage
 
     - name: make
       run: make

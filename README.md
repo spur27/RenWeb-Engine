@@ -69,7 +69,7 @@ The purpose of this project is to provide an easy and fun way to make creative d
 
 
 ## Program Architecture
-<img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.svg" alt="RenWeb ~ A FOSS Software SDK">
+<img height=300 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.svg" alt="RenWeb ~ A FOSS Software SDK">
 
 ## Platform Support
 
@@ -288,7 +288,7 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   "repository": "https://github.com/spur27/RenWeb-Engine",
   "categories": ["Utility"]
   "copyright": "Copyright © 2025 Spur27",
-  "app_id": "io.github.spur27.renweb",
+  "app_id": "io.github.spur27.renweb-engine",
   "starting_pages": ["test"],
   "permissions": {
     "geolocation": false,
