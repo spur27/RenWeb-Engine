@@ -212,14 +212,14 @@ make
 ```bash
 make run
 # Or directly:
-./build/renweb-0.0.4-linux-<arch>
+./build/renweb-0.0.5-linux-<arch>
 ```
 
 ### MacOS
 You should be able to compile it with XCode tools (min MacOS version 10.15) and boost from either the brew cask or from the submodule.
 
 ### Windows
-*Work in progress*
+You should be able to compile it with MSVC cl.exe and the <a href="https://www.nuget.org/packages/Microsoft.Web.WebView2">WebView2 SDK</a>. You can download the SDK into `.external/<sdk>` in order to comply with the how the makefile is setup. You can either install boost into `C:/local/<boost>` or compile from the submodule.
 
 ## File Structure
 
@@ -229,7 +229,7 @@ RenWeb looks for files relative to the executable location:
 
 ```
 build/
-├── renweb-0.0.4-linux-<arch>     [executable]
+├── renweb-0.0.5-linux-<arch>     [executable]
 ├── info.json                     [application metadata - required]
 ├── config.json        [moveable] [window configuration - auto-generated or prewritten]
 ├── log.txt            [moveable] [application logs - auto-generated]
