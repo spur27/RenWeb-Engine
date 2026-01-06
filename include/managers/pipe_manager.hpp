@@ -3,16 +3,16 @@
 // #include <boost/process.hpp>
 #include "../interfaces/Ilogger.hpp"
 #include "../interfaces/Iroutine_manager.hpp"
-#include <boost/process/io.hpp>
+#include <boost/process/v1/io.hpp>
 #include <map>
 #include <memory>
 #include <string>
-#include <boost/process.hpp>
+#include <boost/process/v1.hpp>
 #include <utility>
 
-using child = boost::process::child;
-using ipstream = boost::process::ipstream;
-using group = boost::process::group;
+using child = boost::process::v1::child;
+using ipstream = boost::process::v1::ipstream;
+using group = boost::process::v1::group;
 
 namespace RenWeb {
     struct ipstreams {
@@ -42,8 +42,8 @@ namespace RenWeb {
                 auto pair = std::pair<struct ipstreams, child>();
                 pair.second = child(
                     args,
-                    boost::process::std_out > pair.first.out, 
-                    boost::process::std_err > pair.first.err
+                    boost::process::v1::std_out > pair.first.out, 
+                    boost::process::v1::std_err > pair.first.err
                 );
                 this->pipes.insert(
                     std::make_pair(key, std::move(pair))

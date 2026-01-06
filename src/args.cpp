@@ -102,23 +102,7 @@ Args* Args::addDefaults() {
             this->opts["log_clear"] = boost::any_cast<bool>(bool_switch) ? "true" : "false";
         })
     ->add(
-        "ip,i",
-        boost::program_options::value<std::string>()->default_value("127.0.0.1", "IP Address"),
-        "IP of web server",
-        [this](boost::any ip)
-        {
-            this->opts["ip"] = boost::any_cast<std::string>(ip); 
-        })
-    ->add(
-        "port,p",
-        boost::program_options::value<unsigned short>()->default_value(8270, "8270"),
-        "Web server port (n>=0)",
-        [this](boost::any port)
-        {
-            this->opts["port"] = std::to_string(boost::any_cast<unsigned short>(port)); 
-        })
-    ->add(
-        "pages,P",
+        "pages,p",
         boost::program_options::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>{}, "Starting Page(s)"),
         "List of pages to open",
         [this](boost::any pages)
@@ -130,13 +114,13 @@ Args* Args::addDefaults() {
                 std::vector<std::string> args;
                 for (int arg_num = 0; arg_num < this->argc; arg_num++) {
                     std::string arg = this->argv[arg_num];
-                    if (arg.rfind("-P", 0) != 0) {
+                    if (arg.rfind("-p", 0) != 0) {
                         args.emplace_back(std::move(arg));
                     }
                 }
                 for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
                     std::vector<std::string> updated_args = args;
-                    updated_args.emplace_back("-P" + pages_vec[page_num]);
+                    updated_args.emplace_back("-p" + pages_vec[page_num]);
                     pm->add(page_num, updated_args);
                 }
                 pm->waitAll();
@@ -171,13 +155,13 @@ Args* Args::addDefaults() {
                     std::vector<std::string> args;
                     for (int arg_num = 0; arg_num < this->argc; arg_num++) {
                         std::string arg = this->argv[arg_num];
-                        if (arg.rfind("-P", 0) != 0) {
+                        if (arg.rfind("-p", 0) != 0) {
                             args.emplace_back(std::move(arg));
                         }
                     }
                     for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
                         std::vector<std::string> updated_args = args;
-                        updated_args.emplace_back("-P" + pages_vec[page_num]);
+                        updated_args.emplace_back("-p" + pages_vec[page_num]);
                         pm->add(page_num, updated_args);
                     }
                     pm->waitAll();

@@ -140,8 +140,8 @@ export namespace Window {
         { return decode(await BIND_current_title(null)); }
     export async function reloadPage(): Promise<void> 
         { await BIND_reload_page(null); }
-    export async function closeWindow(): Promise<void> 
-        { await BIND_close_window(null); }
+    export async function navigatePage(uri: string): Promise<void> 
+        { await BIND_navigate_page(encode(uri)); }
     export async function terminate(): Promise<void> 
         { await BIND_terminate(null); }
     export async function startWindowDrag(): Promise<void> 
@@ -341,7 +341,7 @@ declare const BIND_change_title: (...args: any[]) => Promise<any>;
 declare const BIND_reset_title: (...args: any[]) => Promise<any>;
 declare const BIND_current_title: (...args: any[]) => Promise<any>;
 declare const BIND_reload_page: (...args: any[]) => Promise<any>;
-declare const BIND_close_window: (...args: any[]) => Promise<any>;
+declare const BIND_navigate_page: (...args: any[]) => Promise<any>;
 declare const BIND_terminate: (...args: any[]) => Promise<any>;
 declare const BIND_start_window_drag: (...args: any[]) => Promise<any>;
 declare const BIND_print_page: (...args: any[]) => Promise<any>;

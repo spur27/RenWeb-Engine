@@ -12,9 +12,9 @@ dist
 installers
 todo.txt
 *.pdb
-*.rc
 index
 lib/*
 !lib/.gitkeep
 programs
 .DS_Store
+external/webview2_sdk

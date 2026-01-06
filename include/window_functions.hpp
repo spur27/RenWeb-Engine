@@ -25,7 +25,21 @@ namespace RenWeb {
         private:
             std::shared_ptr<ILogger> logger;
             RenWeb::App* app;
+            std::map<std::string, json::value> saved_states;
+            std::unique_ptr<CM> internal_callbacks;
+
+            json::value formatOutput(const json::value& output);
+            json::value formatOutput(const std::string& output);
+            template<typename T>
+                json::value formatOutput(const T& output);
+            json::value processInput(const std::string& input);
+            json::value processInput(const json::value& input);
+            json::value processInput(const json::object& input);
+            json::value processInput(const json::array& input);
+            json::value getSingleParameter(const json::value& param);
+
             WindowFunctions* bindDefaults();
+         /* Exposed-API function setters */
             WindowFunctions* setGetSets();
             WindowFunctions* setWindowCallbacks();
             WindowFunctions* setLogCallbacks();
@@ -37,17 +51,9 @@ namespace RenWeb {
             WindowFunctions* setDebugCallbacks();
             WindowFunctions* setNetworkCallbacks();
             WindowFunctions* setNavigateCallbacks();
-            std::map<std::string, json::value> saved_states;
+         /* Hidden-API function setters*/
+            WindowFunctions* setInternalCallbacks();
             
-            json::value formatOutput(const json::value& output);
-            json::value formatOutput(const std::string& output);
-            template<typename T>
-                json::value formatOutput(const T& output);
-            json::value processInput(const std::string& input);
-            json::value processInput(const json::value& input);
-            json::value processInput(const json::object& input);
-            json::value processInput(const json::array& input);
-            json::value getSingleParameter(const json::value& param);
         public:
             std::unique_ptr<IOM> getsets;
             std::unique_ptr<CM> window_callbacks;
@@ -69,7 +75,10 @@ namespace RenWeb {
             void set(const std::string& property, const json::value& value);
             json::object getState();
             void setState(const json::object& json);
-            void saveState();
+
+            WindowFunctions* setup();
+            WindowFunctions* teardown();
+
          // ------------ state -----------------
             bool isFocus();
     };

@@ -12,17 +12,59 @@ using MethodsCM = RenWeb::CallbackManager<std::string, void, const httplib::Requ
 
 WebServer::WebServer(
     std::shared_ptr<ILogger> logger,
-    App* app,
-    const unsigned short& port, 
-    const std::string& ip
+    App* app
 ) : logger(logger)
     , app(app)
     , method_callbacks(new MethodsCM())
-    , server()
-    , port(port)
-    , ip(ip)
 { 
     auto info_file = RenWeb::Info::getInfoFile();
+    const json::value server_obj = JSON::peek(info_file.get(), "server");
+    if (server_obj.is_object()) {
+        const json::object server_object = server_obj.as_object();
+        if (server_object.find("ip") != server_object.end() && server_object.at("ip").is_string())
+            this->ip = server_object.at("ip").as_string().c_str();
+        if (server_object.find("port") != server_object.end() && server_object.at("port").is_int64())
+            this->port =  static_cast<unsigned short>(server_object.at("port").as_int64());
+        if (server_object.find("protocol") != server_object.end() && server_object.at("protocol").is_bool())
+            this->https = server_object.at("protocol").as_bool();
+        if (server_object.find("ssl_cert_path") != server_object.end() && server_object.at("ssl_cert_path").is_string()) {
+            this->ssl_cert_path = std::filesystem::path(server_object.at("ssl_cert_path").as_string().c_str());
+            if (this->ssl_cert_path.is_relative()) {
+                this->ssl_cert_path = this->base_path / this->ssl_cert_path;
+            }
+        }
+        if (server_object.find("ssl_key_path") != server_object.end() && server_object.at("ssl_key_path").is_string()) {
+            this->ssl_key_path = std::filesystem::path(server_object.at("ssl_key_path").as_string().c_str());
+            if (this->ssl_key_path.is_relative()) {
+                this->ssl_key_path = this->base_path / this->ssl_key_path;
+            }
+        }
+    }
+    
+    if (this->https) {
+        if (this->ssl_cert_path.empty() || this->ssl_key_path.empty()) {
+            this->logger->error("[server] HTTPS enabled but ssl_cert and/or ssl_key not specified in config. Falling back to HTTP.");
+            this->https = false;
+            this->server = std::make_unique<httplib::Server>();
+        } else {
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+            this->logger->info("[server] Initializing HTTPS server with cert: " + this->ssl_cert_path.string());
+            this->server = std::make_unique<httplib::SSLServer>(this->ssl_cert_path.c_str(), this->ssl_key_path.c_str());
+            if (!this->server->is_valid()) {
+                this->logger->error("[server] Failed to initialize SSL server. Check certificate and key paths. Falling back to HTTP.");
+                this->https = false;
+                this->server = std::make_unique<httplib::Server>();
+            }
+#else
+            this->logger->error("[server] HTTPS requested but cpp-httplib was not compiled with OpenSSL support. Falling back to HTTP.");
+            this->https = false;
+            this->server = std::make_unique<httplib::Server>();
+#endif
+        }
+    } else {
+        this->server = std::make_unique<httplib::Server>();
+    }
+    this->logger->debug("[server] URL is " + std::string(this->https ? "https" : "http") + "://" + this->ip + ":" + (this->port == 0 ? "?????" : std::to_string(this->port)));
     auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
     if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["base_path"].is_string()) {
         std::filesystem::path unformatted_base_path = std::filesystem::path(
@@ -36,16 +78,28 @@ WebServer::WebServer(
         this->base_path = Locate::currentDirectory();
     }
     this->logger->debug("[server] Base path is " + this->base_path.string());
+    
+    this->cached_allowed_origins = "'self'";
+    const auto origins = JSON::peek(info_file.get(), "origins");
+    if (origins.is_array()) {
+        for (const auto& origin : origins.as_array()) {
+            if (origin.is_string()) {
+                this->cached_allowed_origins += " " + std::string(origin.as_string().c_str());
+            }
+        }
+    }
+    this->logger->debug("[server] CSP allowed origins:\n\t" + this->cached_allowed_origins);
+    
     this->setHandles();
     this->setMethodCallbacks();
 }
 
 WebServer::~WebServer() {
     // Stop the server if it's still running
-    if (this->server.is_running()) {
+    if (this->server && this->server->is_running()) {
         this->logger->trace("[server] Stopping server during WebServer destruction");
         try {
-            this->server.stop();
+            this->server->stop();
         } catch (...) {
             // Ignore exceptions during destruction
         }
@@ -65,11 +119,11 @@ WebServer::~WebServer() {
 
 
 std::string WebServer::getURL() const /*override*/ {
-    return "http://" + this->ip + ":" + std::to_string(this->port);
+    return std::string(this->https ? "https" : "http") + "://" + this->ip + ":" + std::to_string(this->port);
 }
 
 void WebServer::start() /*override*/ {
-    if (this->server.is_running()) {
+    if (this->server->is_running()) {
         this->logger->error("[server] Can't start server while it's already running.");
         return;
     } else if (this->server_thread.joinable()) {
@@ -77,22 +131,25 @@ void WebServer::start() /*override*/ {
         return;
     }
     this->server_thread = std::thread([this](){
-        for (; this->port < 65535; this->port++) {
-            try {
-                this->logger->trace("[server] trying port " + std::to_string(this->port));
-                this->server.listen(this->ip, this->port);
-                return;
-            } catch (...) { }
-        }
-        this->logger->critical("[server] Exhausted all possible ports.");
-        throw std::runtime_error("[server] Couldn't find port to start webserver on.");
+        try {
+            if (this->port == 0) {
+                this->port = this->server->bind_to_any_port(this->ip);
+                this->logger->info("[server] running on " + this->getURL());
+                this->server->listen_after_bind();
+            } else {
+                this->logger->info("[server] running on " + this->getURL());
+                this->server->listen(this->ip, this->port);
+            }
+            return;
+        } catch (...) { }
+        this->logger->critical("[server] Something very bad happened to the server.");
+        throw std::runtime_error("[server] Something very bad happened to the server.");
     });
-    this->logger->info("[server] running on " + this->getURL());
-    this->server.wait_until_ready();
+    this->server->wait_until_ready();
 }
 
 void WebServer::stop() /*override*/ {
-    if (!this->server.is_running()) {
+    if (!this->server->is_running()) {
         this->logger->error("[server] Can't stop server while it isn't running.");
         return;
     } else if (!this->server_thread.joinable()) {
@@ -100,9 +157,9 @@ void WebServer::stop() /*override*/ {
         return;
     }
     try {
-        if (this->server.is_running()) {
-            this->server.wait_until_ready();
-            this->server.stop();
+        if (this->server->is_running()) {
+            this->server->wait_until_ready();
+            this->server->stop();
         }
         if (this->server_thread.joinable()) {
             this->server_thread.join();
@@ -114,25 +171,25 @@ void WebServer::stop() /*override*/ {
 }
 
 void WebServer::setHandles() {
-    this->server.set_keep_alive_max_count(100);
-    this->server.set_read_timeout(10, 0);
-    this->server.set_write_timeout(10, 0);
+    this->server->set_keep_alive_max_count(100);
+    this->server->set_read_timeout(10, 0);
+    this->server->set_write_timeout(10, 0);
     
-    this->server.set_logger([this](const httplib::Request& req, const httplib::Response& res) {
+    this->server->set_logger([this](const httplib::Request& req, const httplib::Response& res) {
         this->logger->info("[server] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
     });
-    this->server.set_error_logger([this](const httplib::Error& err, const httplib::Request* req) {
+    this->server->set_error_logger([this](const httplib::Error& err, const httplib::Request* req) {
         (void)req;
         this->logger->error("[server] " + httplib::to_string(err));
     });
-    this->server.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
+    this->server->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
         (void)req;
         auto fmt = "<p>Error Status: <span style='color:red;'>%d</span></p>";
         char buf[BUFSIZ];
         snprintf(buf, sizeof(buf), fmt, res.status);
         res.set_content(buf, "text/html");    
     });
-    this->server.set_exception_handler([this](const auto& req, auto& res, std::exception_ptr ep) {
+    this->server->set_exception_handler([this](const auto& req, auto& res, std::exception_ptr ep) {
         (void)req;
         auto fmt = "<h1>Error 500</h1><p>%s</p>";
         char buf[BUFSIZ];
@@ -145,21 +202,21 @@ void WebServer::setHandles() {
         res.set_content(buf, "text/html");
         res.status = httplib::StatusCode::InternalServerError_500;
     });
-    this->server.set_file_request_handler([this](const httplib::Request &req, httplib::Response &res) {
+    this->server->set_file_request_handler([this](const httplib::Request &req, httplib::Response &res) {
         this->logger->debug("[server] Sending (" + std::to_string(res.body.length()) + ") " + req.target);
     });
 }
 
 void WebServer::setMethodCallbacks() {
-    this->server.Get(".*", [this](const httplib::Request &req, httplib::Response &res) {
+    this->server->Get(".*", [this](const httplib::Request &req, httplib::Response &res) {
         std::filesystem::path target_dir = (req.target == "/")
             ? "index.html"
             : std::filesystem::path(req.target.substr(1)).string();  
             std::array<std::filesystem::path, 4> search_paths = {
-                this->base_path / "custom" / target_dir,
+                this->base_path / "custom" / this->app->config->current_page / target_dir,
                 this->base_path / "content" / this->app->config->current_page / target_dir,
                 this->base_path / target_dir,
-                this->base_path / "backup" / target_dir
+                this->base_path / "backup" / this->app->config->current_page / target_dir
             };
         for (const auto& path : search_paths) {
             if (std::filesystem::exists(path)) {
@@ -167,17 +224,27 @@ void WebServer::setMethodCallbacks() {
                 return;
             }
         }
+        // Build clickable file:// links for searched paths
+        auto make_link = [](const std::filesystem::path& p) {
+            return "<a href=\"file://" + p.string() + "\" style=\"color: #64b5f6; text-decoration: underline;\">" + p.string() + "</a>";
+        };
+        this->sendStatus(req, res, httplib::StatusCode::NotFound_404, 
+            "File not found: <code>" + req.target + "</code><br><br>Searched in:<br>" +
+            "• " + make_link(this->base_path / "custom" / this->app->config->current_page / target_dir) + "<br>" +
+            "• " + make_link(this->base_path / "content" / this->app->config->current_page / target_dir) + "<br>" +
+            "• " + make_link(this->base_path / target_dir) + "<br>" +
+            "• " + make_link(this->base_path / "backup" / this->app->config->current_page / target_dir));
     });
-    this->server.Put(".*", [this](const httplib::Request &req, httplib::Response &res) {
+    this->server->Put(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
-    this->server.Post(".*", [this](const httplib::Request &req, httplib::Response &res) {
+    this->server->Post(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
-    this->server.Patch(".*", [this](const httplib::Request &req, httplib::Response &res) {
+    this->server->Patch(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
-    this->server.Delete(".*", [this](const httplib::Request &req, httplib::Response &res) {
+    this->server->Delete(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::NotFound_404, "Resource not found at target " + req.target);
     });
 }
@@ -185,12 +252,12 @@ void WebServer::setMethodCallbacks() {
 void WebServer::sendStatus(const httplib::Request& req, httplib::Response& res, const httplib::StatusCode& code, const std::string& desc) {
     (void)req;
     // res.status = code;
-    std::stringstream body;
-    body << "<p><strong>" << code << "</strong> - " << httplib::status_message(code) << "</p>";
-    if (!desc.empty()) {
-        body << "<p>" << desc << "</p>";
-    }
-    res.set_content(body.str(), "text/html");
+    std::string html = IWebServer::generateErrorHTML(
+        static_cast<int>(code),
+        httplib::status_message(code),
+        desc
+    );
+    res.set_content(html, "text/html");
 }
 
 void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, const std::filesystem::path& path) {
@@ -204,6 +271,23 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
     }
     
     res.set_header("Accept-Ranges", "bytes");
+    
+    // Security: Add exhaustive CSP header with whitelisted origins
+    std::string csp = "default-src " + this->cached_allowed_origins + "; "
+                     "img-src " + this->cached_allowed_origins + " data:; "
+                     "script-src " + this->cached_allowed_origins + " 'unsafe-inline' 'unsafe-eval'; "
+                     "style-src " + this->cached_allowed_origins + " 'unsafe-inline'; "
+                     "font-src " + this->cached_allowed_origins + " data:; "
+                     "connect-src " + this->cached_allowed_origins + "; "
+                     "media-src " + this->cached_allowed_origins + "; "
+                     "frame-src " + this->cached_allowed_origins + "; "
+                     "worker-src " + this->cached_allowed_origins + "; "
+                     "manifest-src " + this->cached_allowed_origins + "; "
+                     "form-action " + this->cached_allowed_origins + " file:; "
+                     "frame-ancestors 'self'; "
+                     "object-src 'none'; "
+                     "base-uri 'self';";
+    res.set_header("Content-Security-Policy", csp);
     
     res.set_content_provider(
         file_size,
@@ -234,4 +318,25 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
             return remaining == 0;
         }
     );
+}
+
+bool WebServer::isURIAllowed(const std::string& uri) const /*override*/ {
+    if (uri.rfind(this->getURL(), 0) == 0) {
+        return true;
+    }
+    const auto origins = this->app->info->getProperty("origins");
+    if (origins.is_null()) {
+        this->logger->warn("[server] No origins specified in info file; denying all external URIs");
+        return false;
+    } else if (!origins.is_array()) {
+        this->logger->warn("[server] Origins property in info file is not an array; denying all external URIs");
+        return false;
+    } else {
+        for (const auto& origin : origins.as_array()) {
+            if (origin.is_string() && uri.rfind(origin.as_string(), 0) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

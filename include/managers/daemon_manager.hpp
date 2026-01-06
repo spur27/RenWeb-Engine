@@ -4,9 +4,16 @@
 #include "../interfaces/Iroutine_manager.hpp"
 #include <map>
 #include <string>
-#include <boost/process.hpp>
+#include <chrono>
+#include <thread>
+#include <boost/process/v1.hpp>
 
-using child = boost::process::child;
+#if defined(_WIN32)
+#include <windows.h>
+#include <boost/process/v1/windows.hpp>
+#endif
+
+using child = boost::process::v1::child;
 
 namespace RenWeb {
     template <typename Key>
@@ -31,13 +38,15 @@ namespace RenWeb {
                 if (!this->has(key)) {
                     this->processes[key] = std::vector<child>();
                 }
+                
                 this->processes[key].push_back(
                     child(
                         args, 
-                        boost::process::std_out > stdout, 
-                        boost::process::std_err > stderr, 
-                        boost::process::std_in < stdin)
+                        boost::process::v1::std_out > stdout, 
+                        boost::process::v1::std_err > stderr, 
+                        boost::process::v1::std_in < stdin)
                 );
+                
                 int pid = this->processes[key].back().id();
                 this->processes_by_pid[pid] = &this->processes[key].back();
                 this->logger->info("[proc] Added process at PID " + std::to_string(pid));
@@ -77,14 +86,19 @@ namespace RenWeb {
                     int id = proc.id();
 
                     #if defined(_WIN32)
-                        this->logger->critical("killProcesses is UNIMPLEMENTED for windows");
-                        proc.terminate();
+                        this->logger->info("[proc] Terminating process " + std::to_string(id));
+                        std::error_code ec;
+                        proc.terminate(ec);
+                        if (ec) {
+                            this->logger->error("[proc] Failed to terminate process " + std::to_string(id) + ": " + ec.message());
+                        }
+                        proc.wait();
                     #else
                         ::kill(id, SIGINT);
+                        proc.wait();
                     #endif
-                        proc.join();
-                        this->processes_by_pid.erase(id);
-                        this->logger->info("[proc] Killed process at PID " + std::to_string(id));
+                    this->processes_by_pid.erase(id);
+                    this->logger->info("[proc] Killed process at PID " + std::to_string(id));
                 }
                 this->processes.erase(key);
             };

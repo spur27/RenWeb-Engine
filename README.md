@@ -12,8 +12,8 @@
 
 ## Table of Contents
 - [Introduction](#introduction)
-## Table of Contents
-- [Introduction](#introduction)
+- [Program Architecture](#program-architecture)
+- [Platform Support](#platform-support)
 - [Compilation](#compilation)
   - [Linux](#linux)
   - [MacOS](#macos)
@@ -21,16 +21,15 @@
 - [File Structure](#file-structure)
   - [Core Files](#core-files)
   - [Directory Structure](#directory-structure)
+  - [File Resolution Order](#file-resolution-order)
 - [Configuration Files](#configuration-files)
   - [info.json](#infojson)
   - [config.json](#configjson)
-- [Web Server](#web-server)
-  - [File Resolution Order](#file-resolution-order)
-  - [HTTP Range Requests](#http-range-requests)
 - [Command Line Arguments](#command-line-arguments)
 - [Credits](#credits)
 - [Planned Additions](#planned-additions)
 - [Known Bugs](#known-bugs)
+- [Planned Activities](#planned-activities)
 - [License](#license)
 
 ## Introduction
@@ -68,13 +67,120 @@ The purpose of this project is to provide an easy and fun way to make creative d
 - [Boost](https://www.boost.org/) - Program options and JSON parsing
 - Standard C++ libraries (C++17 or later)
 
+
+## Program Architecture
+<img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.svg" alt="RenWeb ~ A FOSS Software SDK">
+
+## Platform Support
+
+### Supported Architectures
+
+RenWeb supports multiple architectures across different operating systems:
+
+**Linux (13 architectures):**
+- x86_64 (64-bit Intel/AMD)
+- x86_32 (32-bit Intel/AMD via i686)
+- ARM64 (aarch64)
+- ARM32 (arm-linux-gnueabihf)
+- MIPS32 (big-endian)
+- MIPS32el (little-endian)
+- MIPS64 (big-endian)
+- MIPS64el (little-endian)
+- PowerPC 32-bit
+- PowerPC 64-bit
+- RISC-V 64-bit
+- s390x (IBM Z)
+- SPARC64
+
+**macOS (2 architectures):**
+- ARM64 (Apple Silicon)
+- x86_64 (Intel Macs)
+
+**Windows (3 architectures):**
+- x64 (64-bit Intel/AMD)
+- x86 (32-bit Intel/AMD)
+- ARM64
+
+### Feature Comparison Matrix
+
+| Feature | Linux (WebKitGTK 4.1) | Windows (WebView2) | macOS (WKWebView) |
+|---------|----------------------|-------------------|------------------|
+| **Graphics & Rendering** | | | |
+| Hardware Acceleration | ✅ Always enabled | ✅ Chromium GPU | ✅ Metal backend |
+| WebGL | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| WebGPU | ❌ Not yet | ✅ Chromium support | ✅ macOS 11.3+ |
+| 2D Canvas Acceleration | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| 3D Compositing | ✅ Enabled | ✅ Chromium | ✅ Metal |
+| | | | |
+| **Media** | | | |
+| Media Playback | ✅ Optimized | ✅ Chromium | ✅ Optimized |
+| Autoplay | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| WebAudio | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| MediaSource | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Encrypted Media (EME) | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Media Stream | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Picture-in-Picture | ⚠️ Limited | ✅ Chromium | ✅ Enabled |
+| AirPlay | ❌ N/A | ❌ N/A | ✅ Enabled |
+| | | | |
+| **JavaScript & APIs** | | | |
+| JavaScript Enabled | ✅ Yes | ✅ Yes | ✅ Yes |
+| Clipboard Access | ✅ Enabled | ✅ Enabled | ⚠️ Limited |
+| Window Opening | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| Local Storage | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| IndexedDB | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Web Workers | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| Service Workers | ⚠️ Limited | ✅ Chromium | ⚠️ Limited |
+| | | | |
+| **Permissions** | | | |
+| Geolocation | ✅ Configurable | ✅ Configurable | ✅ Configurable |
+| Camera/Microphone | ✅ Configurable | ✅ Configurable | ✅ Configurable |
+| Notifications | ✅ Configurable | ✅ Configurable | ❌ Not exposed |
+| | | | |
+| **Performance** | | | |
+| Page Caching | ✅ Enabled | ✅ Chromium | ✅ Back/Forward cache |
+| Smooth Scrolling | ✅ Enabled | ✅ Chromium | ✅ Enabled |
+| JIT Compilation | ✅ Enabled | ✅ V8 | ✅ JSC |
+| Multithreading | ✅ Process model | ✅ Chromium | ✅ Process model |
+| | | | |
+| **Developer Tools** | | | |
+| DevTools | ✅ WebKit Inspector | ✅ Chromium DevTools | ✅ Web Inspector |
+| Console Messages | ✅ Stdout logging | ✅ DevTools | ✅ Console logging |
+| Network Inspector | ✅ Available | ✅ Full Chromium | ✅ Available |
+| | | | |
+| **UI Features** | | | |
+| Zoom Controls | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| Find in Page | ✅ Basic | ✅ Advanced | ✅ Advanced |
+| Print Support | ✅ GTK dialogs | ✅ Windows dialogs | ✅ macOS dialogs |
+| Context Menus | ✅ DevTools enabled | ✅ Enabled | ✅ Default enabled |
+| PDF Viewer | ✅ Basic | ✅ Chromium PDF | ✅ PDFKit |
+| Fullscreen | ✅ Enabled | ✅ Enabled | ✅ Enabled |
+| | | | |
+| **Security** | | | |
+| URI Allowlist | ✅ Implemented | ✅ Implemented | ✅ Implemented |
+| HTTPS Support | ✅ Full | ✅ Full | ✅ Full |
+| CORS Enforcement | ✅ WebKit | ✅ Chromium | ✅ WebKit |
+| CSP Support | ✅ WebKit | ✅ Chromium | ✅ WebKit |
+| | | | |
+| **Backend** | | | |
+| Rendering Engine | WebKit/WebKitGTK | Chromium/Blink | WebKit |
+| JavaScript Engine | JavaScriptCore | V8 | JavaScriptCore |
+| Minimum Version | WebKitGTK 2.40+ | WebView2 Runtime | macOS 10.15+ |
+
+**Legend:**
+- ✅ **Enabled** - Feature fully supported and enabled by default
+- ✅ **Configurable** - Feature supported with permission control
+- ⚠️ **Limited** - Feature partially supported or version-dependent
+- ❌ **Not exposed** - Backend supports but not exposed in RenWeb API
+- ❌ **Not yet** - Feature not currently available
+- ❌ **N/A** - Feature not applicable to this platform
+
 ## Compilation
 
 Clone with submodules:
 ```bash
 git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
 ```
-NOTE: you can remove the boost library submodule if you've installed boost as a package in linux. It's included as a submodule for convenience when compiling for windows and mac. Use version 1.82 if you install it as a package on linux!!
+NOTE: you can remove the boost library submodule if you've installed boost as a package in linux. It's included as a submodule for convenience when compiling for windows and mac. Use version 1.90 if you install it as a package on linux!!
 
 **Prerequisites (All Platforms):**
 - C++ Compiler (g++ recommended, C++17 or later)
@@ -175,7 +281,7 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
 ```json
 {
   "title": "RenWeb",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "author": "Spur27",
   "description": "Base RenWeb engine",
   "license": "BSL",
@@ -202,6 +308,17 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
     "static_path": "[Immutable] path to executable and info.json",
     "bin_path": "[Immutable] path to wrapper executable script",
     "startup_notify": false
+  },
+  "origins": [
+    "https://example.one",
+    "http://example.two/sequel"
+  ],
+  "server": {
+    "ip": "127.0.0.1",
+    "port": 8270,
+    "https": false,
+    "ssl_cert_path": "/absolute/path/example",
+    "ssl_key_path": "./relative/path/example"
   }
 }
 ```
@@ -239,9 +356,17 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   - `static_path` - Unused in app; only used by packaging tools
   - `bin_path` - Unused in app; only used by packaging tools
   - `startup_notify` - Unused in app; only used by packaging tools
+- `origins` - Contains array of base urls with protocols
+- `web_server`
+  - `ip` - IP address for webserver (default is 127.0.0.1)
+  - `port` - Port (default is random)
+  - `https` - Boolean that enables HTTPS as opposed to http
+  - `ssl_cert_path` - HTTPS only - path to SSL certificate file
+  - `ssl_key_path` - HTTPS only - path to SSL key
 
-__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable.
+__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable. If `base_path` is set in `packaging`, then that will be used as the relative path and default directory for when the client requests the application directory.
 - It is recommended not to touch any `packaging.*` properties unless you have a good reason.
+- `ssl_cert_path` and `ssl_key_path` search from `base_path` when they are relative. Both are required only for HTTPS; fallback to HTTP is automatic when things go wrong.
 
 ### config.json
 
@@ -332,13 +457,9 @@ Logging:
   -s, --log-silent             Suppress console log output
   -l, --log-level <n>          Set log level (0=trace, 5=critical, default=2)
   -c, --log-clear              Clear log.txt before starting
-  
-Server:
-  -i, --ip <address>            Web server IP (default: 127.0.0.1)
-  -p, --port <n>                Web server port (default: 8270)
-  
+    
 Pages:
-  -P, --pages <name> [names...] Open specific page(s) (default from info.json)
+  -p, --pages <name> [names...] Open specific page(s) (default from info.json)
 ```
 ## Credits
 
@@ -353,16 +474,14 @@ This repository uses the following open-source libraries:
 - Windows and Apple are still a WIP, so having these fully implmented at some point would be nice.
 - Auto-Updating by checking the repository URI in `info.json`
 - Full unit testing (planning on using gtest at some point)
-- More fool-proof testing
+- Create custom renweb icon
 
 ## Known Bugs
 - The dreaded flashbang (white flash when opening). 
   - You can avoid it by setting `initially_shown` to false and then running `window.onload = await BIND_show()` (or by using it properly via the `api`). View the <a href="./web/example/pages/test">project example</a> to see how it does this.
-  - Problem on MacOS 10.15 and will likely persist on applications with lesser hardware
-- `print_page` doesn't work on mac (prints blank screen)
-- Very limited functionality in windows (WIP)
-- Apple has different empty window screen flash when `initially_shown` is true for a page.
-- Server ports are never considered used
+- Fix policies to respond with the proper response types 
+  - back button on linux doesn't work
+- Context menus and clipboard access is inconsistent amongst OS's
 
 ## License
 

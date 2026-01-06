@@ -147,4 +147,5 @@ namespace RenWeb {
     };
 }
 
-using Logger = RenWeb::Logger;
+// Commented out to avoid namespace conflicts with cpp-httplib
+// using Logger = RenWeb::Logger;

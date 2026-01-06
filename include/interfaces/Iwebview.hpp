@@ -19,5 +19,9 @@ namespace RenWeb {
             virtual void eval(const std::string& js) = 0;
             virtual std::optional<void*> window() = 0;
             virtual std::optional<void*> widget() = 0;
+            #if defined(_WIN32)
+                virtual std::optional<void*> get_controller() = 0;
+                virtual void register_navigation_handler(std::function<bool(const std::string&)> callback) = 0;
+            #endif
     };
 }

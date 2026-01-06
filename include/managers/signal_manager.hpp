@@ -34,11 +34,15 @@ namespace RenWeb {
                 
                 if ((!this->signal_callbacks.empty() || !this->required_signal_callbacks.empty()) && this->is_running) {
                     this->signals.async_wait([this](const boost::system::error_code& error, int signal){
-                        this->logger->debug("[signal] Signal " + std::to_string(signal) + " triggered.");
                         if (error) {
-                            this->logger->error("[signal] Signal handler error: " + std::string(error.message()));
+                            if (error == boost::asio::error::operation_aborted) {
+                                this->logger->trace("[signal] Signal wait canceled (refreshing signal set)");
+                            } else {
+                                this->logger->error("[signal] Signal handler error: " + std::string(error.message()));
+                            }
                             return;
-                        }                        
+                        }
+                        this->logger->debug("[signal] Signal " + std::to_string(signal) + " triggered.");
                         if (this->signal_callbacks.find(signal) != this->signal_callbacks.end()) {
                             this->signal_callbacks[signal](signal);
                         }
