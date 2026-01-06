@@ -2213,7 +2213,11 @@ WF* WF::setInternalCallbacks() {
                 
                 WebKitSettings* settings = webkit_web_view_get_settings(webview);
                 webkit_settings_set_enable_developer_extras(settings, TRUE);
-                webkit_settings_set_enable_context_menu(settings, FALSE);
+
+                g_signal_connect(webview, "context-menu", G_CALLBACK(+[]( // disables context menu
+                    WebKitWebView*, WebKitContextMenu*, GdkEvent*, WebKitHitTestResult*, gpointer) -> gboolean {
+                    return TRUE;
+                }), nullptr);
 
                 struct PermissionCtx { App* app; std::shared_ptr<ILogger> logger; };
                 auto *ctx = new PermissionCtx{ this->app, this->logger };

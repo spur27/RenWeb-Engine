@@ -132,8 +132,6 @@ std::unique_ptr<App> AppBuilder::build() {
         this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
     }
     app->w = std::move(this->w);
-    this->logger->critical("#####WINDOW CREATED");
-    // std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 
     if (this->signalm == nullptr) {
         this->withSignalManager(std::make_unique<SignalManager>(
