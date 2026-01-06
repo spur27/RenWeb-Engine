@@ -69,7 +69,7 @@ The purpose of this project is to provide an easy and fun way to make creative d
 
 
 ## Program Architecture
-<img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.png" alt="RenWeb ~ A FOSS Software SDK">
+<img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.svg" alt="RenWeb ~ A FOSS Software SDK">
 
 ## Platform Support
 
