@@ -219,7 +219,7 @@ make run
 You should be able to compile it with XCode tools (min MacOS version 10.15) and boost from either the brew cask or from the submodule.
 
 ### Windows
-*Work in progress*
+You should be able to compile it with MSVC cl.exe and the <a href="https://www.nuget.org/packages/Microsoft.Web.WebView2">WebView2 SDK</a>. You can download the SDK into `.external/<sdk>` in order to comply with the how the makefile is setup. You can either install boost into `C:/local/<boost>` or compile from the submodule.
 
 ## File Structure
 
