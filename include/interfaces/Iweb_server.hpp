@@ -46,11 +46,11 @@ namespace RenWeb {
         .status-code {
             font-size: 4em;
             font-weight: bold;
-            background: linear-gradient(180deg,
-                rgba(255,0,0,1) 0%, rgba(255,154,0,1) 10%, rgba(208,222,33,1) 20%,
+            background: linear-gradient(135deg,
+                rgba(255,0,0,1) 5%, rgba(255,154,0,1) 10%, rgba(208,222,33,1) 20%,
                 rgba(79,220,74,1) 30%, rgba(63,218,216,1) 40%, rgba(47,201,226,1) 50%,
                 rgba(28,127,238,1) 60%, rgba(95,21,242,1) 70%, rgba(186,12,248,1) 80%,
-                rgba(251,7,217,1) 90%, rgba(255,0,0,1) 100%);
+                rgba(251,7,217,1) 90%, rgba(255,0,0,1) 95%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -205,7 +205,7 @@ namespace RenWeb {
                                         "font-family: monospace; font-size: 0.9em; color: #b0b0b0; margin: 15px 0;'>" 
                                         + blocked_uri + "</div>"
                                         "<div style='color: #e0e0e0; margin-top: 20px; padding: 15px; background: #1e1e1e; "
-                                        "border-left: 4px solid transparent; border-image: linear-gradient(180deg, "
+                                        "border-left: 4px solid transparent; border-image: linear-gradient(135deg, "
                                         "rgba(255,0,0,1) 0%, rgba(255,154,0,1) 10%, rgba(208,222,33,1) 20%, "
                                         "rgba(79,220,74,1) 30%, rgba(63,218,216,1) 40%, rgba(47,201,226,1) 50%, "
                                         "rgba(28,127,238,1) 60%, rgba(95,21,242,1) 70%, rgba(186,12,248,1) 80%, "

@@ -1510,9 +1510,14 @@ WF* WF::setFileSystemCallbacks() {
             }
             return json::value(true);
     }))->add("get_application_dir_path",
-        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            return json::value(Locate::currentDirectory().string());
+            json::value info_packaging_obj = this->app->info->getJson();
+            if (info_packaging_obj.is_object() && info_packaging_obj.as_object().contains("base_path") && info_packaging_obj.as_object().at("base_path").is_string()) {
+                return info_packaging_obj.at("application_dir_path");
+            } else {
+                return json::value(Locate::currentDirectory().string());
+            }
     }))->add("download_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string uri = this->getSingleParameter(req).as_string().c_str();
