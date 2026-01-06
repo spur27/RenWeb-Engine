@@ -16,11 +16,6 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Remove boost submodule (using system packages instead)
-      run: |
-        rm -rf external/boost
-        git config --file .gitmodules --remove-section submodule.external/boost || true
-
     - name: install dependencies
       run: |
           sudo apt-get update
@@ -30,8 +25,13 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libgtk-3-0 \
             libwebkit2gtk-4.1-0 \
-            pkg-config \
-            libboost-all-dev
+            pkg-config
+
+    - name: Build Boost 1.90.0 from submodule
+      run: |
+        cd external/boost
+        ./bootstrap.sh --prefix=/usr/local --with-libraries=program_options,json,system
+        sudo ./b2 install --prefix=/usr/local link=static runtime-link=shared threading=multi variant=release -j$(nproc)
 
     - name: make
       run: make

@@ -34,9 +34,6 @@ jobs:
         curl -L https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3405.78 -o webview2.nupkg
         mkdir -p external/webview2_sdk
         tar -xf webview2.nupkg -C external/webview2_sdk
-        mkdir -p external/webview2_sdk/build/native/include/webview2
-        mv external/webview2_sdk/build/native/include/WebView2.h external/webview2_sdk/build/native/include/webview2/
-        mv external/webview2_sdk/build/native/include/WebView2EnvironmentOptions.h external/webview2_sdk/build/native/include/webview2/
       
     - name: Build Boost from submodule
       run: |
