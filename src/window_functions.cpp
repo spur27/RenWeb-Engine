@@ -2427,7 +2427,14 @@ WF* WF::setInternalCallbacks() {
                 id preferences = [config preferences];
                 [preferences setValue:@YES forKey:@"developerExtrasEnabled"];
                 [preferences setValue:@YES forKey:@"javaScriptEnabled"];
-                [preferences setValue:@NO forKey:@"contextMenuEnabled"];
+
+                NSString* disableContextMenuScript = @"document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, true);";
+                id userScript = [[NSClassFromString(@"WKUserScript") alloc] 
+                    initWithSource:disableContextMenuScript 
+                    injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                    forMainFrameOnly:NO];
+                id userContentController = [config userContentController];
+                [userContentController addUserScript:userScript];
                 
                 const json::value& perms_from_info = this->app->info->getProperty("permissions");
                 const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
@@ -2484,6 +2491,15 @@ WF* WF::setInternalCallbacks() {
                     class_addMethod(delegateClass, 
                         NSSelectorFromString(@"webView:decidePolicyForGeolocationPermissionRequest:frame:"),
                         geoImp, "v@:@@@");
+                    
+                    // Disable context menu using private WKUIDelegate method
+                    IMP contextMenuImp = imp_implementationWithBlock(^id(id self, id wv, id proposedMenu, id element, id userInfo) {
+                        (void)self; (void)wv; (void)proposedMenu; (void)element; (void)userInfo;
+                        return nil; // Return nil to disable context menu
+                    });
+                    class_addMethod(delegateClass,
+                        NSSelectorFromString(@"_webView:getContextMenuFromProposedMenu:forElement:userInfo:"),
+                        contextMenuImp, "@@:@@@@");
                     
                     objc_registerClassPair(delegateClass);
                 }
@@ -3274,7 +3290,6 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup() {
     const json::value req = json::value(nullptr);
-    // #ifndef _WIN32
     const json::value& prop = this->app->config->getProperty("initially_shown");
     if (prop.is_bool() && !prop.as_bool()) {
         this->window_callbacks->run(
@@ -3282,7 +3297,6 @@ WF* WF::setup() {
             json::value((prop.is_bool()) ? (prop.as_bool()) : true)
         );
     }
-    // #endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;
