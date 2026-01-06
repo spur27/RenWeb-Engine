@@ -4,10 +4,10 @@
     "license": "BSL",
     "title": "RenWeb",
     "version": "0.0.5",
-    "repository": "https://github.com/spur27/RenWeb",
+    "repository": "https://github.com/spur27/RenWeb-Engine",
     "category": "Utility",
     "copyright": "Copyright © 2025 Spur27",
-    "appId": "io.github.spur27.renweb",
+    "appId": "io.github.spur27.renweb-engine",
     "starting_pages": [
         "test"
     ],
