@@ -3266,12 +3266,14 @@ WF* WF::setInternalCallbacks() {
 WF* WF::setup() {
     const json::value req = json::value(nullptr);
     const json::value& prop = this->app->config->getProperty("initially_shown");
+    #ifndef _WIN32
     if (prop.is_bool() && !prop.as_bool()) {
         this->window_callbacks->run(
             "show", 
             json::value((prop.is_bool()) ? (prop.as_bool()) : true)
         );
     }
+    #endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;

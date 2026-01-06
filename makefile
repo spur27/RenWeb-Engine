@@ -255,6 +255,7 @@ EXTERN_INC_PATHS := \
 	$(addprefix /I, $(wildcard external/webview/)) \
 	$(addprefix /I, $(wildcard external/webview2_sdk/)) \
 	/Iexternal/webview2_sdk/build/native/include \
+	/Iexternal/webview2_sdk/build/native/include/webview2 \
 	$(addprefix /I, external/webview/core/include) 
 else 
 EXTERN_INC_PATHS := \
