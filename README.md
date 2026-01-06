@@ -212,7 +212,7 @@ make
 ```bash
 make run
 # Or directly:
-./build/renweb-0.0.4-linux-<arch>
+./build/renweb-0.0.5-linux-<arch>
 ```
 
 ### MacOS
@@ -229,7 +229,7 @@ RenWeb looks for files relative to the executable location:
 
 ```
 build/
-├── renweb-0.0.4-linux-<arch>     [executable]
+├── renweb-0.0.5-linux-<arch>     [executable]
 ├── info.json                     [application metadata - required]
 ├── config.json        [moveable] [window configuration - auto-generated or prewritten]
 ├── log.txt            [moveable] [application logs - auto-generated]
