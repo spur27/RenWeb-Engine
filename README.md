@@ -178,18 +178,6 @@ RenWeb supports multiple architectures across different operating systems:
 - ❌ **Not yet** - Feature not currently available
 - ❌ **N/A** - Feature not applicable to this platform
 
-**Notes:**
-- **WebGPU**: Windows/macOS have native support; Linux WebKitGTK 4.1 doesn't expose WebGPU yet (requires WebKitGTK 6.0+)
-- **Clipboard**: Windows has granular permission control via WebView2; Linux/macOS have JavaScript clipboard API access but no permission request UI
-- **Service Workers**: Full support in Windows (Chromium); limited/experimental in Linux/macOS WebKit
-- **Context Menus**: 
-  - **Linux**: Enabled via developer extras (includes inspect element, reload, view source)
-  - **Windows**: Enabled (`AreDefaultContextMenusEnabled = TRUE`) - provides standard Chromium context menu
-  - **macOS**: Default WebKit context menus enabled (standard macOS web context menu)
-- **Permissions - Not exposed**: These permissions are handled automatically by the backend but don't generate permission request events that RenWeb can intercept
-- **Copy/Paste**: All platforms support clipboard operations via JavaScript API, but permission models differ
-- **Find in Page**: Linux uses basic WebKit find; Windows/macOS have advanced highlighting and navigation
-- **Hardware Acceleration**: Linux uses WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS; Windows uses Chromium GPU acceleration; macOS uses Metal backend
 
 ### WebKitGTK Capabilities (Linux)
 

@@ -114,6 +114,21 @@ namespace WindowHelper {
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
         SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
+    
+    // DPI scaling helpers for consistent coordinates across platforms
+    static float GetDpiScale(HWND hwnd) {
+        if (!hwnd) return 1.0f;
+        UINT dpi = GetDpiForWindow(hwnd);
+        return dpi / 96.0f; // 96 DPI is 100% scaling
+    }
+    
+    static int PhysicalToLogical(HWND hwnd, int physical) {
+        return static_cast<int>(physical / GetDpiScale(hwnd));
+    }
+    
+    static int LogicalToPhysical(HWND hwnd, int logical) {
+        return static_cast<int>(logical * GetDpiScale(hwnd));
+    }
 }
 #endif
 
@@ -381,8 +396,9 @@ WF* WF::setGetSets() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 GetClientRect(hwnd, &rect);
-                width = rect.right - rect.left;
-                height = rect.bottom - rect.top;
+                // Convert physical pixels to logical coordinates to match set_size behavior
+                width = WindowHelper::PhysicalToLogical(hwnd, rect.right - rect.left);
+                height = WindowHelper::PhysicalToLogical(hwnd, rect.bottom - rect.top);
             } else {
                 width = 0;
                 height = 0;
@@ -418,8 +434,9 @@ WF* WF::setGetSets() {
             if (hwnd) {
                 RECT rect;
                 GetWindowRect(hwnd, &rect);
-                x = rect.left;
-                y = rect.top;
+                // Convert physical pixels to logical coordinates for consistency with Mac/Linux
+                x = WindowHelper::PhysicalToLogical(hwnd, rect.left);
+                y = WindowHelper::PhysicalToLogical(hwnd, rect.top);
             } else {
                 x = 0;
                 y = 0;
@@ -446,7 +463,10 @@ WF* WF::setGetSets() {
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                // Convert logical coordinates to physical pixels for Windows API
+                int physical_x = WindowHelper::LogicalToPhysical(hwnd, x);
+                int physical_y = WindowHelper::LogicalToPhysical(hwnd, y);
+                SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -1793,11 +1813,11 @@ WF* WF::setProcessCallbacks() {
             bool is_single = params[1].as_bool();
             std::vector<std::string> args;
             for (const auto& i : this->app->orig_args) {
-                if (i.substr(0, 2) != "-P") {
+                if (i.substr(0, 2) != "-p") {
                     args.push_back(i);
                 }
             }
-            args.push_back("-P"+uri);
+            args.push_back("-p"+uri);
             if (is_single) {
                 if (!this->app->procm->has(uri)) {
                     this->logger->debug("[function] Attempting to start single process for uri '" + uri + "'");
@@ -2193,6 +2213,7 @@ WF* WF::setInternalCallbacks() {
                 
                 WebKitSettings* settings = webkit_web_view_get_settings(webview);
                 webkit_settings_set_enable_developer_extras(settings, TRUE);
+                webkit_settings_set_enable_context_menu(settings, FALSE);
 
                 struct PermissionCtx { App* app; std::shared_ptr<ILogger> logger; };
                 auto *ctx = new PermissionCtx{ this->app, this->logger };
@@ -2256,7 +2277,9 @@ WF* WF::setInternalCallbacks() {
                 HRESULT hr = webview2->get_Settings(&settings);
                 if (SUCCEEDED(hr) && settings) {
                     settings->put_AreDevToolsEnabled(TRUE);
+                    settings->put_AreDefaultContextMenusEnabled(FALSE);
                     this->logger->info("[permissions] DevTools explicitly enabled");
+                    this->logger->info("[permissions] Context menus disabled");
                 }
                 
                 // Get permissions configuration from info.json
@@ -2294,7 +2317,7 @@ WF* WF::setInternalCallbacks() {
                 };
                 
                 // Register PermissionRequested event handler
-                HRESULT hr = webview2->add_PermissionRequested(
+                hr = webview2->add_PermissionRequested(
                     Microsoft::WRL::Callback<ICoreWebView2PermissionRequestedEventHandler>(
                         [perm_ctx](ICoreWebView2* sender, ICoreWebView2PermissionRequestedEventArgs* args) -> HRESULT {
                             (void)sender;
@@ -2400,6 +2423,7 @@ WF* WF::setInternalCallbacks() {
                 id preferences = [config preferences];
                 [preferences setValue:@YES forKey:@"developerExtrasEnabled"];
                 [preferences setValue:@YES forKey:@"javaScriptEnabled"];
+                [preferences setValue:@NO forKey:@"contextMenuEnabled"];
                 
                 const json::value& perms_from_info = this->app->info->getProperty("permissions");
                 const json::object perms = (perms_from_info.is_object()) ? perms_from_info.as_object() : json::object{};
