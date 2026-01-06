@@ -3091,20 +3091,14 @@ WF* WF::setInternalCallbacks() {
                 webkit_settings_set_enable_fullscreen(settings, TRUE);
                 webkit_settings_set_enable_webaudio(settings, TRUE);
                 webkit_settings_set_enable_media_stream(settings, TRUE);
-                webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
+                webkit_settings_set_enable_write_console_messages_to_stdout(settings, FALSE);
                 webkit_settings_set_media_playback_requires_user_gesture(settings, FALSE); 
                 webkit_settings_set_zoom_text_only(settings, FALSE); 
                 webkit_settings_set_default_charset(settings, "UTF-8");
                 webkit_settings_set_enable_caret_browsing(settings, FALSE);
                 webkit_settings_set_allow_file_access_from_file_urls(settings, TRUE); 
                 webkit_settings_set_allow_universal_access_from_file_urls(settings, TRUE);
-                
-                this->logger->info("[performance] WebKitGTK performance settings configured successfully");
-                this->logger->info("[performance] Hardware acceleration: enabled");
-                this->logger->info("[performance] WebGL: enabled");
-                this->logger->info("[performance] 2D Canvas acceleration: enabled");
-                this->logger->info("[performance] Media playback: optimized");
-                
+                                
             #elif defined(_WIN32)
                 // Windows WebView2: Configure performance and feature settings
                 
@@ -3138,14 +3132,12 @@ WF* WF::setInternalCallbacks() {
                 settings->put_IsWebMessageEnabled(TRUE);
                 settings->put_AreHostObjectsAllowed(TRUE);
                 
-                this->logger->info("[performance] WebView2 base settings configured");
                 
                 // ICoreWebView2Settings2 (WebView2 SDK 1.0.721+): User agent
                 ICoreWebView2Settings2* settings2 = nullptr;
                 hr = settings->QueryInterface(IID_PPV_ARGS(&settings2));
                 if (SUCCEEDED(hr) && settings2) {
                     settings2->put_UserAgent(L"RenWeb-Engine/0.0.5");
-                    this->logger->info("[performance] User agent set to RenWeb-Engine/0.0.5");
                     settings2->Release();
                 }
                 
@@ -3155,7 +3147,6 @@ WF* WF::setInternalCallbacks() {
                 if (SUCCEEDED(hr) && settings4) {
                     settings4->put_IsGeneralAutofillEnabled(TRUE);
                     settings4->put_IsPasswordAutosaveEnabled(FALSE);
-                    this->logger->info("[performance] Autofill enabled, password autosave disabled");
                     settings4->Release();
                 }
                 
@@ -3164,7 +3155,6 @@ WF* WF::setInternalCallbacks() {
                 hr = settings->QueryInterface(IID_PPV_ARGS(&settings3));
                 if (SUCCEEDED(hr) && settings3) {
                     settings3->put_AreBrowserAcceleratorKeysEnabled(TRUE);
-                    this->logger->info("[function] Browser accelerator keys enabled");
                     settings3->Release();
                 }
                                 
@@ -3173,7 +3163,6 @@ WF* WF::setInternalCallbacks() {
                 hr = settings->QueryInterface(IID_PPV_ARGS(&settings5));
                 if (SUCCEEDED(hr) && settings5) {
                     settings5->put_IsPinchZoomEnabled(TRUE);
-                    this->logger->info("[performance] Pinch zoom enabled");
                     settings5->Release();
                 }
                 
@@ -3182,7 +3171,6 @@ WF* WF::setInternalCallbacks() {
                 hr = settings->QueryInterface(IID_PPV_ARGS(&settings6));
                 if (SUCCEEDED(hr) && settings6) {
                     settings6->put_IsSwipeNavigationEnabled(TRUE);
-                    this->logger->info("[performance] Swipe navigation enabled");
                     settings6->Release();
                 }
                 
@@ -3191,16 +3179,10 @@ WF* WF::setInternalCallbacks() {
                 hr = settings->QueryInterface(IID_PPV_ARGS(&settings8));
                 if (SUCCEEDED(hr) && settings8) {
                     settings8->put_HiddenPdfToolbarItems(COREWEBVIEW2_PDF_TOOLBAR_ITEMS_NONE);
-                    this->logger->info("[performance] PDF toolbar customization enabled");
                     settings8->Release();
                 }
                 
                 settings->Release();
-                this->logger->info("[performance] WebView2 performance settings configured successfully");
-                this->logger->info("[performance] Hardware acceleration: enabled (via Chromium)");
-                this->logger->info("[performance] WebGL/WebGPU: enabled");
-                this->logger->info("[performance] Canvas acceleration: enabled");
-                this->logger->info("[performance] Media playback: optimized");
                 
             #elif defined(__APPLE__)
                 auto window_result = this->app->w->window();
@@ -3273,14 +3255,7 @@ WF* WF::setInternalCallbacks() {
                         } @catch (NSException *e) { /* Skip unavailable */ }
                     }
                 } @catch (NSException *exception) { }
-                
-                this->logger->info("[performance] WKWebView performance settings configured successfully");
-                this->logger->info("[performance] Advanced features enabled: " + std::to_string(enabled_count) + "/" + std::to_string(14));
-                this->logger->info("[performance] Hardware acceleration: enabled (Metal backend)");
-                this->logger->info("[performance] WebGL/WebGPU: enabled");
-                this->logger->info("[performance] Canvas acceleration: enabled");
-                this->logger->info("[performance] Media playback: optimized");
-                
+                                
             #endif
             
             return json::value(nullptr);
@@ -3313,6 +3288,5 @@ WF* WF::setup() {
 }
 
 WF* WF::teardown() {
-    /* nothing here atm */
     return this;
 }

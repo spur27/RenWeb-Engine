@@ -12,8 +12,8 @@
 
 ## Table of Contents
 - [Introduction](#introduction)
-## Table of Contents
-- [Introduction](#introduction)
+- [Program Architecture](#program-architecture)
+- [Platform Support](#platform-support)
 - [Compilation](#compilation)
   - [Linux](#linux)
   - [MacOS](#macos)
@@ -21,16 +21,15 @@
 - [File Structure](#file-structure)
   - [Core Files](#core-files)
   - [Directory Structure](#directory-structure)
+  - [File Resolution Order](#file-resolution-order)
 - [Configuration Files](#configuration-files)
   - [info.json](#infojson)
   - [config.json](#configjson)
-- [Web Server](#web-server)
-  - [File Resolution Order](#file-resolution-order)
-  - [HTTP Range Requests](#http-range-requests)
 - [Command Line Arguments](#command-line-arguments)
 - [Credits](#credits)
 - [Planned Additions](#planned-additions)
 - [Known Bugs](#known-bugs)
+- [Planned Activities](#planned-activities)
 - [License](#license)
 
 ## Introduction
@@ -68,6 +67,10 @@ The purpose of this project is to provide an easy and fun way to make creative d
 - [Boost](https://www.boost.org/) - Program options and JSON parsing
 - Standard C++ libraries (C++17 or later)
 
+
+## Program Architecture
+<img height=250 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb-architecture.png" alt="RenWeb ~ A FOSS Software SDK">
+
 ## Platform Support
 
 ### Supported Architectures
@@ -93,11 +96,10 @@ RenWeb supports multiple architectures across different operating systems:
 - ARM64 (Apple Silicon)
 - x86_64 (Intel Macs)
 
-**Windows (planned - 4 architectures):**
+**Windows (3 architectures):**
 - x64 (64-bit Intel/AMD)
 - x86 (32-bit Intel/AMD)
 - ARM64
-- ARM
 
 ### Feature Comparison Matrix
 
@@ -133,12 +135,6 @@ RenWeb supports multiple architectures across different operating systems:
 | Geolocation | ✅ Configurable | ✅ Configurable | ✅ Configurable |
 | Camera/Microphone | ✅ Configurable | ✅ Configurable | ✅ Configurable |
 | Notifications | ✅ Configurable | ✅ Configurable | ❌ Not exposed |
-| Clipboard Read | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
-| Autoplay | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
-| Local Fonts | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
-| MIDI | ❌ Not exposed | ✅ Configurable | ❌ Not exposed |
-| Pointer Lock | ✅ Configurable | ❌ Not exposed | ❌ Not exposed |
-| Device Orientation | ✅ Configurable | ❌ Not exposed | ✅ Configurable |
 | | | | |
 | **Performance** | | | |
 | Page Caching | ✅ Enabled | ✅ Chromium | ✅ Back/Forward cache |
@@ -177,54 +173,6 @@ RenWeb supports multiple architectures across different operating systems:
 - ❌ **Not exposed** - Backend supports but not exposed in RenWeb API
 - ❌ **Not yet** - Feature not currently available
 - ❌ **N/A** - Feature not applicable to this platform
-
-
-### WebKitGTK Capabilities (Linux)
-
-RenWeb uses WebKitGTK 4.1 (WebKit2 API) with the following features enabled:
-
-**Core Features:**
-- Hardware-accelerated rendering (always-on policy)
-- 2D canvas acceleration
-- WebGL support
-- Page caching
-- Media playback optimization
-- HTML5 local storage and databases
-- Smooth scrolling
-- Back/forward navigation gestures
-- Fullscreen API
-- WebAudio API
-- MediaStream API
-- Encrypted media (EME)
-- MediaSource extensions
-- Site-specific quirks handling
-- Console message logging to stdout
-
-**JavaScript:**
-- JavaScript markup parsing
-- Clipboard access via JavaScript API
-- Automatic window opening
-- Resizable text areas
-
-**Media:**
-- Audio/video playback without user gesture requirement
-- Media capabilities API
-- Media devices access (with permission)
-
-**File Access:**
-- File URL to file URL access (enabled for local development)
-- Universal access from file URLs (enabled for local development)
-
-**System Integration:**
-- GStreamer backend for media codecs
-- GTK3 print dialogs
-- Caret browsing (disabled by default)
-- UTF-8 charset
-
-**Version Requirements:**
-- Minimum: WebKitGTK 2.40.0
-- Recommended: WebKitGTK 2.50.0+
-- Current tested: WebKitGTK 2.50.2
 
 ## Compilation
 
