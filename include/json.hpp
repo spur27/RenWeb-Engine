@@ -19,6 +19,11 @@ namespace RenWeb {
             std::shared_ptr<File> file;
 
             JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file);
+            virtual ~JSON() = default;
+            JSON(const JSON&) = delete;
+            JSON& operator=(const JSON&) = delete;
+            JSON(JSON&&) = default;
+            JSON& operator=(JSON&&) = default;
 
             static json::value peek(File* file, const std::string& key);
             static json::object merge(json::object old_data, const json::object& new_data);

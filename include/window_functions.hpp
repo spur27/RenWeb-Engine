@@ -47,7 +47,6 @@ namespace RenWeb {
             WindowFunctions* setConfigCallbacks();
             WindowFunctions* setSystemCallbacks();
             WindowFunctions* setProcessCallbacks();
-            WindowFunctions* setSignalCallbacks();
             WindowFunctions* setDebugCallbacks();
             WindowFunctions* setNetworkCallbacks();
             WindowFunctions* setNavigateCallbacks();
@@ -62,13 +61,17 @@ namespace RenWeb {
             std::unique_ptr<CM> config_callbacks;
             std::unique_ptr<CM> system_callbacks;
             std::unique_ptr<CM> process_callbacks;
-            std::unique_ptr<CM> signal_callbacks;
             std::unique_ptr<CM> debug_callbacks;
             std::unique_ptr<CM> network_callbacks;
             std::unique_ptr<CM> navigate_callbacks;
 
             WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app);
             ~WindowFunctions();
+            WindowFunctions(const WindowFunctions&) = delete;
+            WindowFunctions& operator=(const WindowFunctions&) = delete;
+            WindowFunctions(WindowFunctions&&) = delete;
+            WindowFunctions& operator=(WindowFunctions&&) = delete;
+            
             WindowFunctions* bindFunction(const std::string&, std::function<std::string(std::string)>);
             WindowFunctions* unbindFunction(const std::string&);
             json::value get(const std::string& property);

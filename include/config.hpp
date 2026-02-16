@@ -11,13 +11,18 @@ namespace json = boost::json;
 namespace RenWeb {
     class Config : public RenWeb::JSON {
         private:
-            const std::string DEFAULTS_KEY = "__defaults__";
+            static constexpr const char* DEFAULTS_KEY = "__defaults__";
         public:
+            const std::string initial_page;
             std::string current_page = "";
 
             Config(std::shared_ptr<ILogger> logger, const std::string& current_page);
             Config(std::shared_ptr<ILogger> logger, const std::string& current_page, std::shared_ptr<File> file);
-            // ~Config();
+            ~Config() override = default;
+            Config(const Config&) = delete;
+            Config& operator=(const Config&) = delete;
+            Config(Config&&) = delete;
+            Config& operator=(Config&&) = delete;
 
             json::value getProperty(const std::string& key) const override;
             void setProperty(const std::string& key, const json::value& value) override;

@@ -378,7 +378,7 @@ Window configuration file - auto-generated if missing. Stores per-page window se
   "__defaults__": { ... },
   "test": {
     "__defaults__": { ... },
-    "decorated": true,
+    "title_bar": true,
     "size": {
       "width": 720,
       "height": 480
@@ -405,7 +405,7 @@ Window configuration file - auto-generated if missing. Stores per-page window se
 All window properties are get/set-able via the client API:
 
 - `title` (string) - Window title text (optional, per-page only; overrides title in `info.json`)
-- `decorated` (boolean) - Show window title bar and borders
+- `title_bar` (boolean) - Show window title
 - `size` (object) - Window dimensions
   - `width` (number) - Window width in pixels
   - `height` (number) - Window height in pixels

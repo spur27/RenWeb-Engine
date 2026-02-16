@@ -15,8 +15,10 @@ namespace RenWeb {
             virtual void unbind(const std::string& name) = 0;
             virtual void dispatch(std::function<void()> fn) = 0;
             virtual void set_title(const std::string& title) = 0;
-            virtual void set_size(int width, int height) = 0;
+            virtual void set_size(int64_t width, int64_t height) = 0;
+            virtual void set_html(const std::string& html) = 0;
             virtual void eval(const std::string& js) = 0;
+            virtual void init(const std::string& js) = 0;
             virtual std::optional<void*> window() = 0;
             virtual std::optional<void*> widget() = 0;
             #if defined(_WIN32)

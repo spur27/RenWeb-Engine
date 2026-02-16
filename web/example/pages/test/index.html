@@ -1,301 +1,430 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RenWeb API Test Suite</title>
     <link rel="stylesheet" href="./style.css">
     <script src="./script.js" type="module" defer></script>
+    <script src="./starfield.js" defer></script>
 </head>
-
 <body>
-    <div class="col">
-        <div class="col">
-            <textarea style="height: 20px;" class="log_msg" placeholder="enter log text"></textarea>
-            <div class="row">
-                <button class="log_trace">Trace</button>
-                <button class="log_debug">Debug</button>
-                <button class="log_info">Info</button>
-                <button class="log_warn">Warn</button>
-                <button class="log_error">Error</button>
-                <button class="log_critical">Critical</button>
+    <canvas id="starfield"></canvas>
+
+    <div class="container">
+        <nav class="sidenav">
+            <a href="#logging" class="nav-item active">Logging</a>
+            <a href="#filesystem" class="nav-item">File System</a>
+            <a href="#window" class="nav-item">Window</a>
+            <a href="#properties" class="nav-item">Properties</a>
+            <a href="#navigation" class="nav-item">Navigation</a>
+            <a href="#debug" class="nav-item">Debug</a>
+            <a href="#system" class="nav-item">System</a>
+            <a href="#config" class="nav-item">Config</a>
+            <a href="#processes" class="nav-item">Processes</a>
+            <a href="#messaging" class="nav-item">Messaging</a>
+            <a href="#media" class="nav-item">Media</a>
+            <div class="nav-divider"></div>
+            <div class="nav-controls">
+                <button class="nav-btn reload_page">Reload</button>
+                <button class="nav-btn nav-btn-red terminate">Quit</button>
             </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="read_file">Read File</button>
-                <input class="read_file_msg" type="text" value="/" style="width: 70vw;">
+            <div class="nav-footer">
+                <p><kbd>Ctrl+S</kbd> Save</p>
+                <p><kbd>Ctrl+R</kbd> Reload</p>
+                <p><kbd>Ctrl+Q</kbd> Quit</p>
+                <p><kbd>Ctrl+I</kbd> DevTools</p>
             </div>
-            <p class="read_file_output output_text">File text will appear here!</p>
-        </div>
-        <hr>
-        <div class="col">
-            <div class="row">
-                <button class="write_file">Write File</button>
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Append?</p>
-                    <input class="append" type="checkbox" style="margin-top: -10px;">
+        </nav>
+
+        <main class="main-content">
+            <section id="logging" class="card">
+                <h2>Logging</h2>
+                <div class="input-group">
+                    <input type="text" class="log_msg" placeholder="Enter log message...">
                 </div>
-                <input class="write_file_msg" type="text" value="/" style="width: 70vw;">
-            </div>
-            <textarea class="write_file_input">Write something to a file!</textarea>
-            <div class="row">
-                <button class="exists_file">Exists File/Dir</button>
-                <button class="remove_file">Remove File/Dir</button>
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Recursive?</p>
-                    <input class="recursive" type="checkbox" style="margin-top: -10px;">
+                <div class="btn-grid">
+                    <button class="btn log_trace">Trace</button>
+                    <button class="btn log_debug">Debug</button>
+                    <button class="btn log_info">Info</button>
+                    <button class="btn log_warn">Warn</button>
+                    <button class="btn log_error">Error</button>
+                    <button class="btn log_critical">Critical</button>
                 </div>
-            </div>
-            <div class="row">
-                <button class="is_dir">Is Dir</button>
-                <button class="mk_dir">Make Dir</button>
-                <button class="ls_dir">List Dirs</button>
-            </div>
-            <p class="ls_dir_output output_text">Dir list will appear here!</p>
-            <hr />
-            <div class="row">
-                <p style="font-size: 12px; margin-top: -0px; height: 12px;">New File/Dir Name: </p>
-                <input class="new_file_msg" type="text" value="/" style="height: 20px; width: 70vw;">
-            </div>
-            <div class="row">
-                <button class="rename_file">Rename</button>
-                <button class="copy_file">Copy</button>
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Overwrite?</p>
-                    <input class="overwrite" type="checkbox" style="margin-top: -10px;">
+            </section>
+
+            <section id="filesystem" class="card">
+                <h2>File System</h2>
+                <div class="input-group">
+                    <input type="text" class="file_msg" placeholder="Enter file path...">
                 </div>
-            </div>
-        </div>
-        <hr />
-        <div class="col">
-            <div class="row">
-                <label for="choose_files_input" class="choose_files" style="width: 90vw">Choose files</label>
-                <input type="file" id="choose_files_input" class="choose_files_input" multiple style="display: none;">
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Multiple?</p>
-                    <input class="multiple" type="checkbox" style="margin-top: -10px;">
+                <div class="subsection">
+                    <h3>Read File</h3>
+                    <div class="btn-grid">
+                        <button class="btn read_file">Read File</button>
+                    </div>
+                    <div class="output read_file_output">File contents...</div>
                 </div>
-            </div>
-            <p class="choose_files_output output_text">Selected files/dirs will appear here!</p>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="print_page">Print Page</button>
-                <button class="start_window_drag">Start Window Drag</button>
-            </div>
-            <hr />
-            <div class="row">
-                <button class="zoom_in">Zoom In</button>
-                <button class="zoom_out">Zoom Out</button>
-                <button class="zoom_reset">Zoom Reset</button>
-            </div>
-            <div class="row">
-                <button class="get_zoom_level">Get Zoom Level</button>
-                <p class="zoom_output output_text_sm">...</p>
-                <button class="set_zoom_level">Set Zoom:</button>
-                <input class="zoom_input" type="text" placeholder="1.0" style="height: 20px; width: 20vw;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="find_in_page">Find in Page</button>
-                <input class="find_text" type="text" placeholder="Search text" style="width: 40vw;">
-            </div>
-            <div class="row">
-                <button class="find_next">Find Next</button>
-                <button class="find_previous">Find Previous</button>
-                <button class="clear_find">Clear Find</button>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="navigate_back">Back</button>
-                <button class="navigate_forward">Forward</button>
-                <button class="stop_loading">Stop Loading</button>
-            </div>
-            <div class="row">
-                <button class="can_go_back">Can Go Back?</button>
-                <button class="can_go_forward">Can Go Forward?</button>
-            </div>
-            <div class="row">
-                <button class="get_load_progress">Get Load Progress</button>
-                <p class="load_progress_output output_text_sm">...</p>
-                <button class="is_loading">Is Loading?</button>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="open_devtools">Open DevTools</button>
-                <button class="close_devtools">Close DevTools</button>
-                <button class="clear_console">Clear Console</button>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="row">
-            <button class="is_focus">Is Focused</button>
-            <button class="test_hide">Test Hide</button>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="reset_title">Reset Title</button>
-                <button class="change_title">Change Title</button>
-                <input class="title_input" type="text" placeholder="New Page Title" style="width: 50vw;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="reload_page">Reload Page</button>
-                <button class="terminate">Termiante Page</button>
-            </div>
-            <div class="row">
-                <p style="font-size: 12px; margin-top: -0px; height: 12px;">URI or Page Name: </p>
-                <input class="page_input" type="text" value="/" style="height: 20px; width: 70vw;">
-            </div>
-            <div class="row">
-                <button class="navigate_page">Navigate Page</button>
-                <button class="open_uri">Open URI</button>
-                <button class="open_window">Open Window</button>
-                <div class="col">
-                    <p style="font-size: 8px; margin-top: 0px;">Single?</p>
-                    <input class="single" type="checkbox" style="margin-top: -10px;">
+                <div class="subsection">
+                    <h3>Write File</h3>
+                    <div class="btn-grid">
+                        <button class="btn write_file">Write File</button>
+                    </div>
+                    <div class="input-group">
+                        <label class="checkbox-label"><input type="checkbox" class="append"><span>Append</span></label>
+                    </div>
+                    <textarea class="write_file_input" placeholder="File contents...">Write something!</textarea>
                 </div>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <p class="systems_output output_text_sm" style="width: 97vw;">Systems info will appear here!</p>
-            <div class="row">
-                <button class="get_pid">Get PID</button>
-                <button class="get_os">Get OS</button>
-            </div>
-            <hr />
-            <div class="row">
-                <button class="send_notif_1">Send Notif 1</button>
-                <button class="send_notif_2">Send Notif 2</button>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <p class="settings_output output_text"
-                    style="font-size: 12px; width: 72vw; height: 165px; max-height: 165px; margin: 0px;">Settings will appear here!</p>
-                <div class="col">
-                    <button class="get_config">Get Config</button>
-                    <button class="save_config">Save Settings</button>
-                    <button class="reset_settings_to_defaults">Reset Settings</button>
-                    <button class="set_config_property">Set Config Property</button>
-                    <input class="property_name" type="text" placeholder="Property Name" style="width: 20vw;">
-                    <input class="property_value" type="text" placeholder="Property Value" style="width: 20vw;">
+                <div class="subsection">
+                    <h3>Operations</h3>
+                    <div class="btn-grid">
+                        <button class="btn exists_file">Exists?</button>
+                        <button class="btn is_dir">Is Dir?</button>
+                        <button class="btn mk_dir">Make Dir</button>
+                        <button class="btn ls_dir">List</button>
+                        <button class="btn btn-danger remove_file">Delete</button>
+                    </div>
+                    <div class="input-group">
+                        <label class="checkbox-label"><input type="checkbox" class="recursive"><span>Recursive</span></label>
+                    </div>
+                    <div class="output ls_dir_output">Dir listing...</div>
                 </div>
-            </div>
-        </div>
-        <hr class="thick" />
-        <div class="col">
-            <div class="row">
-                <button class="get_size">Get Size</button>
-                <p class="size_output output_text_sm">...</p>
-            </div>
-            <div class="row">
-                <button class="set_size">Set Size</button>
-                <input class="size_width" type="text" placeholder="width" style="height: 20px; width: 10vw;">
-                <input class="size_height" type="text" placeholder="height" style="height: 20px; width: 10vw;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_position">Get Position</button>
-                <p class="position_output output_text_sm">...</p>
-            </div>
-            <div class="row">
-                <button class="set_position">Set Position</button>
-                <input class="position_x" type="text" placeholder="width" style="height: 20px; width: 10vw;">
-                <input class="position_y" type="text" placeholder="height" style="height: 20px; width: 10vw;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_decorated">Get Decorated</button>
-                <button class="set_decorated">Set Decorated:</button>
-                <input class="is_decorated" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_resizable">Get Resizable</button>
-                <button class="set_resizable">Set Resizable:</button>
-                <input class="is_resizable" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_keepabove">Get Keepabove</button>
-                <button class="set_keepabove">Set Keepabove:</button>
-                <input class="is_keepabove" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_minimize">Get Minimize</button>
-                <button class="set_minimize">Set Minimize:</button>
-                <input class="is_minimize" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_maximize">Get Maximize</button>
-                <button class="set_maximize">Set Maximize:</button>
-                <input class="is_maximize" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_fullscreen">Get Fullscreen</button>
-                <button class="set_fullscreen">Set Fullscreen:</button>
-                <input class="is_fullscreen" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <!-- <div class="row">
-                <button class="get_show">Get Show</button>
-                <button class="set_show">Set Show:</button>
-                <input class="is_show" type="checkbox" style="margin-top: 10px;">
-            </div>
-        <hr/> -->
-            <div class="row">
-                <button class="get_taskbar_show">Get Taskbar Show</button>
-                <button class="set_taskbar_show">Set Taskbar Show:</button>
-                <input class="is_taskbar_show" type="checkbox" style="margin-top: 10px;">
-            </div>
-            <hr />
-            <div class="row">
-                <button class="get_opacity">Get Opacity</button>
-                <p class="opacity_output output_text_sm" style="width: 35vw;">...</p>
-                <button class="set_opacity">Set Opacity:</button>
-                <input class="opacity_input" type="text" placeholder="1.0" style="height: 20px; width: 35vw;">
-            </div>
-        </div>
-        <hr class="thick">
-        <div class="row">
-            <img src="../../assets/creature.png">
-            <img src="../../assets/seal1.png">
-            <img src="../../assets/seal2.png">
-            <img src="https://png.pngtree.com/png-vector/20231109/ourmid/pngtree-harp-seal-png-image_10505904.png">
-        </div>
-    </div>
-    <hr class="thick" />
-    <div class="row">
-        <audio controls>
-                <source src="../../assets/sample.ogg" type="audio/ogg">
-                    Your browser does not support the audio element.
-            </audio> 
-            <audio controls>
-                <source src="../../assets/sample.mp3" type="audio/mpeg">
-                    Your browser does not support the audio element.
-            </audio> 
-        </div>
-        <video id="test-video" width="320" height="240" controls autoplay loop muted>
-            <source src="../../assets/sample.mp4" type="video/mp4">
-                Your browser does not support the video tag.
-        </video>
-        <div id="video-debug" style="font-size: 12px; color: #666;">Video debug info will appear here</div>
-        <hr class="thick" />
+                <div class="subsection">
+                    <h3>Rename/Copy</h3>
+                    <div class="btn-grid">
+                        <button class="btn rename_file">Rename</button>
+                        <button class="btn copy_file">Copy</button>
+                    </div>
+                    <div class="input-group">
+                        <label class="checkbox-label"><input type="checkbox" class="overwrite"><span>Overwrite</span></label>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="new_file_msg" placeholder="New file path...">
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Choose Files</h3>
+                    <div class="btn-grid">
+                        <button class="btn choose_files" style="width: 100%;">Choose Files</button>
+                        <input type="file" class="choose_files_input" style="display: none;">
+                    </div>
+                    <div class="input-group">
+                        <label class="checkbox-label"><input type="checkbox" class="multiple"><span>Multiple</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="directories"><span>Directories</span></label>
+                    </div>
+                    <div class="output choose_files_output">No files selected</div>
+                </div>
+            </section>
+
+            <section id="window" class="card">
+                <h2>Window Controls</h2>
+                <div class="btn-grid">
+                    <button class="btn print_page">Print Page</button>
+                    <button class="btn start_window_drag">Drag Window</button>
+                    <button class="btn is_focus">Is Focused</button>
+                    <button class="btn test_hide">Temporarily Hide</button>
+                </div>
+                <div class="subsection">
+                    <h3>Title</h3>
+                    <div class="input-group">
+                        <input type="text" class="title_input" placeholder="New title...">
+                        <button class="btn change_title">Change</button>
+                        <button class="btn reset_title">Reset</button>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Zoom</h3>
+                    <div class="btn-grid">
+                        <button class="btn zoom_in">Zoom In</button>
+                        <button class="btn zoom_out">Zoom Out</button>
+                        <button class="btn zoom_reset">Reset</button>
+                    </div>
+                    <div class="input-group">
+                        <input type="number" class="zoom_input" placeholder="1.0" step="0.1">
+                        <button class="btn set_zoom_level">Set</button>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Find</h3>
+                    <div class="input-group">
+                        <input type="text" class="find_text" placeholder="Search...">
+                        <button class="btn find_in_page">Find</button>
+                    </div>
+                    <div class="btn-grid">
+                        <button class="btn find_next">Next</button>
+                        <button class="btn find_previous">Prev</button>
+                        <button class="btn clear_find">Clear</button>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Navigate</h3>
+                    <div class="text-group">
+                        <div class="property-row">
+                            <strong>Initial Page: </strong>
+                            <p class="initial_page">placeholder</p>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="page_input" placeholder="URI/page...">
+                        <button class="btn navigate_page">Go</button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="properties" class="card">
+                <h2>Properties</h2>
+                <div class="subsection">
+                    <h3>Size</h3>
+                    <div class="property-row">
+                        <input type="number" class="size_width" placeholder="width">
+                        <input type="number" class="size_height" placeholder="height">
+                        <button class="btn set_size">Set</button>
+                        <button class="btn get_size">Get</button>
+                    </div>
+                    <h3>Position</h3>
+                    <div class="property-row">
+                        <input type="number" class="position_x" placeholder="x">
+                        <input type="number" class="position_y" placeholder="y">
+                        <button class="btn set_position">Set</button>
+                        <button class="btn get_position">Get</button>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Window State</h3>
+                    <div class="property-grid">
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="has_title_bar"><span>Title Bar</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_title_bar">Set</button>
+                                <button class="btn-sm get_title_bar">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_resizable"><span>Resizable</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_resizable">Set</button>
+                                <button class="btn-sm get_resizable">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_keepabove"><span>Keep Above</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_keepabove">Set</button>
+                                <button class="btn-sm get_keepabove">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_minimize"><span>Minimize</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_minimize">Set</button>
+                                <button class="btn-sm get_minimize">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_maximize"><span>Maximize</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_maximize">Set</button>
+                                <button class="btn-sm get_maximize">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_fullscreen"><span>Fullscreen</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_fullscreen">Set</button>
+                                <button class="btn-sm get_fullscreen">Get</button>
+                            </div>
+                        </div>
+                        <div class="property-item">
+                            <label class="checkbox-label"><input type="checkbox" class="is_taskbar_show" checked><span>Taskbar</span></label>
+                            <div class="btn-pair">
+                                <button class="btn-sm set_taskbar_show">Set</button>
+                                <button class="btn-sm get_taskbar_show">Get</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Opacity</h3>
+                    <div class="input-group">
+                        <input type="range" class="opacity_slider" min="0" max="100" value="100">
+                        <input type="number" class="opacity_input" step="0.1" min="0" max="1" value="1.0">
+                        <button class="btn set_opacity">Set</button>
+                        <button class="btn get_opacity">Get</button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="navigation" class="card">
+                <h2>Navigation</h2>
+                <div class="btn-grid">
+                    <button class="btn navigate_back">← Back</button>
+                    <button class="btn navigate_forward">Forward →</button>
+                    <button class="btn stop_loading">Stop</button>
+                </div>
+                <div class="btn-grid">
+                    <button class="btn can_go_back">Can Back?</button>
+                    <button class="btn can_go_forward">Can Forward?</button>
+                </div>
+                <div class="subsection">
+                    <h3>Loading</h3>
+                    <div class="btn-grid">
+                        <button class="btn get_load_progress">Progress</button>
+                        <button class="btn is_loading">Loading?</button>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill" id="load-progress-bar"></div></div>
+                    <div class="info-display load_progress_output">0%</div>
+                </div>
+            </section>
+
+            <section id="debug" class="card">
+                <h2>Debug</h2>
+                <div class="btn-grid">
+                    <button class="btn open_devtools">Open DevTools</button>
+                    <button class="btn close_devtools">Close DevTools</button>
+                    <button class="btn clear_console">Clear Console</button>
+                </div>
+            </section>
+
+            <section id="system" class="card">
+                <h2>System</h2>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <div class="info-label">PID</div>
+                        <div class="info-value systems_pid">...</div>
+                        <button class="btn-sm get_pid">Get</button>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">OS</div>
+                        <div class="info-value systems_os">...</div>
+                        <button class="btn-sm get_os">Get</button>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Notifications</h3>
+                    <div class="btn-grid">
+                        <button class="btn send_notif_1">Send Simple Notification</button>
+                        <button class="btn send_notif_2">Send Complicated Notification</button>
+                    </div>
+                </div>
+            </section>
+
+            <section id="config" class="card">
+                <h2>Configuration</h2>
+                <div class="btn-grid">
+                    <button class="btn get_config">Get Config</button>
+                    <button class="btn get_state">Get State</button>
+                    <button class="btn load_state">Load State</button>
+                    <button class="btn save_config">Save Config</button>
+                    <button class="btn reset_settings_to_defaults">Reset</button>
+                </div>
+                <div class="subsection">
+                    <div class="input-group">
+                        <input type="text" class="property_name" placeholder="Property...">
+                        <input type="text" class="property_value" placeholder="Value...">
+                        <button class="btn get_config_property">Get</button>
+                        <button class="btn set_config_property">Set</button>
+                    </div>
+                </div>
+                <textarea class="settings_output"></textarea>
+            </section>
+
+            <section id="processes" class="card">
+                <h2>Processes</h2>
+                <div class="subsection">
+                    <h3>List</h3>
+                    <div class="btn-grid">
+                        <button class="btn get_all_processes">All</button>
+                        <button class="btn get_current_process">Get Current</button>
+                        <button class="btn get_renweb_processes">RenWeb</button>
+                        <button class="btn get_child_processes">Children</button>
+                        <button class="btn clear_system">Clear</button>
+                    </div>
+                    <div class="process-list system_processes_list">
+                        <p>Empty...</p>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Spawn Process</h3>
+                    <div class="btn-grid">
+                        <button class="btn spawn_process">Spawn</button>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="process_command" placeholder="Command...">
+                        <input type="text" class="process_args" placeholder="Args...">
+                        <label class="checkbox-label"><input type="checkbox" class="process_detachable"><span>Detachable</span></label>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Spawn RenWeb</h3>
+                    <div class="btn-grid">
+                        <button class="btn spawn_renweb">Spawn</button>
+                        <button class="btn duplicate">Duplicate</button>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="renweb_page" placeholder="Page...">
+                        <input type="text" class="renweb_args" placeholder="Args...">
+                        <label class="checkbox-label"><input type="checkbox" class="renweb_detachable"><span>Detachable</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="renweb_orig"><span>Add Original Args</span></label>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Control</h3>
+                    <div class="input-group">
+                        <input type="number" class="control_pid" placeholder="PID">
+                        <button class="btn get_process">Info</button>
+                        <button class="btn kill_process">Kill</button>
+                        <button class="btn wait_process">Wait</button>
+                        <button class="btn detach_process">Detach</button>
+                    </div>
+                    <div class="process-card control_output">...</div>
+                </div>
+            </section>
+
+            <section id="messaging" class="card">
+                <h2>Messaging</h2>
+                <div class="subsection">
+                    <h3>Send</h3>
+                    <div class="input-group">
+                        <input type="text" class="message_url" placeholder="URL...">
+                        <button class="btn open_msg_modal_url">Compose</button>
+                    </div>
+                    <div class="input-group">
+                        <input type="text" class="message_pid" placeholder="PID...">
+                        <button class="btn open_msg_modal_pid">Compose</button>
+                    </div>
+                    <div class="input-group">
+                        <textarea class="message_text" placeholder="Quick message..."></textarea>
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Received</h3>
+                    <div class="btn-grid">
+                        <button class="btn refresh_messages">Refresh</button>
+                        <button class="btn clear_messages_btn">Clear</button>
+                        <label class="checkbox-label"><input type="text" class="filter_messages" placeholder="PID..."><span>Filter by PID</span></label>
+                    </div>
+                    <div class="message-list received_messages">...</div>
+                </div>
+            </section>
+
+            <section id="media" class="card">
+                <h2>Media Test</h2>
+                <div class="subsection">
+                    <h3>Images</h3>
+                    <div class="media-grid">
+                       <!--<img src="../../assets/creature.png" alt="Creature">
+                        <img src="../../assets/seal1.png" alt="Seal 1">
+                        <img src="../../assets/seal2.png" alt="Seal 2">-->
+                    </div>
+                </div>
+                <div class="subsection">
+                    <h3>Audio/Video</h3>
+                    <audio controls><source src="../../assets/sample.mp3" type="audio/mpeg"></audio>
+                    <!--<video id="test-video" controls loop muted><source src="../../assets/sample.mp4" type="video/mp4"></video>-->
+                    <div class="video-debug" id="video-debug">...</div>
+                </div>
+            </section>
+        </main>
     </div>
 </body>
-
 </html>

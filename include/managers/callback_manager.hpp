@@ -30,7 +30,7 @@ namespace RenWeb {
                 if (callback != this->callbacks.end()) {
                     return callback->second(args...);
                 }
-                throw std::runtime_error("No lambda found for key " + key);
+                throw std::runtime_error("No lambda found for key " + std::string(key));
             }
             const std::map<Key, std::function<RetType(ParamTypes...)>>& getMap() {
                 return this->callbacks;

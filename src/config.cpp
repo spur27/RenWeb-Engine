@@ -30,6 +30,7 @@ Config::Config(
     std::shared_ptr<ILogger> logger,
     const std::string& current_page
 ) : JSON(logger, getConfigFile()),
+    initial_page(current_page),
     current_page(current_page)
 { }
 
@@ -40,8 +41,6 @@ Config::Config(
 ) : JSON(logger, file),
     current_page(current_page)
 { }
-
-// Config::~Config();
 
 json::value Config::getProperty(const std::string& key) const /*override*/ {
     try {

@@ -1,14 +1,13 @@
 #include "../include/app.hpp"
 
-#include "../include/web_server.hpp"
-#include "../include/webview.hpp"
+#include "../include/info.hpp"
 #include "../include/locate.hpp"
 #include "../include/logger.hpp"
 #include "../include/managers/process_manager.hpp"
-#include "../include/managers/daemon_manager.hpp"
-#include "../include/managers/pipe_manager.hpp"
-#include "../include/managers/signal_manager.hpp"
-#include "../include/info.hpp"
+#include "../include/web_server.hpp"
+#include "../include/webview.hpp"
+#include "../include/interfaces/Iprocess_manager.hpp"
+#include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
@@ -28,54 +27,39 @@ AppBuilder::AppBuilder(
     : opts(opts), argc(argc), argv(argv)
 { }
 
-AppBuilder* AppBuilder::withLogger(std::shared_ptr<ILogger> logger) {
+AppBuilder& AppBuilder::withLogger(std::shared_ptr<ILogger> logger) {
     this->logger = logger;
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withInfo(std::unique_ptr<JSON> info) {
+AppBuilder& AppBuilder::withInfo(std::unique_ptr<JSON> info) {
     this->info = std::move(info);
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withConfig(std::unique_ptr<Config> config) {
+AppBuilder& AppBuilder::withConfig(std::unique_ptr<Config> config) {
     this->config = std::move(config);
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withProcessManager(std::unique_ptr<IRoutineManager<std::string>> procm) {
+AppBuilder& AppBuilder::withProcessManager(std::unique_ptr<IProcessManager> procm) {
     this->procm = std::move(procm);
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withDaemonManager(std::unique_ptr<IRoutineManager<std::string>> daem) {
-    this->daem = std::move(daem);
-    return this;
-}
-
-AppBuilder* AppBuilder::withPipeManager(std::unique_ptr<IRoutineManager<std::string>> pipem) {
-    this->pipem = std::move(pipem);
-    return this;
-}
-
-AppBuilder* AppBuilder::withSignalManager(std::unique_ptr<ISignalManager> signalm) {
-    this->signalm = std::move(signalm);
-    return this;
-}
-
-AppBuilder* AppBuilder::withWebview(std::unique_ptr<IWebview> w) {
+AppBuilder& AppBuilder::withWebview(std::unique_ptr<IWebview> w) {
     this->w = std::move(w);
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withWebServer(std::unique_ptr<IWebServer> ws) {
+AppBuilder& AppBuilder::withWebServer(std::unique_ptr<IWebServer> ws) {
     this->ws = std::move(ws);
-    return this;
+    return *this;
 }
 
-AppBuilder* AppBuilder::withWindowFunctions(std::unique_ptr<WindowFunctions> fns) {
+AppBuilder& AppBuilder::withWindowFunctions(std::unique_ptr<WindowFunctions> fns) {
     this->fns = std::move(fns);
-    return this;
+    return *this;
 }
 
 std::unique_ptr<App> AppBuilder::build() {      
@@ -112,48 +96,16 @@ std::unique_ptr<App> AppBuilder::build() {
         ));
     }
     app->config = std::move(this->config);
-
-    if (this->procm == nullptr) {
-        this->withProcessManager(std::make_unique<ProcessManager<std::string>>(this->logger));
-    }
-    app->procm = std::move(this->procm);
     
-    if (this->daem == nullptr) {
-        this->withDaemonManager(std::make_unique<DaemonManager<std::string>>(this->logger));
-    }
-    app->daem = std::move(this->daem);
-    
-    if (this->pipem == nullptr) {
-        this->withPipeManager(std::make_unique<PipeManager<std::string>>(this->logger));
-    }
-    app->pipem = std::move(this->pipem);
-
     if (this->w == nullptr) {
         this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
     }
     app->w = std::move(this->w);
 
-    if (this->signalm == nullptr) {
-        this->withSignalManager(std::make_unique<SignalManager>(
-            this->logger,
-            std::map<int, std::function<void(int)>>{
-                {SIGINT, [&app](int signal) {
-                    (void)signal;
-                    if (app && app->w)
-                        app->w->terminate();
-                }}, {SIGTERM, [&app](int signal) {
-                    (void)signal;
-                    if (app && app->signalm)
-                        app->signalm->trigger(SIGINT);
-                }}, {SIGABRT, [&app](int signal) {
-                    (void)signal;
-                    if (app && app->signalm)
-                        app->signalm->trigger(SIGINT);
-                }}
-            }
-        ));
+    if (this->procm == nullptr) {
+        this->withProcessManager(std::make_unique<ProcessManager>(this->logger, app.get()));
     }
-    app->signalm = std::move(this->signalm);
+    app->procm = std::move(this->procm);
 
     if (this->ws == nullptr) {
         this->withWebServer(std::make_unique<WebServer>(
@@ -171,20 +123,17 @@ std::unique_ptr<App> AppBuilder::build() {
     return app;
 }
 
-// ============================================================================
-// App Implementation
-// ============================================================================
-
-
-
 void App::run() {
     const json::object current_state = this->config->getJson().is_object() 
         ? this->config->getJson().as_object() : json::object{};
 
     this->ws->start();
+    
+    this->procm->registerProcess();
+    
     this->fns->setup();
 
-    this->w->dispatch([this, current_state](){
+    this->w->dispatch([this, &current_state](){
         this->fns->setup();
         this->fns->setState(current_state);
     });

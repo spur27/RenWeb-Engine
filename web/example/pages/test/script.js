@@ -1,3 +1,4 @@
+/// <reference path="./index.d.ts" />
 import {
     Log, 
     FS,
@@ -6,10 +7,10 @@ import {
     Config,
     Properties,
     Process,
-    Signal,
     Debug,
     Network,
-    Navigate
+    Navigate,
+    Utils
  } from './index.js';
 
 
@@ -34,10 +35,92 @@ document.addEventListener("keydown", async (e) => {
     }
 });
 
-console.log = (async (msg) => await Log.debug(msg));
+// Prevent trackpad horizontal swipe navigation
+document.addEventListener("wheel", (e) => {
+    // Prevent horizontal scrolling that triggers browser navigation
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Additional prevention for touchpad gestures
+window.addEventListener("touchstart", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+window.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// DISABLED: console.log = (async (msg) => await Log.debug(msg));
 window.onload = async () => {
     await Log.info("Window content has been loaded.");
-    await Window.resetTitle();
+
+    try {
+        await Window.resetTitle();
+        const path = await FS.getApplicationDirPath();
+        Log.critical(`Application Directory Path: ${path}`);
+        document.querySelector(".file_msg").value = path;
+        document.querySelector(".new_file_msg").value = path;
+        document.querySelector(".title_input").value = await Window.currentTitle();
+        document.querySelector(".zoom_input").value = (await Window.getZoomLevel()).toFixed(2);
+        document.querySelector(".page_input").value = await Window.initialPage();
+        document.querySelector(".initial_page").textContent = await Window.initialPage();
+        const dims = await Properties.getSize();
+        document.querySelector(".size_width").value = dims.width;
+        document.querySelector(".size_height").value = dims.height;
+        document.querySelector(".get_size").style.backgroundColor = "green";
+        const pos = await Properties.getPosition();
+        document.querySelector(".position_x").value = pos.x;
+        document.querySelector(".position_y").value = pos.y;
+        document.querySelector(".get_position").style.backgroundColor = "green";
+        const title_bar = await Properties.getTitleBar();
+        if (title_bar) document.querySelector(".has_title_bar").checked = true;
+        document.querySelector(".get_title_bar").style.backgroundColor = (title_bar) ? "green" : "red";
+        const resizable = await Properties.getResizable();
+        if (resizable) document.querySelector(".is_resizable").checked = true;
+        document.querySelector(".get_resizable").style.backgroundColor = (resizable) ? "green" : "red";
+        const keepAbove = await Properties.getKeepAbove();
+        if (keepAbove) document.querySelector(".is_keepabove").checked = true;
+        document.querySelector(".get_keepabove").style.backgroundColor = (keepAbove) ? "green" : "red";
+        const minimize = await Properties.getMinimize();
+        if (minimize) document.querySelector(".is_minimize").checked = true;
+        document.querySelector(".get_minimize").style.backgroundColor = (minimize) ? "green" : "red";
+        const maximize = await Properties.getMaximize();
+        if (maximize) document.querySelector(".is_maximize").checked = true;
+        document.querySelector(".get_maximize").style.backgroundColor = (maximize) ? "green" : "red";
+        const fullscreen = await Properties.getFullscreen();
+        if (fullscreen) document.querySelector(".is_fullscreen").checked = true;
+        document.querySelector(".get_fullscreen").style.backgroundColor = (fullscreen) ? "green" : "red";
+        const taskbarShow = await Properties.getTaskbarShow();
+        if (taskbarShow) document.querySelector(".is_taskbar_show").checked = true;
+        document.querySelector(".get_taskbar_show").style.backgroundColor = (taskbarShow) ? "green" : "red";
+        const opacity = await Properties.getOpacity();
+        document.querySelector(".opacity_slider").value = Math.floor(opacity * 100);
+        document.querySelector(".opacity_input").value = opacity.toFixed(2);
+        document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
+        document.querySelector(".systems_os").textContent = `${await System.getOS()}`;
+        document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);
+        document.querySelector(".settings_output").style.borderColor = "green";
+        document.querySelector(".settings_output").style.borderWidth = "2px";
+        const proc = await Process.dumpCurrentProcess();
+        document.querySelector('.system_processes_list').innerHTML = '';
+        document.querySelector('.system_processes_list').appendChild(createProcessCard(proc.info));
+        document.querySelector('.renweb_page').value = await Window.currentPage();
+        document.querySelector('.control_pid').value = proc.pid;
+        document.querySelector('.message_url').value = proc.url;
+        document.querySelector('.message_pid').value = proc.pid;
+        document.querySelector('.refresh_messages').click();
+        setInterval(async (event) => {
+            document.querySelector('.refresh_messages').click();
+        }, 500);
+    } catch (e) {
+        await Log.error(e.message);
+    }
     await Window.show(true);
     
     // Request notification permission
@@ -46,6 +129,10 @@ window.onload = async () => {
         await Log.info("Notification permission: " + Notification.permission);
     }
 }
+
+// ============================================================================
+// LOGGING SECTION
+// ============================================================================
 document.querySelector(".log_trace").onclick = async () => {
     await Log.trace(document.querySelector(".log_msg").value);
 };
@@ -65,8 +152,11 @@ document.querySelector(".log_critical").onclick = async () => {
     await Log.critical(document.querySelector(".log_msg").value);
 };
 
+// ============================================================================
+// FILE SYSTEM SECTION
+// ============================================================================
 document.querySelector(".read_file").onclick = async () => {
-    const filename = document.querySelector(".read_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Reading file "${filename}"`);
     const contents = await FS.readFile(filename);
     if (contents == null) {
@@ -79,7 +169,7 @@ document.querySelector(".read_file").onclick = async () => {
 };
 
 document.querySelector(".write_file").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Writing to file "${filename}"`);
     const contents = document.querySelector(".write_file_input").value;
     const append = document.querySelector(".append").checked;
@@ -93,7 +183,7 @@ document.querySelector(".write_file").onclick = async () => {
 
 
 document.querySelector(".exists_file").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Does file/dir "${filename}" exist?`);
     const res = await FS.exists(filename);
     if (res) {
@@ -103,21 +193,8 @@ document.querySelector(".exists_file").onclick = async () => {
     }
 };
 
-document.querySelector(".remove_file").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
-    await Log.debug(`Removing file "${filename}"`);
-    const recursive = document.querySelector(".recursive").checked;
-    const res = await FS.rm(filename, {recursive: recursive});
-    if (res) {
-        document.querySelector(".remove_file").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".remove_file").style.backgroundColor = "red";
-    }
-
-};
-
 document.querySelector(".is_dir").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Is "${filename}" a dir?`);
     const res = await FS.isDir(filename);
     if (res) {
@@ -128,18 +205,19 @@ document.querySelector(".is_dir").onclick = async () => {
 };
 
 document.querySelector(".mk_dir").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Making dir "${filename}"`);
     const res = await FS.mkDir(filename);
     if (res) {
         document.querySelector(".mk_dir").style.backgroundColor = "green";
     } else {
+        document.querySelector(".ls_dir_output").textContent = "[ERROR] file/dir most likely already exists!";
         document.querySelector(".mk_dir").style.backgroundColor = "red";
     }
 };
 
 document.querySelector(".ls_dir").onclick = async () => {
-    const filename = document.querySelector(".write_file_msg").value;
+    const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Listing dir "${filename}"`);
     const dirs = await FS.ls(filename);
     if (dirs == null) {
@@ -151,7 +229,7 @@ document.querySelector(".ls_dir").onclick = async () => {
             document.querySelector(".ls_dir_output").textContent = "empty";
             return;
         }
-        let str = (filename.endsWith("/")) ? `${filename}\n` : `${filename}\\\n`;
+        let str = (filename.endsWith("/")) ? `${filename}\n` : `${filename}\n`;
         for (const i of dirs) {
             str += ` ├─ ${i}\n`;
         }
@@ -159,8 +237,21 @@ document.querySelector(".ls_dir").onclick = async () => {
     }
 };
 
+document.querySelector(".remove_file").onclick = async () => {
+    const filename = document.querySelector(".file_msg").value;
+    await Log.debug(`Removing file "${filename}"`);
+    const recursive = document.querySelector(".recursive").checked;
+    const res = await FS.rm(filename, {recursive: recursive});
+    if (res) {
+        document.querySelector(".remove_file").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".ls_dir_output").textContent = "[ERROR] file/dir either doesn't exist or can't be opened";
+        document.querySelector(".remove_file").style.backgroundColor = "red";
+    }
+};
+
 document.querySelector(".rename_file").onclick = async () => {
-    const orig_filename = document.querySelector(".write_file_msg").value;
+    const orig_filename = document.querySelector(".file_msg").value;
     const new_filename = document.querySelector(".new_file_msg").value;
     const overwrite = document.querySelector(".overwrite").checked;
     await Log.debug(`Renaming to "${new_filename}"`);
@@ -173,7 +264,7 @@ document.querySelector(".rename_file").onclick = async () => {
 };
 
 document.querySelector(".copy_file").onclick = async () => {
-    const orig_filename = document.querySelector(".write_file_msg").value;
+    const orig_filename = document.querySelector(".file_msg").value;
     const new_filename = document.querySelector(".new_file_msg").value;
     const overwrite = document.querySelector(".overwrite").checked;
     await Log.debug(`Copying to to "${new_filename}"`);
@@ -185,27 +276,52 @@ document.querySelector(".copy_file").onclick = async () => {
     }
 };
 
-document.querySelector(".choose_files_input").onchange = async () => {
-    const files = document.querySelector(".choose_files_input").files;
-    const multiple = document.querySelector(".multiple").checked;
-    
-    // Update multiple attribute based on checkbox
-    document.querySelector(".choose_files_input").multiple = multiple;
-    
-    await Log.debug(`Files chosen: ${files.length}`);
-    
+document.querySelector(".choose_files_input").onchange = async (event) => {
+    const files = event.target.files;
+
     if (files.length > 0) {
-        let fileList = Array.from(files).map(f => f.name).join(", ");
-        document.querySelector(".choose_files_output").textContent = `Selected: ${fileList}`;
+        const file_list = Array.from(files).reduce((acc, f) => {
+            return acc + ` ├─ ${f.webkitRelativePath || f.name} (${(f.size / 1024).toFixed(2)} KB)\n`;
+        }, "");
+        document.querySelector(".choose_files_output").textContent = file_list;
     } else {
-        document.querySelector(".choose_files_output").textContent = "No files selected";
+        document.querySelector(".choose_files_output").textContent = "empty";
     }
 };
 
-// Update multiple attribute when checkbox changes
-document.querySelector(".multiple").onchange = () => {
+document.querySelector(".choose_files").onclick = async () => {
+    await Log.debug(`Opening file/directory chooser...`);
     const multiple = document.querySelector(".multiple").checked;
-    document.querySelector(".choose_files_input").multiple = multiple;
+    const directories = document.querySelector(".directories").checked;
+
+    if (multiple) {
+        document.querySelector(".choose_files_input").setAttribute("multiple", "");
+    } else {
+        document.querySelector(".choose_files_input").removeAttribute("multiple");
+    }
+
+    if (directories) {
+        document.querySelector(".choose_files_input").setAttribute("webkitdirectory", "");
+        document.querySelector(".choose_files_input").setAttribute("directory", "");
+    } else {
+        document.querySelector(".choose_files_input").removeAttribute("webkitdirectory");
+        document.querySelector(".choose_files_input").removeAttribute("directory");
+    }
+
+    document.querySelector(".choose_files_input").click();    
+};
+
+// ============================================================================
+// WINDOW CONTROLS SECTION
+// ============================================================================
+document.querySelector(".print_page").onclick = async () => {
+    await Log.debug(`Printing page...`);
+    await Window.printPage();
+};
+
+document.querySelector(".start_window_drag").onmousedown = async () => {
+    await Log.debug(`Starting window drag...`);
+    await Window.startWindowDrag();
 };
 
 document.querySelector(".is_focus").onclick = async () => {
@@ -217,6 +333,7 @@ document.querySelector(".is_focus").onclick = async () => {
         document.querySelector(".is_focus").style.backgroundColor = "red";
     }
 };
+
 document.querySelector(".test_hide").onclick = async () => {
     await Log.debug(`Hiding for 5 seconds...`);
     await Window.show(false);
@@ -226,41 +343,38 @@ document.querySelector(".test_hide").onclick = async () => {
     }, 5000);
 };
 
-document.querySelector(".print_page").onclick = async () => {
-    await Log.debug(`Printing page...`);
-    await Window.printPage();
+document.querySelector(".change_title").onclick = async () => {
+    await Log.debug(`Changing Title...`);
+    const title = document.querySelector(".title_input").value;
+    await Log.critical(title);
+    await Window.changeTitle(title);
 };
 
-document.querySelector(".start_window_drag").onmousedown = async () => {
-    await Log.debug(`Starting window drag...`);
-    await Window.startWindowDrag();
+document.querySelector(".reset_title").onclick = async () => {
+    await Log.debug(`Resetting Title...`);
+    const title = await Window.resetTitle();
+    document.querySelector(".title_input").value = title;
 };
 
 document.querySelector(".zoom_in").onclick = async () => {
     await Log.debug(`Zooming in...`);
     await Window.zoomIn();
     const level = await Window.getZoomLevel();
-    document.querySelector(".zoom_output").textContent = level.toFixed(2);
+    document.querySelector(".zoom_input").value = level.toFixed(2);
 };
 
 document.querySelector(".zoom_out").onclick = async () => {
     await Log.debug(`Zooming out...`);
     await Window.zoomOut();
     const level = await Window.getZoomLevel();
-    document.querySelector(".zoom_output").textContent = level.toFixed(2);
+    document.querySelector(".zoom_input").value = level.toFixed(2);
 };
 
 document.querySelector(".zoom_reset").onclick = async () => {
     await Log.debug(`Resetting zoom...`);
     await Window.zoomReset();
     const level = await Window.getZoomLevel();
-    document.querySelector(".zoom_output").textContent = level.toFixed(2);
-};
-
-document.querySelector(".get_zoom_level").onclick = async () => {
-    await Log.debug(`Getting zoom level...`);
-    const level = await Window.getZoomLevel();
-    document.querySelector(".zoom_output").textContent = level.toFixed(2);
+    document.querySelector(".zoom_input").value = level.toFixed(2);
 };
 
 document.querySelector(".set_zoom_level").onclick = async () => {
@@ -268,7 +382,7 @@ document.querySelector(".set_zoom_level").onclick = async () => {
     const level = Number.parseFloat(document.querySelector(".zoom_input").value);
     await Window.setZoomLevel(level);
     const newLevel = await Window.getZoomLevel();
-    document.querySelector(".zoom_output").textContent = newLevel.toFixed(2);
+    document.querySelector(".zoom_input").value = newLevel.toFixed(2);
 };
 
 document.querySelector(".find_in_page").onclick = async () => {
@@ -292,6 +406,262 @@ document.querySelector(".clear_find").onclick = async () => {
     await Window.clearFind();
 };
 
+document.querySelector(".navigate_page").onclick = async () => {
+    const page_name = document.querySelector(".page_input").value;
+    await Log.debug(`Navigating to "${page_name}"`);
+    await Window.navigatePage(page_name);
+};
+
+// ============================================================================
+// NAVIGATION SECTION  
+// ============================================================================
+document.querySelector(".navigate_back").onclick = async () => {
+    await Log.debug(`Navigating back...`);
+    await Navigate.back();
+};
+
+document.querySelector(".navigate_forward").onclick = async () => {
+    await Log.debug(`Navigating forward...`);
+};
+
+
+// ============================================================================
+// PROPERTIES SECTION
+// ============================================================================
+document.querySelector(".set_size").onclick = async () => {
+    await Log.debug(`Setting Size...`);
+    try {
+        const width = Number.parseInt(document.querySelector(".size_width").value, 10);
+        const height = Number.parseInt(document.querySelector(".size_height").value, 10);
+        await Properties.setSize(width, height);
+    } catch (e) {
+        await Log.error(e);
+    }
+};
+
+document.querySelector(".get_size").onclick = async () => {
+    await Log.debug(`Getting Size...`);
+    try {
+        const size = await Properties.getSize();
+        document.querySelector(".size_width").value = size.width;
+        document.querySelector(".size_height").value = size.height;
+        document.querySelector(".get_size").style.backgroundColor = "green";
+    } catch (e) {
+        await Log.error(e);
+        document.querySelector(".get_size").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_position").onclick = async () => {
+    await Log.debug(`Setting Position...`);
+    try {
+        const x = Number.parseInt(document.querySelector(".position_x").value, 10);
+        const y = Number.parseInt(document.querySelector(".position_y").value, 10);
+        await Properties.setPosition(x, y);
+    } catch (e) {
+        await Log.error(e);
+    }
+};
+
+document.querySelector(".get_position").onclick = async () => {
+    try {
+        await Log.debug(`Getting Position...`);
+        const pos = await Properties.getPosition();
+        document.querySelector(".position_x").value = pos.x;
+        document.querySelector(".position_y").value = pos.y;
+        document.querySelector(".get_position").style.backgroundColor = "green";
+    } catch (e) {
+        await Log.error(e);
+        document.querySelector(".get_position").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_title_bar").onclick = async () => {
+    await Log.debug(`Setting title bar...`);
+    const title_bar = document.querySelector(".has_title_bar").checked;
+    await Properties.setTitleBar(title_bar);
+    const res = await Properties.getTitleBar();
+    if (res) {
+        document.querySelector(".get_title_bar").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_title_bar").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_title_bar").onclick = async () => {
+    await Log.debug(`Getting title bar...`);
+    const res = await Properties.getTitleBar();
+    if (res) {
+        document.querySelector(".get_title_bar").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_title_bar").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_resizable").onclick = async () => {
+    await Log.debug(`Setting Resizable...`);
+    const resizable = document.querySelector(".is_resizable").checked;
+    await Properties.setResizable(resizable);
+    const res = await Properties.getResizable();
+    if (res) {
+        document.querySelector(".get_resizable").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_resizable").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_resizable").onclick = async () => {
+    await Log.debug(`Getting Resizable...`);
+    const res = await Properties.getResizable();
+    if (res) {
+        document.querySelector(".get_resizable").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_resizable").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_keepabove").onclick = async () => {
+    await Log.debug(`Setting KeepAbove...`);
+    const keepabove = document.querySelector(".is_keepabove").checked;
+    await Properties.setKeepAbove(keepabove);
+    const res = await Properties.getKeepAbove();
+    if (res) {
+        document.querySelector(".get_keepabove").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_keepabove").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_keepabove").onclick = async () => {
+    await Log.debug(`Getting KeepAbove...`);
+    const res = await Properties.getKeepAbove();
+    if (res) {
+        document.querySelector(".get_keepabove").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_keepabove").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_minimize").onclick = async () => {
+    await Log.debug(`Setting Minimize...`);
+    const minimize = document.querySelector(".is_minimize").checked;
+    await Properties.setMinimize(minimize);
+    const res = await Properties.getMinimize();
+    if (res) {
+        document.querySelector(".get_minimize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_minimize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_minimize").onclick = async () => {
+    await Log.debug(`Getting minimize...`);
+    const res = await Properties.getMinimize();
+    if (res) {
+        document.querySelector(".get_minimize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_minimize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_maximize").onclick = async () => {
+    await Log.debug(`Setting Maximize...`);
+    const maximize = document.querySelector(".is_maximize").checked;
+    await Properties.setMaximize(maximize);
+    const res = await Properties.getMaximize();
+    if (res) {
+        document.querySelector(".get_maximize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_maximize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_maximize").onclick = async () => {
+    await Log.debug(`Getting maximize...`);
+    const res = await Properties.getMaximize();
+    if (res) {
+        document.querySelector(".get_maximize").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_maximize").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_fullscreen").onclick = async () => {
+    await Log.debug(`Setting Fullscreen...`);
+    const fullscreen = document.querySelector(".is_fullscreen").checked;
+    await Properties.setFullscreen(fullscreen);
+    const res = await Properties.getFullscreen();
+    if (res) {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_fullscreen").onclick = async () => {
+    await Log.debug(`Getting Fullscreen...`);
+    const res = await Properties.getFullscreen();
+    if (res) {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_taskbar_show").onclick = async () => {
+    await Log.debug(`Setting Taskbar Show...`);
+    const taskbar_show = document.querySelector(".is_taskbar_show").checked;
+    await Properties.setTaskbarShow(taskbar_show);
+    const res = await Properties.getTaskbarShow();
+    if (res) {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".get_taskbar_show").onclick = async () => {
+    await Log.debug(`Getting Taskbar Show...`);
+    const res = await Properties.getTaskbarShow();
+    if (res) {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
+    }
+};
+
+document.querySelector(".set_opacity").onclick = async () => {
+    const opacity = Number.parseFloat(document.querySelector(".opacity_input").value);
+    await Log.debug(`Setting Opacity to ${opacity}...`);
+    await Properties.setOpacity(opacity);
+    const res = await Properties.getOpacity();
+    document.querySelector(".opacity_slider").value = Math.floor(res * 100);
+    document.querySelector(".opacity_input").value = res.toFixed(2);
+};
+
+document.querySelector(".get_opacity").onclick = async () => {
+    await Log.debug(`Getting Opacity...`);
+    const opacity = await Properties.getOpacity();
+    document.querySelector(".opacity_slider").value = Math.floor(opacity * 100);
+    document.querySelector(".opacity_input").value = opacity.toFixed(2);
+};
+
+document.querySelector(".opacity_slider").addEventListener("input", (e) => {
+    const sliderValue = Number.parseInt(e.target.value) / 100;
+    document.querySelector(".opacity_input").value = sliderValue.toFixed(2);
+});
+
+document.querySelector(".opacity_input").addEventListener("input", (e) => {
+    const inputValue = Number.parseFloat(e.target.value);
+    if (!isNaN(inputValue)) {
+        document.querySelector(".opacity_slider").value = Math.floor(inputValue * 100);
+    }
+});
+
+
+// ============================================================================
+// NAVIGATION SECTION  
+// ============================================================================
 document.querySelector(".navigate_back").onclick = async () => {
     await Log.debug(`Navigating back...`);
     await Navigate.back();
@@ -343,6 +713,9 @@ document.querySelector(".is_loading").onclick = async () => {
     }
 };
 
+// ============================================================================
+// DEBUG SECTION
+// ============================================================================
 document.querySelector(".open_devtools").onclick = async () => {
     await Log.debug(`Opening devtools...`);
     await Debug.openDevtools();
@@ -358,379 +731,525 @@ document.querySelector(".clear_console").onclick = async () => {
     await Debug.clearConsole();
 };
 
-document.querySelector(".reset_title").onclick = async () => {
-    await Log.debug(`Resetting Title...`);
-    await Window.resetTitle();
-};
-document.querySelector(".change_title").onclick = async () => {
-    await Log.debug(`Changing Title...`);
-    const title = document.querySelector(".title_input").value;
-    await Log.critical(title);
-    await Window.changeTitle(title);
-};
-document.querySelector(".reload_page").onclick = async () => {
-    await Log.debug(`Reloading page...`);
-    await Window.reloadPage();
-};
-document.querySelector(".terminate").onclick = async () => {
-    await Log.debug(`Terminating...`);
-    await Window.terminate();
-};
-document.querySelector(".navigate_page").onclick = async () => {
-    const page_name = document.querySelector(".page_input").value;
-    await Log.debug(`Navigating to "${page_name}"`);
-    await Window.navigatePage(page_name);
-};
-document.querySelector(".open_uri").onclick = async () => {
-    const uri = document.querySelector(".page_input").value;
-    await Log.debug(`Opening uri "${uri}"`);
-    await Process.openUri(uri);
-};
-document.querySelector(".open_window").onclick = async () => {
-    const window_name = document.querySelector(".page_input").value;
-    const single = document.querySelector(".single").checked;
-    await Log.debug(`Opening window "${window_name}"`);
-    await Process.openWindow(window_name, single);
-};
-
+// ============================================================================
+// SYSTEM SECTION
+// ============================================================================
 document.querySelector(".get_pid").onclick = async () => {
     await Log.debug(`Getting PID...`);
     const pid = await System.getPID();
-    document.querySelector(".systems_output").textContent = `PID is ${pid}`;
+    document.querySelector(".systems_pid").textContent = `${pid}`;
 };
+
 document.querySelector(".get_os").onclick = async () => {
     await Log.debug(`Getting OS...`);
     const os = await System.getOS();
-    document.querySelector(".systems_output").textContent = `OS is ${os}`;
+    document.querySelector(".systems_os").textContent = `${os}`;
 };
 
 document.querySelector(".send_notif_1").onclick = async () => {
-    await Log.debug("Sending notification 1...");
-    
-    if ("Notification" in window) {
-        if (Notification.permission === "granted") {
-            new Notification("RenWeb Notification", {
-                body: "This is a simple notification from RenWeb!",
-                icon: "../../assets/creature.png"
-            });
-        } else if (Notification.permission !== "denied") {
-            const permission = await Notification.requestPermission();
-            if (permission === "granted") {
-                new Notification("RenWeb Notification", {
-                    body: "This is a simple notification from RenWeb!",
-                    icon: "../../assets/creature.png"
-                });
-            }
-        } else {
-            await Log.warn("Notification permission denied");
-        }
-    } else {
-        await Log.error("Notifications not supported in this browser");
-    }
+    await Log.debug(`Sending notification...`);
+    const notif = new Notification("Simple notification", {
+        body: "This is a simple notification from RenWeb!"
+    });
 };
 
 document.querySelector(".send_notif_2").onclick = async () => {
-    await Log.debug("Sending notification 2 with actions...");
-    
-    if ("Notification" in window) {
-        if (Notification.permission === "granted") {
-            const notif = new Notification("RenWeb Action Notification", {
-                body: "This notification has a longer message and demonstrates the browser notification API in action. Click me!",
-                icon: "../../assets/seal1.png",
-                requireInteraction: false,
-                tag: "renweb-notif-2"
-            });
-            
-            notif.onclick = async () => {
-                await Log.info("Notification clicked!");
-                notif.close();
-            };
-        } else if (Notification.permission !== "denied") {
-            const permission = await Notification.requestPermission();
-            if (permission === "granted") {
-                const notif = new Notification("RenWeb Action Notification", {
-                    body: "This notification has a longer message and demonstrates the browser notification API in action. Click me!",
-                    icon: "../../assets/seal1.png",
-                    requireInteraction: false,
-                    tag: "renweb-notif-2"
-                });
-                
-                notif.onclick = async () => {
-                    await Log.info("Notification clicked!");
-                    notif.close();
-                };
-            }
-        } else {
-            await Log.warn("Notification permission denied");
-        }
-    } else {
-        await Log.error("Notifications not supported in this browser");
-    }
+    await Log.debug(`Sending notification...`);
+    const notif = new Notification("Complicated notification", {
+        body: "This is a complicated notification from RenWeb!"
+    });
 };
+
+// ============================================================================
+// CONFIG SECTION
+// ============================================================================
+
+document.querySelector(".settings_output").addEventListener("input", async (e) => {
+    const element = e.target;
+    try {
+        const content = element.value !== undefined ? element.value : element.textContent;
+        JSON.parse(content);
+        element.style.borderColor = "green";
+        element.style.borderWidth = "2px";
+    } catch (error) {
+        element.style.borderColor = "red";
+        element.style.borderWidth = "2px";
+    }
+});
+
+document.querySelector(".property_value").addEventListener("input", async (e) => {
+    const element = e.target;
+    try {
+        const content = element.value !== undefined ? element.value : element.textContent;
+        JSON.parse(content);
+        element.style.borderColor = "green";
+        element.style.borderWidth = "2px";
+    } catch (error) {
+        element.style.borderColor = "red";
+        element.style.borderWidth = "2px";
+    }
+});
 
 document.querySelector(".get_config").onclick = async () => {
     await Log.debug(`Getting Config...`);
     const config = await Config.getConfig();
-    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
+    document.querySelector(".settings_output").value = JSON.stringify(config, null, 2);
 };
+
+document.querySelector(".get_state").onclick = async () => {
+    await Log.debug(`Getting State...`);
+    const state = await Config.getState();
+    document.querySelector(".settings_output").value = JSON.stringify(state, null, 2);
+};
+
+document.querySelector(".load_state").onclick = async () => {
+    await Log.debug(`Loading State...`);
+    try {
+        const config = JSON.parse(document.querySelector(".settings_output").value, 0, 2);
+        await Log.debug(config);
+        await Config.loadState(config);
+    } catch (e) {
+        await Log.error(e.message);
+    }
+};
+
 document.querySelector(".save_config").onclick = async () => {
     await Log.debug(`Saving Config...`);
-    await Config.saveConfig();
-    const config = await Config.getConfig();
-    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
+    const config = document.querySelector(".settings_output").value ?? "";
+    if (config.trim() === "") {
+        await Config.saveConfig();
+    } else {
+        await Config.saveConfig(JSON.parse(config));
+    }
 };
+
 document.querySelector(".reset_settings_to_defaults").onclick = async () => {
-    await Log.debug(`Resetting settings to defaults...`);
+    await Log.debug(`Resetting Config...`);
     await Config.resetToDefaults();
 };
+
+document.querySelector(".get_config_property").onclick = async () => {
+    const key = document.querySelector(".property_name").value;
+    await Log.debug(`Getting config property "${key}"`);
+    const property = await Config.getConfigProperty(key);
+    document.querySelector(".property_value").value = JSON.stringify(property, null, 2);
+};
+
 document.querySelector(".set_config_property").onclick = async () => {
-    await Log.debug(`Setting Config Property...`);
-    const property = document.querySelector(".property_name").value;
+    const key = document.querySelector(".property_name").value;
     const value = document.querySelector(".property_value").value;
-    await Log.info(`Setting property "${property}" to value "${value}"`);
-    await Config.setConfigProperty(property, value);
-    const config = await Config.getConfig();
-    document.querySelector(".settings_output").textContent = JSON.stringify(config, null, 2);
-};
-
-
-document.querySelector(".get_size").onclick = async () => {
-    await Log.debug(`Getting Size...`);
-    const size = await Properties.getSize();
-    Log.critical(JSON.stringify(size, null, 2));
-    document.querySelector(".size_output").textContent = `Width: ${size.width}; Height: ${size.height}`;
-};
-document.querySelector(".set_size").onclick = async () => {
-    await Log.debug(`Setting Size...`);
-    const width = Number.parseInt(document.querySelector(".size_width").value, 10);
-    const height = Number.parseInt(document.querySelector(".size_height").value, 10);
-    await Properties.setSize(width, height);
-    const size = await Properties.getSize();
-    document.querySelector(".size_output").textContent = `Width: ${size.width}; Height: ${size.height}`;
-};
-
-document.querySelector(".get_position").onclick = async () => {
-    await Log.debug(`Getting Position...`);
-    const pos = await Properties.getPosition();
-    document.querySelector(".position_output").textContent = `x: ${pos.x}; y: ${pos.y}`;
-};
-document.querySelector(".set_position").onclick = async () => {
-    await Log.debug(`Setting Position...`);
-    const x = Number.parseInt(document.querySelector(".position_x").value, 10);
-    const y = Number.parseInt(document.querySelector(".position_y").value, 10);
-    await Properties.setPosition(x, y);
-    const pos = await Properties.getPosition();
-    document.querySelector(".position_output").textContent = `x: ${pos.x}; y: ${pos.y}`;
-};
-
-document.querySelector(".get_decorated").onclick = async () => {
-    await Log.debug(`Getting Decorated...`);
-    const res = await Properties.getDecorated();
-    if (res) {
-        document.querySelector(".get_decorated").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_decorated").style.backgroundColor = "red";
+    let parsedValue;
+    try {
+        parsedValue = JSON.parse(value);
+    } catch (e) {
+        parsedValue = value;
     }
-};
-document.querySelector(".set_decorated").onclick = async () => {
-    await Log.debug(`Setting Decorated...`);
-    const decorated = document.querySelector(".is_decorated").checked;
-    await Properties.setDecorated(decorated);
-    const res = await Properties.getDecorated();
-    if (res) {
-        document.querySelector(".get_decorated").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_decorated").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_resizable").onclick = async () => {
-    await Log.debug(`Getting Resizable...`);
-    const res = await Properties.getResizable();
-    if (res) {
-        document.querySelector(".get_resizable").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_resizable").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_resizable").onclick = async () => {
-    await Log.debug(`Setting Resizable...`);
-    const resizable = document.querySelector(".is_resizable").checked;
-    await Properties.setResizable(resizable);
-    const res = await Properties.getResizable();
-    if (res) {
-        document.querySelector(".get_resizable").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_resizable").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_keepabove").onclick = async () => {
-    await Log.debug(`Getting KeepAbove...`);
-    const res = await Properties.getKeepAbove();
-    if (res) {
-        document.querySelector(".get_keepabove").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_keepabove").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_keepabove").onclick = async () => {
-    await Log.debug(`Setting KeepAbove...`);
-    const keepabove = document.querySelector(".is_keepabove").checked;
-    await Properties.setKeepAbove(keepabove);
-    const res = await Properties.getKeepAbove();
-    if (res) {
-        document.querySelector(".get_keepabove").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_keepabove").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_minimize").onclick = async () => {
-    await Log.debug(`Getting minimize...`);
-    const res = await Properties.getMinimize();
-    if (res) {
-        document.querySelector(".get_minimize").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_minimize").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_minimize").onclick = async () => {
-    await Log.debug(`Setting Minimize...`);
-    const minimize = document.querySelector(".is_minimize").checked;
-    await Properties.setMinimize(minimize);
-    const res = await Properties.getMinimize();
-    if (res) {
-        document.querySelector(".get_minimize").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_minimize").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_maximize").onclick = async () => {
-    await Log.debug(`Getting maximize...`);
-    const res = await Properties.getMaximize();
-    if (res) {
-        document.querySelector(".get_maximize").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_maximize").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_maximize").onclick = async () => {
-    await Log.debug(`Setting Maximize...`);
-    const maximize = document.querySelector(".is_maximize").checked;
-    await Properties.setMaximize(maximize);
-    const res = await Properties.getMaximize();
-    if (res) {
-        document.querySelector(".get_maximize").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_maximize").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_fullscreen").onclick = async () => {
-    await Log.debug(`Getting Fullscreen...`);
-    const res = await Properties.getFullscreen();
-    if (res) {
-        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_fullscreen").onclick = async () => {
-    await Log.debug(`Setting Fullscreen...`);
-    const fullscreen = document.querySelector(".is_fullscreen").checked;
-    await Properties.setFullscreen(fullscreen);
-    const res = await Properties.getFullscreen();
-    if (res) {
-        document.querySelector(".get_fullscreen").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_fullscreen").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_taskbar_show").onclick = async () => {
-    await Log.debug(`Getting Taskbar Show...`);
-    const res = await Properties.getTaskbarShow();
-    if (res) {
-        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
-    }
-};
-document.querySelector(".set_taskbar_show").onclick = async () => {
-    await Log.debug(`Setting Taskbar Show...`);
-    const taskbar_show = document.querySelector(".is_taskbar_show").checked;
-    await Properties.setTaskbarShow(taskbar_show);
-    const res = await Properties.getTaskbarShow();
-    if (res) {
-        document.querySelector(".get_taskbar_show").style.backgroundColor = "green";
-    } else {
-        document.querySelector(".get_taskbar_show").style.backgroundColor = "red";
-    }
-};
-
-document.querySelector(".get_opacity").onclick = async () => {
-    await Log.debug(`Getting Opacity...`);
-    const opacity = await Properties.getOpacity();
-    document.querySelector(".opacity_output").textContent = opacity.toFixed(2).toString();
-};
-document.querySelector(".set_opacity").onclick = async () => {
-    await Log.debug(`Setting Opacity...`);
-    const opacity = Number.parseFloat(document.querySelector(".opacity_input").value);
-    await Properties.setOpacity(opacity);
-    const res = await Properties.getOpacity();
-    document.querySelector(".opacity_output").textContent = res.toFixed(2).toString();
+    await Log.debug(`Setting config property "${key}" = "${parsedValue}"`);
+    await Config.setConfigProperty(key, parsedValue);
 };
 
 
-(async () => {
-    const path = await FS.getApplicationDirPath();
-    document.querySelector(".read_file_msg").value = path;
-    document.querySelector(".write_file_msg").value = path;
-    document.querySelector(".new_file_msg").value = path;
-    document.querySelector(".read_file_msg").value = path;
-})();
+// ============================================================================
+// SIDENAV CONTROLS
+// ============================================================================
+document.querySelector(".reload_page").onclick = async () => {
+    await Log.debug(`Reloading page...`);
+    await Window.reloadPage();
+};
 
-// Video debugging
-const video = document.getElementById('test-video');
-const debugDiv = document.getElementById('video-debug');
+document.querySelector(".terminate").onclick = async () => {
+    await Log.debug(`Terminating...`);
+    await Window.terminate();
+};
 
-function updateDebug() {
-    const info = `
-        Duration: ${video.duration.toFixed(2)}s | 
-        Current: ${video.currentTime.toFixed(2)}s | 
-        Seekable: ${video.seekable.length > 0 ? 'YES' : 'NO'} | 
-        ReadyState: ${video.readyState} | 
-        NetworkState: ${video.networkState} | 
-        Error: ${video.error ? video.error.message : 'none'}
-    `;
-    debugDiv.textContent = info;
+
+// ============================================================================
+// PROCESS DASHBOARD FUNCTIONALITY
+// ============================================================================
+
+// State management for process dashboard
+let monitorInterval = null;
+let receivedMessages = [];
+
+// Utility functions
+function logProc(message, type = 'info') {
+    const eventLog = document.querySelector('.event_log');
+    if (!eventLog) return;
+    const timestamp = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = `log_entry ${type}`;
+    entry.innerHTML = `<span class="log_timestamp">[${timestamp}]</span> ${message}`;
+    eventLog.insertBefore(entry, eventLog.firstChild);
+    
+    // Keep only last 50 entries
+    while (eventLog.children.length > 50) {
+        eventLog.removeChild(eventLog.lastChild);
+    }
 }
 
-video.addEventListener('loadedmetadata', async () => {
-    await Log.info('Video metadata loaded');
-    updateDebug();
-});
+function createProcessCard(proc) {
+    const card = document.createElement('div');
+    card.className = 'process_card';
+    card.style.cssText = 'border: 1px solid #444; padding: 12px; margin: 8px; border-radius: 4px; background: #2a2a2a;';
+    
+    const statusColor = proc.is_running ? '#4CAF50' : '#f44336';
+    let typeLabel = (proc.renweb == true) ? 'RenWeb' : 'System';
+    if (proc.is_child) typeLabel += ' & Child';
+    
+    card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="font-size: 14px; color: #e0e0e0;">${proc.name || 'Unknown'}</strong>
+            <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px;">
+                ${proc.is_running ? 'RUNNING' : 'STOPPED'}
+            </span>
+        </div>
+        <div style="font-size: 12px; color: #aaa;">
+            <div><strong>PID:</strong> ${proc.pid} | <strong>PPID:</strong> ${proc.ppid}</div>
+            <div><strong>Type:</strong> ${typeLabel} ${proc.is_background_process ? '(Background)' : ''}</div>
+            ${proc.page ? `<div><strong>Page:</strong> ${proc.page}</div>` : ''}
+            ${proc.url ? `<div><strong>URL:</strong> ${proc.url}</div>` : ''}
+            <div><strong>Memory:</strong> ${(proc.memory_kb / 1024).toFixed(1)} MB | <strong>Threads:</strong> ${proc.threads}</div>
+            ${proc.path ? `<div style="font-size: 11px; color: #777; margin-top: 4px; word-break: break-all;"><strong>Path:</strong> ${proc.path}</div>` : ''}
+        </div>
+    `;
+    
+    return card;
+}
 
-video.addEventListener('canplay', async () => {
-    await Log.info('Video can play');
-    updateDebug();
-});
+function formatProcessInfo(proc) {
+    const info = proc.info || proc;
+    return `PID: ${info.pid}
+Name: ${info.name}
+Type: ${info.renweb ? 'RenWeb' : info.is_child ? 'Child' : 'System'}
+Status: ${info.is_running ? 'RUNNING' : 'STOPPED'}${info.page ? '\nPage: ' + info.page : ''}${info.url ? '\nURL: ' + info.url : ''}
+Memory: ${(info.memory_kb / 1024).toFixed(1)} MB
+Threads: ${info.threads}${info.path ? '\nPath: ' + info.path : ''}`;
+}
 
-video.addEventListener('seeking', async () => {
-    await Log.info('Video seeking to ' + video.currentTime);
-    updateDebug();
-});
+document.querySelector('.get_all_processes').onclick = async () => {
+    try {
+        await Log.debug('Dumping all processes...');
+        const processes = await Process.dumpProcesses();
+        const container = document.querySelector('.system_processes_list');
+        container.innerHTML = '';
+        processes.forEach(proc => {
+            container.appendChild(createProcessCard(proc.info));
+        });
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
 
-video.addEventListener('seeked', async () => {
-    await Log.info('Video seeked to ' + video.currentTime);
-    updateDebug();
-});
+document.querySelector('.get_current_process').onclick = async () => {
+    try {
+        await Log.debug('Dumping current process...');
+        const proc = await Process.dumpCurrentProcess();
+        const container = document.querySelector('.system_processes_list');
+        container.innerHTML = '';
+        container.appendChild(createProcessCard(proc.info));
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
 
-video.addEventListener('error', async (e) => {
-    await Log.error('Video error: ' + (video.error ? video.error.message : 'unknown'));
-    updateDebug();
-});
+document.querySelector('.get_renweb_processes').onclick = async () => {
+    try {
+        await Log.debug('Dumping renweb processes...');
+        const procs = await Process.dumpProcesses('renweb');
+        const container = document.querySelector('.system_processes_list');
+        container.innerHTML = '';
+        procs.forEach(proc => {
+            container.appendChild(createProcessCard(proc.info));
+        });
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
 
-setInterval(updateDebug, 1000);
+document.querySelector('.get_child_processes').onclick = async () => {
+    try {
+        await Log.debug('Dumping child processes...');
+        const procs = await Process.dumpProcesses('child');
+        const container = document.querySelector('.system_processes_list');
+        container.innerHTML = '';
+        procs.forEach(proc => {
+            container.appendChild(createProcessCard(proc.info));
+        });
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
+
+document.querySelector('.clear_system').onclick = async () => {
+    document.querySelector('.system_processes_list').textContent = 'Empty...';
+}
+
+document.querySelector('.spawn_process').onclick = async () => {
+    try {
+        await Log.debug('Spawning processes...');
+        const command = document.querySelector('.process_command').value.trim();
+        const argsStr = document.querySelector('.process_args').value.trim();
+        const is_detachable = document.querySelector('.process_detachable').checked;
+        await Process.createProcess([command, argsStr], { is_detachable: is_detachable });
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
+
+document.querySelector('.spawn_renweb').onclick = async () => {
+    try {
+        await Log.debug('Spawning renweb...');
+        const page = document.querySelector('.renweb_page').value.trim();
+        const argsStr = document.querySelector('.renweb_args').value.trim();
+        const is_detachable = document.querySelector('.renweb_detachable').checked;
+        const add_original_args = document.querySelector('.renweb_orig').checked;
+       await Process.createWindow(page, [argsStr], { is_detachable: is_detachable, add_original_args: add_original_args });
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
+
+document.querySelector('.duplicate').onclick = async () => {
+    try {
+        await Log.debug('Duplicating...');
+        const is_detachable = document.querySelector('.renweb_detachable').checked;
+        Process.duplicate();
+    } catch (e) {
+        await Log.error(e.message);
+    }
+}
+
+
+// Process Control
+/*const getProcessBtn = document.querySelector('.get_process');
+if (getProcessBtn) {
+    getProcessBtn.onclick = async () => {
+        try {
+            const pid = parseInt(document.querySelector('.control_pid').value);
+            if (isNaN(pid)) {
+                logProc('Please enter a valid PID', 'error');
+                return;
+            }
+            
+            const proc = await Process.get(pid);
+            const output = document.querySelector('.control_output');
+            output.textContent = formatProcessInfo(proc);
+            
+            logProc(`Retrieved info for PID ${pid}`, 'success');
+        } catch (error) {
+            logProc(`Error getting process info: ${error.message}`, 'error');
+        }
+    };
+}
+
+const killProcessBtn = document.querySelector('.kill_process');
+if (killProcessBtn) {
+    killProcessBtn.onclick = async () => {
+        try {
+            const pid = parseInt(document.querySelector('.control_pid').value);
+            if (isNaN(pid)) {
+                logProc('Please enter a valid PID', 'error');
+                return;
+            }
+            
+            const proc = await Process.get(pid);
+            await proc.kill();
+            
+            document.querySelector('.control_output').textContent = `Process ${pid} killed`;
+            logProc(`Killed process PID ${pid}`, 'success');
+            const btn = document.querySelector('.get_child_processes');
+            if (btn) btn.click();
+        } catch (error) {
+            logProc(`Error killing process: ${error.message}`, 'error');
+        }
+    };
+}
+
+const waitProcessBtn = document.querySelector('.wait_process');
+if (waitProcessBtn) {
+    waitProcessBtn.onclick = async () => {
+        try {
+            const pid = parseInt(document.querySelector('.control_pid').value);
+            if (isNaN(pid)) {
+                logProc('Please enter a valid PID', 'error');
+                return;
+            }
+            
+            const proc = await Process.get(pid);
+            logProc(`Waiting for process PID ${pid}...`, 'info');
+            await proc.wait();
+            
+            document.querySelector('.control_output').textContent = `Process ${pid} completed\n${formatProcessInfo(proc)}`;
+            logProc(`Process PID ${pid} completed`, 'success');
+        } catch (error) {
+            logProc(`Error waiting for process: ${error.message}`, 'error');
+        }
+    };
+}
+
+const detachProcessBtn = document.querySelector('.detach_process');
+if (detachProcessBtn) {
+    detachProcessBtn.onclick = async () => {
+        try {
+            const pid = parseInt(document.querySelector('.control_pid').value);
+            if (isNaN(pid)) {
+                logProc('Please enter a valid PID', 'error');
+                return;
+            }
+            
+            const proc = await Process.get(pid);
+            await proc.detach();
+            
+            document.querySelector('.control_output').textContent = `Process ${pid} detached`;
+            logProc(`Detached from process PID ${pid}`, 'success');
+            const btn = document.querySelector('.get_child_processes');
+            if (btn) btn.click();
+        } catch (error) {
+            logProc(`Error detaching process: ${error.message}`, 'error');
+        }
+    };
+}*/
+
+// RenWeb Messaging
+document.querySelector('.open_msg_modal_url').onclick = async () => {
+    try {
+        const url = document.querySelector('.message_url').value.trim();
+        const message = document.querySelector('.message_text').value.trim();
+        const procs = await Process.dumpProcesses('renweb');
+        const proc = procs.reduce((acc, p) => {
+            if (p.url === url) return p;
+            else return acc;
+        }, null);
+        if (proc != null) {
+            await proc.send(message);
+            document.querySelector('.open_msg_modal_url').style.backgroundColor = 'green';
+        } else {
+            throw new Error('No process found with URL: ' + url);
+        }
+    } catch (e) {
+        Log.error(e.message);
+        document.querySelector('.open_msg_modal_url').style.backgroundColor = 'red';
+    }
+}
+
+document.querySelector('.open_msg_modal_pid').onclick = async () => {
+    try {
+        const pid = parseInt(document.querySelector('.message_pid').value.trim());
+        const message = document.querySelector('.message_text').value.trim();
+        const procs = await Process.dumpProcesses('renweb');
+        const proc = procs.reduce((acc, p) => {
+            if (p.pid === pid) return p;
+            else return acc;
+        }, null);
+        if (proc != null) {
+            await proc.send(message);
+            document.querySelector('.open_msg_modal_pid').style.backgroundColor = 'green';
+        } else {
+            throw new Error('No process found with PID: ' + pid);
+        }
+    } catch (e) {
+        Log.error(e.message);
+        document.querySelector('.open_msg_modal_pid').style.backgroundColor = 'red';
+    }
+}
+
+
+document.querySelector('.refresh_messages').onclick = async () => {
+    try {
+        Log.debug('Refreshing messages...');
+        const messages = await Process.getMessages();
+        Log.debug(`Received ${messages.length} messages: ${JSON.stringify(messages)}`);
+        const receivedBox = document.querySelector('.received_messages');
+        if (!receivedBox) return;
+        
+        if (messages.length === 0) {
+            receivedBox.textContent = 'Empty...';
+            return;
+        }
+        
+        receivedBox.textContent = '';
+
+        const filter_pid_str = document.querySelector('.filter_messages').value.trim();
+        const filter_pid = filter_pid_str ? parseInt(filter_pid_str) : -1;
+        
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (filter_pid > -1) {
+                if (messages[i]?.sender?.pid !== filter_pid) {
+                    continue;
+                }
+            }
+            const msgData = messages[i];
+            const timestamp = new Date(msgData.timestamp / 1000000).toLocaleTimeString();
+            
+            const messageCard = document.createElement('div');
+            messageCard.className = 'message_card';
+            messageCard.style.cssText = 'border: 1px solid #444; padding: 12px; margin: 8px; border-radius: 4px; background: #2a2a2a;';
+            messageCard.innerHTML = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <strong style="font-size: 14px; color: #e0e0e0;">${msgData?.sender?.page || 'Unknown'}</strong>
+                    <span style="background: #2196F3; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px;">
+                        ${timestamp}
+                    </span>
+                </div>
+                <div style="font-size: 12px; color: #aaa;">
+                    <div><strong>PID:</strong> ${msgData?.sender?.pid || 'N/A'}</div>
+                    <div><strong>URL:</strong> ${msgData?.sender?.url || 'N/A'}</div>
+                    <div style="margin-top: 8px; color: #e0e0e0;"><strong>Message:</strong> ${msgData?.message || 'No message content'}</div>
+                </div>
+            `;
+            receivedBox.appendChild(messageCard);
+        }
+
+        document.querySelector('.refresh_messages').style.backgroundColor = 'green';
+    } catch (e) {
+        Log.error(`Error refreshing messages: ${e.message}`);
+        document.querySelector('.refresh_messages').style.backgroundColor = 'red';
+    }
+}
+
+document.querySelector('.clear_messages_btn').onclick = async () => {
+    document.querySelector('.received_messages').textContent = 'Empty...';
+    document.querySelector('.refresh_messages').style.backgroundColor = 'green';
+}
+
+
+// ============================================================================
+// SIDE NAVIGATION
+// ============================================================================
+
+const navItems = document.querySelectorAll('.nav-item');
+const sections = document.querySelectorAll('.card');
+
+// Update active nav item on scroll
+function updateActiveNav() {
+    let currentSection = '';
+    
+    sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        const sectionHeight = section.clientHeight;
+        if (window.scrollY >= sectionTop - 100) {
+            currentSection = section.getAttribute('id');
+        }
+    });
+    
+    navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href') === `#${currentSection}`) {
+            item.classList.add('active');
+        }
+    });
+}
+
+window.addEventListener('scroll', updateActiveNav);
+
+// Smooth scroll for nav items
+navItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetId = item.getAttribute('href').substring(1);
+        const targetSection = document.getElementById(targetId);
+        if (targetSection) {
+            targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+});

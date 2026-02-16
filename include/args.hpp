@@ -22,14 +22,17 @@ namespace RenWeb {
         public:
             Args(int argc, char** argv);
             ~Args();
-          // ----------
+            Args(const Args&) = delete;
+            Args& operator=(const Args&) = delete;
+            Args(Args&&) = default;
+            Args& operator=(Args&&) = default;
+            
             RenWeb::Args* add(
                 const std::string& names,
                 const boost::program_options::value_semantic* val,
                 const std::string& description,
                 std::function<void(boost::any)> callback
             );
-          // ----------
             void run();
     };
 };

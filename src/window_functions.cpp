@@ -4,18 +4,18 @@
 #include <boost/json/object.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <fstream>
 #include <regex>
-#include <chrono>
-#include <thread>
 #include <boost/process/v1.hpp>
 #include "../include/web_server.hpp"
 #include "../include/app.hpp"
 #include "../include/locate.hpp"
-#include "../include/managers/pipe_manager.hpp"
+#include "boost/json/array.hpp"
 
 #if defined(_WIN32)
     #include <windows.h>
@@ -46,7 +46,6 @@ using WF = RenWeb::WindowFunctions;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
 
 #if defined(_WIN32)
-// Helper to get ICoreWebView2 from the widget (which returns controller)
 namespace WebView2Helper {
     using Microsoft::WRL::ComPtr;
     
@@ -58,7 +57,7 @@ namespace WebView2Helper {
         
         HRESULT hr = controller->get_CoreWebView2(&webview);
         if (SUCCEEDED(hr) && webview) {
-            return webview;  // Caller must Release when done
+            return webview;
         }
         return nullptr;
     }
@@ -115,7 +114,6 @@ namespace WindowHelper {
         SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     
-    // DPI scaling helpers for consistent coordinates across platforms
     static float GetDpiScale(HWND hwnd) {
         if (!hwnd) return 1.0f;
         UINT dpi = GetDpiForWindow(hwnd);
@@ -161,7 +159,6 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
       config_callbacks(new CM()),
       system_callbacks(new CM()),
       process_callbacks(new CM()),
-      signal_callbacks(new CM()),
       debug_callbacks(new CM()),
       network_callbacks(new CM()),
       navigate_callbacks(new CM())
@@ -173,7 +170,6 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
         ->setConfigCallbacks()
         ->setSystemCallbacks()
         ->setProcessCallbacks()
-        ->setSignalCallbacks()
         ->setDebugCallbacks()
         ->setNetworkCallbacks()
         ->setNavigateCallbacks()
@@ -182,7 +178,6 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
 }
 
 WF::~WindowFunctions() {
-    this->logger->trace("[function] Deconstructing WindowFunctions");
 }
 
 json::value WF::processInput(const std::string& input) {
@@ -193,7 +188,9 @@ json::value WF::processInput(const json::value& input) {
     switch (input.kind()) {
         case json::kind::string:
             this->logger->warn("[function] Received string in processInput(std::string)");
+            [[fallthrough]];
         case json::kind::int64:
+        case json::kind::uint64:
         case json::kind::double_:
         case json::kind::bool_:
         case json::kind::null:
@@ -241,6 +238,7 @@ json::value WF::formatOutput(const json::value& output) {
         case json::kind::string:
             return this->formatOutput(output.as_string().c_str());
         case json::kind::int64:
+        case json::kind::uint64:
         case json::kind::double_:
         case json::kind::bool_:
         case json::kind::null:
@@ -353,7 +351,6 @@ WF* WF::bindDefaults() {
     bindCMs(this->config_callbacks.get());
     bindCMs(this->system_callbacks.get());
     bindCMs(this->process_callbacks.get());
-    bindCMs(this->signal_callbacks.get());
     bindCMs(this->debug_callbacks.get());
     bindCMs(this->network_callbacks.get());
     bindCMs(this->navigate_callbacks.get());
@@ -419,8 +416,8 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req) {
             json::object obj = this->getSingleParameter(req).as_object();
-            int width = static_cast<int>(obj.at("width").as_int64());
-            int height = static_cast<int>(obj.at("height").as_int64());
+            int64_t width = obj.at("width").as_int64();
+            int64_t height = obj.at("height").as_int64();
             this->app->w->set_size(width, height);
         })
     ))
@@ -458,12 +455,11 @@ WF* WF::setGetSets() {
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
             json::object obj = this->getSingleParameter(req).as_object();
-            int x = static_cast<int>(obj.at("x").as_int64());
-            int y = static_cast<int>(obj.at("y").as_int64());
+            int64_t x = obj.at("x").as_int64();
+            int64_t y = obj.at("y").as_int64();
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                // Convert logical coordinates to physical pixels for Windows API
                 int physical_x = WindowHelper::LogicalToPhysical(hwnd, x);
                 int physical_y = WindowHelper::LogicalToPhysical(hwnd, y);
                 SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
@@ -480,12 +476,12 @@ WF* WF::setGetSets() {
         })
     ))
 // -----------------------------------------
-    ->add("decorated", std::make_pair(
+    ->add("title_bar", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                return json::value(WindowHelper::HasStyle(hwnd, WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME));
+                return json::value(WindowHelper::HasStyle(hwnd, WS_CAPTION));
             }
             return json::value(true);
         #elif defined(__APPLE__)
@@ -493,30 +489,35 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            return json::value(static_cast<bool>(gtk_window_get_decorated(GTK_WINDOW(window_widget))));
+            GtkWidget* titlebar = gtk_window_get_titlebar(GTK_WINDOW(window_widget));
+            return json::value(titlebar == NULL); // Null means has titlebar
         #endif
         }),
     // -----------------------------------------
-        // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
-            const bool decorated = this->getSingleParameter(req).as_bool();
+            const bool has_titlebar = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                WindowHelper::SetStyleBit(hwnd, WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME, decorated);
+                WindowHelper::SetStyleBit(hwnd, WS_CAPTION, has_titlebar);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
-            if (decorated) {
-                styleMask |= NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
+            if (has_titlebar) {
+                styleMask |= NSWindowStyleMaskTitled;
             } else {
-                styleMask &= ~(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable);
+                styleMask &= ~NSWindowStyleMaskTitled;
             }
             [nsWindow setStyleMask:styleMask];
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            gtk_window_set_decorated(GTK_WINDOW(window_widget), decorated);
+            if (has_titlebar) {
+                gtk_window_set_titlebar(GTK_WINDOW(window_widget), NULL);
+            } else {
+                GtkWidget* empty_titlebar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+                gtk_window_set_titlebar(GTK_WINDOW(window_widget), empty_titlebar);
+            }
         #endif
         })
     ))
@@ -558,7 +559,27 @@ WF* WF::setGetSets() {
             [nsWindow setStyleMask:styleMask];
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            
+            int current_width, current_height;
+            gtk_window_get_size(GTK_WINDOW(window_widget), &current_width, &current_height);
+            
             gtk_window_set_resizable(GTK_WINDOW(window_widget), resizable);
+            
+            GdkGeometry hints;
+            if (resizable) {
+                hints.min_width = 1;
+                hints.min_height = 1;
+                hints.max_width = G_MAXINT;
+                hints.max_height = G_MAXINT;
+            } else {
+                hints.min_width = current_width;
+                hints.min_height = current_height;
+                hints.max_width = current_width;
+                hints.max_height = current_height;
+            }
+            gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), NULL, &hints, 
+                (GdkWindowHints)(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+            gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
         #endif
         })
     ))
@@ -575,17 +596,15 @@ WF* WF::setGetSets() {
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value([nsWindow level] == NSFloatingWindowLevel);
         #elif defined(__linux__)
-            if (this->saved_states.find("keepabove") == this->saved_states.end()) {
-                this->logger->warn("[function] State 'keepabove' has not been set in 'saved_states' yet.");
-                return json::value(false);
+            if (this->saved_states.find("keepabove") != this->saved_states.end()) {
+                return this->saved_states["keepabove"];
             }
-            return this->saved_states["keepabove"];
+            return json::value(false);
         #endif
         }),
     // -----------------------------------------
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool keep_above = this->getSingleParameter(req).as_bool();
-            this->saved_states["keepabove"] = json::value(keep_above);
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
@@ -598,6 +617,7 @@ WF* WF::setGetSets() {
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             gtk_window_set_keep_above(GTK_WINDOW(window_widget), keep_above);
+            this->saved_states["keepabove"] = json::value(keep_above);
         #endif
         })
     ))
@@ -893,7 +913,7 @@ WF* WF::setWindowCallbacks() {
             const std::string title = this->getSingleParameter(req).as_string().c_str();
             this->saved_states["current_title"] = json::value(title);
             this->app->w->set_title(title);
-            return json::value(nullptr);
+            return json::value(title);
     }))->add("reset_title",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -910,7 +930,7 @@ WF* WF::setWindowCallbacks() {
             std::string title_str = title.as_string().c_str();
             this->saved_states["current_title"] = json::value(title_str);
             this->app->w->set_title(title_str);
-            return json::value(nullptr);
+            return json::value(title_str);
     }))->add("current_title",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -919,6 +939,20 @@ WF* WF::setWindowCallbacks() {
                 return json::value(Locate::executable().filename().string());
             }
             return this->saved_states["current_title"];
+    }))->add("reset_page",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            this->app->config->current_page = this->app->config->initial_page;
+            this->app->w->navigate(this->app->ws->getURL());
+            return json::value(nullptr);
+    }))->add("current_page",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return json::value(this->app->config->current_page);
+    }))->add("initial_page",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return json::value(this->app->config->initial_page);
     }))->add("reload_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -942,7 +976,33 @@ WF* WF::setWindowCallbacks() {
             if (uri != "_") this->app->config->current_page = uri;
             if (std::regex_match(uri, uri_regex)) {
                 this->logger->warn("[function] Navigating to page " + uri);
-                this->app->w->navigate(uri);
+                const auto csp = this->app->info->getProperty("origins");
+                if (csp.is_array()) {
+                    std::string origin_str;
+                    for (const auto& origin : csp.as_array()) {
+                        if (origin.is_string()) {
+                            origin_str = std::string(origin.as_string().c_str());
+                        } else {
+                            continue;
+                        }
+                        if (origin_str == uri || origin_str == "*") {
+                            this->app->w->navigate(uri);
+                            return json::value(nullptr);
+                        }
+                    }
+                    this->logger->warn("[function] Blocked: " + uri);
+                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
+                } else if (csp.is_string()) {
+                    std::string origin_str = std::string(csp.as_string().c_str());
+                    if (origin_str == uri || origin_str == "*") {
+                        this->app->w->navigate(uri);
+                    }
+                } else if (uri == this->app->ws->getURL()) {
+                    this->app->w->navigate(this->app->ws->getURL());
+                } else {
+                    this->logger->warn("[function] Blocked: " + uri);
+                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
+                }
             } else {
                 this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
                 this->app->w->navigate(this->app->ws->getURL());
@@ -1154,7 +1214,15 @@ WF* WF::setWindowCallbacks() {
         #endif
     }))->add("set_zoom_level",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            double zoom_level = this->getSingleParameter(req).as_double();
+            double zoom_level = 0;
+            if (this->getSingleParameter(req).is_double()) {
+                zoom_level = this->getSingleParameter(req).as_double();
+            } else if (this->getSingleParameter(req).is_int64()) {
+                zoom_level = static_cast<double>(this->getSingleParameter(req).as_int64());
+            } else {
+                this->logger->error("[function] Invalid zoom level parameter, expected number");
+                return json::value(nullptr);
+            }
         #if defined(_WIN32)
             auto controller_opt = this->app->w->get_controller();
             if (!controller_opt.has_value()) {
@@ -1331,7 +1399,7 @@ WF* WF::setFileSystemCallbacks() {
                 return json::value(nullptr);
             }
             else if (std::filesystem::is_directory(path)) {
-                this->logger->error("readFile can't read directory contents. Use ls for that.");
+                this->logger->error("[function] readFile can't read directory contents. Use ls for that.");
                 return json::value(nullptr);
             }
             std::ifstream file(path, std::ios::binary);
@@ -1355,15 +1423,21 @@ WF* WF::setFileSystemCallbacks() {
             std::ios::openmode mode = std::ios::binary;
             mode |= append ? std::ios::app : std::ios::trunc;
             
-            std::filesystem::path parent_path = path.parent_path();
             if (std::filesystem::is_directory(path)) {
                 this->logger->error("[function] Can't write to a directory " + path.string());
                 return json::value(false);
-            } else if (!std::filesystem::exists(parent_path)) {
-                this->logger->error("[function] Directory '" + parent_path.string() + "' doesn't exist.");
-                return json::value(false);
-            }
+            } 
             
+            
+            std::filesystem::path parent_path = path.parent_path();
+            if (!std::filesystem::exists(parent_path)) {
+                std::error_code ec;
+                std::filesystem::create_directories(parent_path, ec);
+                if (ec) {
+                    this->logger->error("[function] " + ec.message());
+                    return json::value(false);
+                }
+            }
             std::ofstream file(path, mode);
             if (file.bad()) {
                 this->logger->error("[function] Bad file " + path.string());
@@ -1392,7 +1466,7 @@ WF* WF::setFileSystemCallbacks() {
                 return json::value(false);
             }
             std::error_code ec;
-            std::filesystem::create_directory(path, ec);
+            std::filesystem::create_directories(path, ec);
             if (ec) {
                 this->logger->error("[function] " + ec.message());
                 return json::value(false);
@@ -1468,6 +1542,13 @@ WF* WF::setFileSystemCallbacks() {
                     return json::value(false);
                 }
             }
+            if (!std::filesystem::exists(new_path.parent_path())) {
+                std::filesystem::create_directories(new_path.parent_path(), ec);
+                if (ec) {
+                    this->logger->error("[function] " + ec.message());
+                    return json::value(false);
+                }
+            }
             std::filesystem::rename(orig_path, new_path, ec);
             if (ec) {
                 this->logger->error("[function] " + ec.message());
@@ -1494,6 +1575,13 @@ WF* WF::setFileSystemCallbacks() {
                 } else {
                     std::filesystem::remove(new_path, ec);
                 }
+                if (ec) {
+                    this->logger->error("[function] " + ec.message());
+                    return json::value(false);
+                }
+            }
+            if (!std::filesystem::exists(new_path.parent_path())) {
+                std::filesystem::create_directories(new_path.parent_path(), ec);
                 if (ec) {
                     this->logger->error("[function] " + ec.message());
                     return json::value(false);
@@ -1557,22 +1645,32 @@ WF* WF::setConfigCallbacks() {
     ->add("get_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            json::value config = this->app->config->getJson();
-            if (config.is_object()) {
-                config = JSON::merge(config.as_object(), this->getState());
-            } else {
-                config = this->getState();
-            }
-            return config;
+            return this->app->config->getJson();
+    }))->add("get_state",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return this->getState();
+    }))->add("load_state",
+    std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+        json::value param = this->getSingleParameter(req);
+        if (param.is_object()) {
+            this->setState(param.as_object());
+        } else if (this->app->config->getJson().is_object()) {
+            this->setState(this->app->config->getJson().as_object());
+        } else {
+            this->logger->error("[function] Current config is malformed. Cannot load state!");
+        }
+        return this->getState();
     }))->add("save_config",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            (void)req;
-            this->app->config->update(this->getState());
-            return json::value(nullptr);
-    }))->add("load_config",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            (void)req;
-            this->logger->error("[function] load_config doesn't do anything!");
+            json::value param = this->getSingleParameter(req);
+            if (param.is_object()) {
+                this->app->config->update(param.as_object());
+            } else if (this->app->config->getJson().is_object()) {
+                this->app->config->update(this->app->config->getJson().as_object());
+            } else {
+                this->logger->error("[function] Current config is malformed. Cannot save!");
+            }
             return json::value(nullptr);
     }))->add("set_config_property",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1593,9 +1691,9 @@ WF* WF::setConfigCallbacks() {
 WF* WF::setSystemCallbacks() {
     this->system_callbacks
     ->add("get_pid",
-        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            return json::value(boost::this_process::get_id());
+            return json::value(this->app->procm->getPid());
     }))->add("get_OS",
         std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
             (void)req;
@@ -1612,274 +1710,118 @@ WF* WF::setSystemCallbacks() {
 #pragma endregion
 #pragma region ProcessCallbacks
 WF* WF::setProcessCallbacks() {
-    auto getManager = [this](const std::string& process_type) -> RenWeb::IRoutineManager<std::string>* {
-        if (process_type == "daemon") {
-            return this->app->daem.get();
-        } else if (process_type == "pipe") {
-            return this->app->pipem.get();
-        } else { // default to "process"
-            return this->app->procm.get();
-        }
-    };
-
-    this->process_callbacks
-    ->add("process_start",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
+    this->process_callbacks->add("create_window",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            std::string key = params[1].as_string().c_str();
-            json::array args_json = params[2].as_array();
-            
+            std::vector<std::string> pages;
+            for (const auto& page : params[0].as_array()) {
+                pages.push_back(page.as_string().c_str());
+            }
             std::vector<std::string> args;
-            for (const auto& arg : args_json) {
-                args.push_back(std::string(arg.as_string().c_str()));
+            for (const auto& page : params[1].as_array()) {
+                args.push_back(page.as_string().c_str());
             }
-            
-            int pid = getManager(process_type)->add(key, args);
-            return json::value(pid);
-    }))->add("process_kill",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            std::string key = params[1].as_string().c_str();
-            
-            getManager(process_type)->kill(key);
-            return json::value(nullptr);
-    }))->add("process_has",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            std::string key = params[1].as_string().c_str();
-            
-            return json::value(getManager(process_type)->has(key));
-    }))->add("process_has_pid",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            int pid = static_cast<int>(params[1].as_int64());
-            
-            return json::value(getManager(process_type)->hasPID(pid));
-    }))->add("process_has_running",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            std::string key = params[1].as_string().c_str();
-            
-            return json::value(getManager(process_type)->hasRunning(key));
-    }))->add("process_wait",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            std::string key = params[1].as_string().c_str();
-            
-            getManager(process_type)->wait(key);
-            return json::value(nullptr);
-    }))->add("process_wait_pid",
-        std::function<json::value(const json::value&)>([getManager](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string process_type = params[0].as_string().c_str();
-            int pid = static_cast<int>(params[1].as_int64());
-            
-            getManager(process_type)->waitPID(pid);
-            return json::value(nullptr);
-    }))->add("duplicate_process",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            (void)req;
-            
-            if (this->app->orig_args.empty()) {
-                this->logger->error("[function] Cannot duplicate process - no original arguments available");
-                return json::value(nullptr);
-            }
-            
-            std::string unique_key = "duplicate_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-            
-            int pid = this->app->daem->add(unique_key, this->app->orig_args);
-            this->logger->info("[function] Duplicated process with PID: " + std::to_string(pid) + ", terminating current process");
-            
-            // Schedule termination after a short delay to allow response to be sent
-            std::thread([this]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                this->app->w->terminate();
-            }).detach();
-            
-            return json::value(pid);
-    }))
-// -----------------------------------------
-// ------------- PIPE-SPECIFIC -------------
-// -----------------------------------------
-        ->add("pipe_read",
+            bool is_detachable = params[2].as_object().at("is_detachable").as_bool();
+            bool include_orig_args = params[2].as_object().at("include_orig_args").as_bool();
+            return this->app->procm->createRenWebProcess(pages, args, is_detachable, include_orig_args);
+    }))->add("create_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            std::string key = params[0].as_string().c_str();
-            bool read_all = params.size() > 1 && !params[1].is_null() ? true : false;
-            
-            auto* pipemgr = dynamic_cast<RenWeb::PipeManager<std::string>*>(this->app->pipem.get());
-            if (pipemgr == nullptr) {
-                return json::value(nullptr);
-            }
-            const RenWeb::ipstreams* streams = pipemgr->get(key);
-            if (streams == nullptr) {
-                return json::value(nullptr);
-            }
-            
-            json::object result;
-            if (read_all) {
-                json::array out_lines, err_lines;
-                std::string line;
-                while (std::getline(const_cast<ipstream&>(streams->out), line)) {
-                    out_lines.push_back(json::string(line));
-                }
-                while (std::getline(const_cast<ipstream&>(streams->err), line)) {
-                    err_lines.push_back(json::string(line));
-                }
-                result["out"] = out_lines;
-                result["err"] = err_lines;
-            } else {
-                std::string out_line, err_line;
-                if (std::getline(const_cast<ipstream&>(streams->out), out_line)) {
-                    result["out"] = json::string(out_line);
-                } else {
-                    result["out"] = json::value(nullptr);
-                }
-                if (std::getline(const_cast<ipstream&>(streams->err), err_line)) {
-                    result["err"] = json::string(err_line);
-                } else {
-                    result["err"] = json::value(nullptr);
-                }
-            }
-            return json::value(result);
-    }))->add("pipe_read_pid",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            int pid = static_cast<int>(params[0].as_int64());
-            bool read_all = params.size() > 1 && !params[1].is_null() ? true : false;
-            
-            auto* pipemgr = dynamic_cast<RenWeb::PipeManager<std::string>*>(this->app->pipem.get());
-            if (pipemgr == nullptr) {
-                return json::value(nullptr);
-            }
-            const RenWeb::ipstreams* streams = pipemgr->getPID(pid);
-            if (streams == nullptr) {
-                return json::value(nullptr);
-            }
-            
-            json::object result;
-            if (read_all) {
-                json::array out_lines, err_lines;
-                std::string line;
-                while (std::getline(const_cast<ipstream&>(streams->out), line)) {
-                    out_lines.push_back(json::string(line));
-                }
-                while (std::getline(const_cast<ipstream&>(streams->err), line)) {
-                    err_lines.push_back(json::string(line));
-                }
-                result["out"] = out_lines;
-                result["err"] = err_lines;
-            } else {
-                std::string out_line, err_line;
-                if (std::getline(const_cast<ipstream&>(streams->out), out_line)) {
-                    result["out"] = json::string(out_line);
-                } else {
-                    result["out"] = json::value(nullptr);
-                }
-                if (std::getline(const_cast<ipstream&>(streams->err), err_line)) {
-                    result["err"] = json::string(err_line);
-                } else {
-                    result["err"] = json::value(nullptr);
-                }
-            }
-            return json::value(result);
-    }))
-// -----------------------------------------
-// ------------ OPENING HELPERS -----------
-// -----------------------------------------
-        ->add("open_uri",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            std::string resource = req.as_array()[0].as_string().c_str();            
-            for (size_t i = 0; i < resource.length(); i++) {
-                if (resource[i] == '\\') resource[i] = '/';
-            }
-            
-        #if defined(_WIN32)
-            system(("start " + resource).c_str());
-            this->logger->warn("[function] open_uri has not been tested for Windows");
-        #elif defined(__APPLE__)
-            system(("open " + resource).c_str());
-            this->logger->warn("[function] open_uri has not been tested for Apple");
-        #elif defined(__linux__)
-            int res = system(("xdg-open " + resource).c_str());
-            (void)res;
-        #endif
-            return json::value(nullptr);
-    }))->add("open_window",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            json::array params = req.as_array();
-            std::string uri = params[0].as_string().c_str();
-            bool is_single = params[1].as_bool();
             std::vector<std::string> args;
-            for (const auto& i : this->app->orig_args) {
-                if (i.substr(0, 2) != "-p") {
-                    args.push_back(i);
-                }
+            for (const auto& page : params[0].as_array()) {
+                args.push_back(page.as_string().c_str());
             }
-            args.push_back("-p"+uri);
-            if (is_single) {
-                if (!this->app->procm->has(uri)) {
-                    this->logger->debug("[function] Attempting to start single process for uri '" + uri + "'");
-                    int pid = this->app->procm->add(uri, args);
-                    return json::value(pid);
-                } else {
-                    this->logger->debug("[function] Process of name '" + uri + "' is already running");
-                    return json::value(nullptr);
-                }
-            } else {
-                this->logger->debug("[function] Attempting to start process for uri '" + uri + "'");
-                std::string unique_key = uri + "_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-                int pid = this->app->procm->add(unique_key, args);
-                return json::value(pid);
-            }
-    }));
-    return this;
-}
-#pragma endregion
-#pragma region SignalCallbacks
-WF* WF::setSignalCallbacks() {
-    this->signal_callbacks
-    ->add("signal_add",
+            this->logger->debug(json::serialize(params[1]));
+            bool is_detachable = params[1].as_object().at("is_detachable").as_bool();
+            return this->app->procm->createSystemProcess(args, is_detachable);
+    }))->add("dump_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            int signal_num = static_cast<int>(params[0].as_int64());
-            std::string callback_name = params[1].as_string().c_str();
-            
-            this->app->signalm->add(signal_num, [this, callback_name](int sig) {
-                std::string js_code = callback_name + "(" + std::to_string(sig) + ");";
-                this->app->w->eval(js_code);
-            });
-            
-            return json::value(nullptr);
-    }))->add("signal_remove",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
-            this->app->signalm->remove(signal_num);
-            return json::value(nullptr);
-    }))->add("signal_has",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
-            return json::value(this->app->signalm->has(signal_num));
-    }))->add("signal_clear",
+            Pid pid = params[0].as_int64();
+            return this->app->procm->dumpProcess(pid);
+    }))->add("dump_current_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->app->signalm->clear();
+            return this->app->procm->dumpCurrentProcess();
+    }))->add("dump_processes",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            std::string filter = params[0].as_string().c_str();
+            if (filter.empty()) {
+                json::array processes;
+                json::array renweb_processes = this->app->procm->dumpRenWebProcesses();
+                std::map<Pid, json::object> renweb_process_map;
+                for (const auto& renweb_proc : renweb_processes) {
+                    if (renweb_proc.is_object() && renweb_proc.as_object().contains("pid") && renweb_proc.as_object().at("pid").is_int64()) {
+                        renweb_process_map[renweb_proc.as_object().at("pid").as_int64()] = renweb_proc.as_object();
+                    }
+                }
+                json::array system_processes = this->app->procm->dumpSystemProcesses();
+                for (const auto& system_proc : system_processes) {
+                    if (system_proc.is_object() && system_proc.as_object().contains("pid") && system_proc.as_object().at("pid").is_int64()) {
+                        Pid sys_pid = system_proc.as_object().at("pid").as_int64();
+                        if (renweb_process_map.find(sys_pid) != renweb_process_map.end()) {
+                            processes.push_back(renweb_process_map[sys_pid]);
+                        } else {
+                            processes.push_back(system_proc);
+                        }
+                    }
+                }
+                return processes;
+            } else if (filter == "system") {
+                return this->app->procm->dumpSystemProcesses();
+            } else if (filter == "renweb") {
+                return this->app->procm->dumpRenWebProcesses();
+            } else if (filter == "child") {
+                return this->app->procm->dumpChildProcesses();
+            } else {
+                this->logger->error("[function] Invalid filter for dump_processes: " + filter);
+                return json::value(nullptr);
+            }
+    }))->add("kill_process",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            Pid pid = params[0].as_int64();
+            int32_t signal = (params[1].is_int64()) ? params[1].as_int64() : SIGINT;
+            this->app->procm->kill(pid, signal);
             return json::value(nullptr);
-    }))->add("signal_count",
+    }))->add("detach_process",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            Pid pid = params[0].as_int64();
+            this->app->procm->detach(pid);
+            return json::value(nullptr);
+    }))->add("send_message",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            Pid pid = params[0].as_int64();
+            json::value message = params[1];
+            this->app->procm->send(pid, message);
+            return json::value(nullptr);
+    }))->add("listen_to_output",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            Pid pid = params[0].as_int64();
+            int64_t lines = (params[1].as_int64() < 0) ? INT64_MAX : params[1].as_int64();
+            bool truncate = params[2].as_object().at("truncate").as_bool();
+            std::vector<std::string> output = this->app->procm->listen(pid, lines, truncate);
+            return (output.size() > 0) ? json::array(output.begin(), output.end()) : json::array();
+    }))->add("wait",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::array params = req.as_array();
+            Pid pid = params[0].as_int64();
+            this->app->procm->wait(pid);
+            return json::value(nullptr);
+    }))->add("wait_all",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            return json::value(static_cast<int64_t>(this->app->signalm->count()));
-    }))->add("signal_trigger",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            int signal_num = static_cast<int>(req.as_array()[0].as_int64());
-            this->app->signalm->trigger(signal_num);
+            this->app->procm->waitAll();
             return json::value(nullptr);
+    }))->add("get_messages",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            const std::vector<json::value>& messages = this->app->ws->getMessages();
+            return json::array(messages.begin(), messages.end());
     }));
     return this;
 }
@@ -2124,28 +2066,142 @@ WF* WF::setNavigateCallbacks() {
             gboolean can_go = webkit_web_view_can_go_forward(WEBKIT_WEB_VIEW(webview_widget));
             return json::value(static_cast<bool>(can_go));
         #endif
+    }))->add("open_uri",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            std::string resource = req.as_array()[0].as_string().c_str();            
+            for (size_t i = 0; i < resource.length(); i++) {
+                if (resource[i] == '\\') resource[i] = '/';
+            }
+            
+        #if defined(_WIN32)
+            system(("start " + resource).c_str());
+            this->logger->warn("[function] open_uri has not been tested for Windows");
+        #elif defined(__APPLE__)
+            system(("open " + resource).c_str());
+            this->logger->warn("[function] open_uri has not been tested for Apple");
+        #elif defined(__linux__)
+            int res = system(("xdg-open " + resource).c_str());
+            (void)res;
+        #endif
+            return json::value(nullptr);
     }));
     return this;
 }
 #pragma endregion
 #pragma region InternalCallbacks
 WF* WF::setInternalCallbacks() {
-    this->internal_callbacks->add("dependency_check",
+    this->internal_callbacks->add("csp",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            #if defined(__linux__)
-                if (system("which gst-inspect-1.0 > /dev/null 2>&1") != 0) {
-                    this->logger->warn("[function] gst-inspect-1.0 not found. GStreamer may not be installed.");
-                    this->logger->warn("[function] HTML5 media playback will not work without GStreamer.");
-                    this->logger->warn("[function] Installation guide: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
-                } else {
-                    if (system("gst-inspect-1.0 x264enc > /dev/null 2>&1") != 0) {
-                        this->logger->warn("[function] GStreamer plugins-ugly not detected (MP3 codec support missing).");
-                        this->logger->warn("[function] This package may have patent/licensing restrictions in some jurisdictions.");
-                        this->logger->warn("[function] Install at your own discretion: https://gstreamer.freedesktop.org/documentation/installing/on-linux.html");
-                    }
+            json::value origins_obj =this->app->info->getProperty("origins");
+            json::array origins_array;
+            if (origins_obj.is_string()) {
+                origins_array.push_back(origins_obj.as_string());
+            } else if (origins_obj.is_array()) {
+                origins_array = origins_obj.as_array();
+            }
+            
+            std::vector<std::string> allowed_origins;
+            bool allow_all = false;
+            
+            for (const auto& origin : origins_array) {
+                if (!origin.is_string()) continue;
+                const std::string origin_str = origin.as_string().c_str();
+                if (origin_str == "*") {
+                    allow_all = true;
+                    break;
                 }
-            #elif defined(_WIN32)
+                allowed_origins.push_back(origin_str);
+            }
+            
+            const std::string webserver_url = this->app->ws->getURL();
+            std::string connect_src = "'self' " + webserver_url;
+            std::string default_src = "'self' " + webserver_url;
+            std::string img_src = "'self' " + webserver_url + " data: blob:";
+            std::string style_src = "'self' " + webserver_url + " 'unsafe-inline'";
+            std::string font_src = "'self' " + webserver_url + " data:";
+            std::string media_src = "'self' " + webserver_url;
+            std::string frame_src = "'self' " + webserver_url;
+            std::string child_src = "'self' " + webserver_url;
+            std::string worker_src = "'self' " + webserver_url;
+            std::string manifest_src = "'self' " + webserver_url;
+            std::string form_action = "'self' " + webserver_url;
+            
+            if (allow_all) {
+                connect_src += " *";
+                default_src += " *";
+                img_src += " *";
+                style_src += " *";
+                font_src += " *";
+                media_src += " *";
+                frame_src += " *";
+                child_src += " *";
+                worker_src += " *";
+                manifest_src += " *";
+                form_action += " *";
+            } else if (!allowed_origins.empty()) {
+                for (const auto& origin : allowed_origins) {
+                    connect_src += " " + origin;
+                    default_src += " " + origin;
+                    img_src += " " + origin;
+                    media_src += " " + origin;
+                    frame_src += " " + origin;
+                    child_src += " " + origin;
+                    worker_src += " " + origin;
+                    manifest_src += " " + origin;
+                    form_action += " " + origin;
+                }
+            }
+            
+            std::string csp = 
+                "default-src " + default_src + "; " +
+                "script-src 'self' " + webserver_url + " 'unsafe-inline' 'unsafe-eval'; " +
+                "connect-src " + connect_src + " ws: wss:; " +
+                "img-src " + img_src + "; " +
+                "style-src " + style_src + "; " +
+                "font-src " + font_src + "; " +
+                "media-src " + media_src + "; " +
+                "frame-src " + frame_src + "; " +
+                "child-src " + child_src + "; " +
+                "worker-src " + worker_src + "; " +
+                "manifest-src " + manifest_src + "; " +
+                "form-action " + form_action + "; " +
+                "base-uri 'self'; " +
+                "object-src 'none'; " + 
+                "frame-ancestors 'self';";
+            
+            std::string csp_escaped = csp;
+            size_t pos = 0;
+            while ((pos = csp_escaped.find('\\', pos)) != std::string::npos) {
+                csp_escaped.replace(pos, 1, "\\\\");
+                pos += 2;
+            }
+            pos = 0;
+            while ((pos = csp_escaped.find('\'', pos)) != std::string::npos) {
+                csp_escaped.replace(pos, 1, "\\'");
+                pos += 2;
+            }
+            
+            this->app->w->init("(function() {"
+                "  if (!document.head) {"
+                "    document.addEventListener('DOMContentLoaded', function() {"
+                "      var meta = document.createElement('meta');"
+                "      meta.httpEquiv = 'Content-Security-Policy';"
+                "      meta.content = '" + csp_escaped + "';"
+                "      document.head.appendChild(meta);"
+                "    });"
+                "  } else {"
+                "    var meta = document.createElement('meta');"
+                "    meta.httpEquiv = 'Content-Security-Policy';"
+                "    meta.content = '" + csp_escaped + "';"
+                "    document.head.appendChild(meta);"
+                "  }"
+                "})();");
+            return json::value(nullptr);
+        }))->add("dependency_check",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(_WIN32)
                 HKEY hKey;
                 LONG result = RegOpenKeyExA(
                     HKEY_LOCAL_MACHINE,
@@ -2154,54 +2210,28 @@ WF* WF::setInternalCallbacks() {
                     KEY_READ,
                     &hKey
                 );
-                
                 if (result != ERROR_SUCCESS) {
-                    this->logger->warn("[function] WebView2 Runtime not found. Downloading installer...");
+                    this->logger->error("[dependency_check] WebView2 Runtime not installed");
                     
-                    // Download to temp directory
-                    char tempPath[MAX_PATH];
-                    GetTempPathA(MAX_PATH, tempPath);
-                    std::string installerPath = std::string(tempPath) + "MicrosoftEdgeWebview2Setup.exe";
-                    
-                    // Download bootstrapper (~2MB)
-                    HRESULT hr = URLDownloadToFileA(
-                        nullptr,
-                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-                        installerPath.c_str(),
-                        0,
-                        nullptr
+                    MessageBoxA(
+                        NULL,
+                        "Microsoft Edge WebView2 Runtime is required to run this application.\n\n"
+                        "Installation Options:\n\n"
+                        "1. Download the Evergreen Bootstrapper:\n"
+                        "   https://go.microsoft.com/fwlink/?LinkId=2124703\n\n"
+                        "2. Use Windows Package Manager:\n"
+                        "   winget install Microsoft.EdgeWebView2Runtime\n\n"
+                        "3. Visit the official page:\n"
+                        "   https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+                        "The application will now exit.",
+                        "WebView2 Runtime Required",
+                        MB_OK | MB_ICONERROR | MB_SYSTEMMODAL
                     );
                     
-                    if (FAILED(hr)) {
-                        this->logger->error("[function] Failed to download WebView2 installer.");
-                        this->logger->error("[function] Please download manually: https://developer.microsoft.com/microsoft-edge/webview2/");
-                        throw std::runtime_error("[function] WebView2 not installed");
-                    }
-
-                    this->logger->info("[function] Download complete. Launching installer...");
-                    
-                    // Launch installer and wait for completion
-                    SHELLEXECUTEINFOA sei = { sizeof(sei) };
-                    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-                    sei.lpFile = installerPath.c_str();
-                    sei.nShow = SW_SHOW;
-                    
-                    if (!ShellExecuteExA(&sei) || !sei.hProcess) {
-                        DeleteFileA(installerPath.c_str());
-                        this->logger->error("[function] Failed to launch WebView2 installer.");
-                        throw std::runtime_error("[function] Failed to launch installer");
-                    }
-                    
-                    // Wait for installer to complete
-                    WaitForSingleObject(sei.hProcess, INFINITE);
-                    CloseHandle(sei.hProcess);
-                    
-                    // Clean up
-                    DeleteFileA(installerPath.c_str());
-
-                    this->logger->info("[function] WebView2 installation complete. Continuing...");
+                    throw std::runtime_error("WebView2 Runtime not installed");
                 } else {
                     RegCloseKey(hKey);
+                    this->logger->info("[dependency_check] WebView2 Runtime detected");
                 }
             #endif
             return json::value(nullptr);
@@ -2256,9 +2286,6 @@ WF* WF::setInternalCallbacks() {
                     } else if (WEBKIT_IS_POINTER_LOCK_PERMISSION_REQUEST(request)) {
                         allowed = check_permission("pointer_lock", false);
                         logger->info("[permissions] Pointer lock permission request: " + std::string(allowed ? "allowing" : "denying"));
-                    } else if (WEBKIT_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
-                        allowed = check_permission("install_missing_media_plugins", true);
-                        logger->info("[permissions] Install missing media plugins permission request: " + std::string(allowed ? "allowing" : "denying"));
                     } else if (WEBKIT_DEVICE_INFO_PERMISSION_REQUEST(request)) {
                         allowed = check_permission("device_info", true);
                         logger->info("[permissions] Device info permission request: " + std::string(allowed ? "allowing" : "denying"));
@@ -2522,545 +2549,6 @@ WF* WF::setInternalCallbacks() {
                 this->logger->info("  - Device info: " + std::string(check_permission("device_info", true) ? "allowed" : "denied"));
             #endif
             return json::value(nullptr);
-    }))->add("process_security",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            (void)req;
-            #if defined(__linux__)
-                auto widget_result = this->app->w->widget();
-                if (!widget_result.has_value()) {
-                    this->logger->error("[function] Failed to get webview widget for security setup");
-                    return json::value(nullptr);
-                }
-                WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
-                
-                // Navigation policy handler - blocks disallowed URIs
-                g_signal_connect(webview, "decide-policy", G_CALLBACK(+[](
-                    WebKitWebView* web_view, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer user_data) -> gboolean {
-                    auto* wf = static_cast<WF*>(user_data);
-                    const char* uri = nullptr;
-                    
-                    if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION || type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
-                        uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(
-                            webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(decision))));
-                    } else if (type == WEBKIT_POLICY_DECISION_TYPE_RESPONSE) {
-                        uri = webkit_uri_request_get_uri(webkit_response_policy_decision_get_request(WEBKIT_RESPONSE_POLICY_DECISION(decision)));
-                    }
-                    
-                    std::string uri_str = uri ? uri : "";
-                    if (uri_str.find("about:") == 0 || uri_str.find("file:") == 0) {
-                        webkit_policy_decision_use(decision);
-                        return TRUE;
-                    }
-                    
-                    if (uri && !wf->app->ws->isURIAllowed(uri)) {
-                        wf->logger->warn("[security] Blocked: " + std::string(uri));
-                        webkit_policy_decision_ignore(decision);
-                        webkit_web_view_load_html(web_view, IWebServer::generateBlockedNavigationHTML(uri,
-                            "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.").c_str(), "about:blank");
-                        return TRUE;
-                    }
-                    webkit_policy_decision_use(decision);
-                    return TRUE;
-                }), this);
-                
-                // Build content blocker using origins whitelist
-                auto extract_domain = [](const std::string& url) {
-                    size_t start = url.find("://");
-                    if (start == std::string::npos) return std::string("");
-                    start += 3;
-                    size_t end = url.find('/', start);
-                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
-                };
-                
-                std::vector<std::string> allowed_domains;
-                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
-                
-                const auto origins = this->app->info->getProperty("origins");
-                if (origins.is_array()) {
-                    for (const auto& origin : origins.as_array()) {
-                        if (origin.is_string()) {
-                            std::string domain = extract_domain(origin.as_string().c_str());
-                            if (!domain.empty()) allowed_domains.push_back(domain);
-                        }
-                    }
-                }
-                
-                json::array rules;
-                if (!allowed_domains.empty()) {
-                    json::array unless_domains;
-                    for (const auto& d : allowed_domains) unless_domains.emplace_back(d);
-                    
-                    rules.emplace_back(json::object{
-                        {"trigger", json::object{
-                            {"url-filter", ".*"},
-                            {"resource-type", json::array{"image", "style-sheet", "script", "font", "raw", "svg-document", "media"}},
-                            {"load-type", json::array{"third-party"}},
-                            {"unless-domain", unless_domains}
-                        }},
-                        {"action", json::object{{"type", "block"}}}
-                    });
-                }
-                
-                std::string rules_json = json::serialize(rules);
-                this->logger->debug("[security] Content filter: " + std::to_string(allowed_domains.size()) + " allowed domains");
-                
-                GBytes* rules_bytes = g_bytes_new(rules_json.c_str(), rules_json.length());
-                WebKitUserContentFilterStore* store = webkit_user_content_filter_store_new("/tmp/renweb-filters");
-                
-                webkit_user_content_filter_store_save(store, "renweb-filter", rules_bytes, nullptr,
-                    +[](GObject* src, GAsyncResult* res, gpointer data) {
-                        auto* wf = static_cast<WF*>(data);
-                        GError* err = nullptr;
-                        auto* filter = webkit_user_content_filter_store_save_finish(WEBKIT_USER_CONTENT_FILTER_STORE(src), res, &err);
-                        
-                        if (filter) {
-                            webkit_user_content_manager_add_filter(
-                                webkit_web_view_get_user_content_manager(WEBKIT_WEB_VIEW(wf->app->w->widget().value())), filter);
-                            webkit_user_content_filter_unref(filter);
-                            wf->logger->info("[security] Content filter active");
-                        } else {
-                            wf->logger->error("[security] Content filter failed: " + std::string(err ? err->message : "unknown"));
-                            if (err) g_error_free(err);
-                        }
-                    }, this);
-                
-                g_bytes_unref(rules_bytes);
-                g_object_unref(store);
-                
-                // Load failure handler - only show error page for main frame navigation, log resource failures
-                g_signal_connect(webview, "load-failed", G_CALLBACK(+[](
-                    WebKitWebView* web_view, WebKitLoadEvent, gchar* failing_uri, GError* error, gpointer user_data) -> gboolean {
-                    auto* wf = static_cast<WF*>(user_data);
-                    if (failing_uri && std::string(failing_uri).find("about:") == 0) return FALSE;
-                    
-                    std::string uri_str = failing_uri ? failing_uri : "unknown";
-                    std::string error_msg = error ? error->message : "unknown";
-                    
-                    // Check if this is the main page URI (not a resource)
-                    const char* page_uri = webkit_web_view_get_uri(web_view);
-                    bool is_main_page = !page_uri || (failing_uri && std::string(page_uri) == uri_str);
-                    
-                    if (is_main_page) {
-                        // Main page failed to load - show full error page
-                        wf->logger->error("[security] Page load failed: " + uri_str + " - " + error_msg);
-                        webkit_web_view_load_html(web_view, IWebServer::generateErrorHTML(error ? error->code : 0, 
-                            "Failed to Load Page", "Could not load: " + uri_str + 
-                            (error ? std::string("<br><br><strong>Details:</strong> ") + error_msg : "")).c_str(), failing_uri);
-                        return TRUE;
-                    }
-                    
-                    // Resource failed - just log, don't disrupt the page
-                    wf->logger->warn("[security] Resource load failed: " + uri_str + " - " + error_msg);
-                    return FALSE;
-                }), this);
-                
-                
-            #elif defined(_WIN32)
-                // Windows WebView2: Implement navigation filtering using NavigationStarting event
-                
-                auto webview2_opt = this->app->w->widget();
-                if (!webview2_opt.has_value()) {
-                    this->logger->warn("[security] WebView2 not available, navigation filtering skipped");
-                    return json::value(nullptr);
-                }
-                
-                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
-                if (!webview2) {
-                    this->logger->warn("[security] WebView2 pointer invalid, navigation filtering skipped");
-                    return json::value(nullptr);
-                }
-                
-                // Get allowed origins from info.json
-                auto extract_domain = [](const std::string& url) {
-                    size_t start = url.find("://");
-                    if (start == std::string::npos) return std::string("");
-                    start += 3;
-                    size_t end = url.find('/', start);
-                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
-                };
-                
-                std::vector<std::string> allowed_domains;
-                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
-                
-                const auto origins = this->app->info->getProperty("origins");
-                if (origins.is_array()) {
-                    for (const auto& origin : origins.as_array()) {
-                        if (origin.is_string()) {
-                            std::string domain = extract_domain(origin.as_string().c_str());
-                            if (!domain.empty()) {
-                                allowed_domains.push_back(domain);
-                            }
-                        }
-                    }
-                }
-                
-                // Log the security configuration
-                this->logger->info("[security] Security policy from info.json:");
-                this->logger->info("[security] Allowed origins: " + std::to_string(allowed_domains.size()) + " domains");
-                for (const auto& domain : allowed_domains) {
-                    this->logger->info("  - " + domain);
-                }
-                
-                // Create navigation handler context
-                struct NavigationContext {
-                    std::vector<std::string> allowed_domains;
-                    std::shared_ptr<ILogger> logger;
-                    std::string last_blocked_uri;  // Track last blocked URI
-                };
-                
-                auto* nav_ctx = new NavigationContext{allowed_domains, this->logger, ""};
-                
-                // Register NavigationStarting event handler
-                HRESULT hr = webview2->add_NavigationStarting(
-                    Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-                        [nav_ctx](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-                            (void)sender;
-                            
-                            LPWSTR uri_wide = nullptr;
-                            args->get_Uri(&uri_wide);
-                            
-                            if (!uri_wide) return S_OK;
-                            
-                            // Convert wide string to UTF-8
-                            int size_needed = WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, nullptr, 0, nullptr, nullptr);
-                            std::string uri(size_needed - 1, 0);
-                            WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, &uri[0], size_needed, nullptr, nullptr);
-                            CoTaskMemFree(uri_wide);
-                            
-                            // Allow about:, data:, blob:, and file: URLs
-                            if (uri.find("about:") == 0 || uri.find("data:") == 0 || 
-                                uri.find("blob:") == 0 || uri.find("file:") == 0) {
-                                return S_OK;
-                            }
-                            
-                            // Check if URL matches any allowed domain
-                            bool allowed = false;
-                            for (const auto& domain : nav_ctx->allowed_domains) {
-                                if (uri.find(domain) != std::string::npos) {
-                                    nav_ctx->logger->debug("[security] Allowed navigation to: " + uri);
-                                    allowed = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (!allowed) {
-                                nav_ctx->logger->warn("[security] Blocked navigation to: " + uri);
-                                nav_ctx->last_blocked_uri = uri;  // Store for error handler
-                                args->put_Cancel(TRUE);
-                            }
-                            
-                            return S_OK;
-                        }
-                    ).Get(),
-                    nullptr
-                );
-                
-                if (SUCCEEDED(hr)) {
-                    this->logger->info("[security] NavigationStarting event handler registered successfully");
-                } else {
-                    this->logger->error("[security] Failed to register NavigationStarting handler, HRESULT: " + std::to_string(hr));
-                    delete nav_ctx;
-                }
-                
-                // Register NavigationCompleted event handler for error pages
-                struct ErrorContext {
-                    WF* wf;
-                    std::shared_ptr<ILogger> logger;
-                    NavigationContext* nav_ctx;  // Reference to navigation context
-                };
-                
-                auto* error_ctx = new ErrorContext{this, this->logger, nav_ctx};
-                
-                hr = webview2->add_NavigationCompleted(
-                    Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
-                        [error_ctx](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-                            BOOL is_success = FALSE;
-                            args->get_IsSuccess(&is_success);
-                            
-                            if (!is_success) {
-                                COREWEBVIEW2_WEB_ERROR_STATUS error_status;
-                                args->get_WebErrorStatus(&error_status);
-                                
-                                // For canceled operations (security blocks), show blocked page
-                                if (error_status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) {
-                                    if (!error_ctx->nav_ctx->last_blocked_uri.empty()) {
-                                        std::string blocked_html = IWebServer::generateBlockedNavigationHTML(
-                                            error_ctx->nav_ctx->last_blocked_uri,
-                                            "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.");
-                                        
-                                        int wide_size = MultiByteToWideChar(CP_UTF8, 0, blocked_html.c_str(), -1, nullptr, 0);
-                                        std::wstring blocked_html_wide(wide_size, 0);
-                                        MultiByteToWideChar(CP_UTF8, 0, blocked_html.c_str(), -1, &blocked_html_wide[0], wide_size);
-                                        
-                                        sender->NavigateToString(blocked_html_wide.c_str());
-                                        
-                                        // Clear the blocked URI
-                                        error_ctx->nav_ctx->last_blocked_uri.clear();
-                                    }
-                                    return S_OK;
-                                }
-                                
-                                LPWSTR uri_wide = nullptr;
-                                sender->get_Source(&uri_wide);
-                                
-                                std::string uri = "unknown";
-                                if (uri_wide) {
-                                    int size_needed = WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, nullptr, 0, nullptr, nullptr);
-                                    uri = std::string(size_needed - 1, 0);
-                                    WideCharToMultiByte(CP_UTF8, 0, uri_wide, -1, &uri[0], size_needed, nullptr, nullptr);
-                                    CoTaskMemFree(uri_wide);
-                                }
-                                
-                                std::string error_msg;
-                                int error_code = static_cast<int>(error_status);
-                                
-                                switch (error_status) {
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN:
-                                        error_msg = "Unknown error";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
-                                        error_msg = "Certificate common name is incorrect";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
-                                        error_msg = "Certificate expired";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS:
-                                        error_msg = "Client certificate contains errors";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
-                                        error_msg = "Certificate revoked";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
-                                        error_msg = "Certificate is invalid";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
-                                        error_msg = "Server unreachable";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
-                                        error_msg = "Connection timeout";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE:
-                                        error_msg = "Invalid server response";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
-                                        error_msg = "Connection aborted";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
-                                        error_msg = "Connection reset";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
-                                        error_msg = "Disconnected";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
-                                        error_msg = "Cannot connect";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
-                                        error_msg = "Host name not resolved";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
-                                        error_msg = "Navigation blocked by security policy or canceled by user";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED:
-                                        error_msg = "Redirect failed";
-                                        break;
-                                    case COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR:
-                                        error_msg = "Unexpected error";
-                                        break;
-                                    default:
-                                        error_msg = "Error " + std::to_string(error_code);
-                                        break;
-                                }
-                                
-                                error_ctx->logger->error("[security] Page load failed: " + uri + " - " + error_msg);
-                                
-                                std::string error_html = IWebServer::generateErrorHTML(error_code, 
-                                    "Failed to Load Page", 
-                                    "Could not load: " + uri + "<br><br><strong>Details:</strong> " + error_msg);
-                                
-                                int wide_size = MultiByteToWideChar(CP_UTF8, 0, error_html.c_str(), -1, nullptr, 0);
-                                std::wstring error_html_wide(wide_size, 0);
-                                MultiByteToWideChar(CP_UTF8, 0, error_html.c_str(), -1, &error_html_wide[0], wide_size);
-                                
-                                sender->NavigateToString(error_html_wide.c_str());
-                            }
-                            
-                            return S_OK;
-                        }
-                    ).Get(),
-                    nullptr
-                );
-                
-                if (SUCCEEDED(hr)) {
-                    this->logger->info("[security] NavigationCompleted event handler registered successfully");
-                } else {
-                    this->logger->error("[security] Failed to register NavigationCompleted handler, HRESULT: " + std::to_string(hr));
-                    delete error_ctx;
-                }
-                
-            #elif defined(__APPLE__)
-                auto window_result = this->app->w->window();
-                if (!window_result.has_value()) {
-                    this->logger->error("[function] Failed to get window for security setup");
-                    return json::value(nullptr);
-                }
-                
-                id nsWindow = (__bridge id)window_result.value();
-                id webview = nil;
-                for (id view in [[nsWindow contentView] subviews]) {
-                    if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
-                        webview = view;
-                        break;
-                    }
-                }
-                
-                if (!webview) {
-                    this->logger->error("[function] Failed to find WKWebView for security setup");
-                    return json::value(nullptr);
-                }
-                
-                // Build allowed domains list
-                auto extract_domain = [](const std::string& url) {
-                    size_t start = url.find("://");
-                    if (start == std::string::npos) return std::string("");
-                    start += 3;
-                    size_t end = url.find('/', start);
-                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
-                };
-                
-                std::vector<std::string> allowed_domains;
-                allowed_domains.push_back(extract_domain(this->app->ws->getURL()));
-                
-                const auto origins = this->app->info->getProperty("origins");
-                if (origins.is_array()) {
-                    for (const auto& origin : origins.as_array()) {
-                        if (origin.is_string()) {
-                            std::string domain = extract_domain(origin.as_string().c_str());
-                            if (!domain.empty()) allowed_domains.push_back(domain);
-                        }
-                    }
-                }
-                
-                this->logger->debug("[security] Content filter: " + std::to_string(allowed_domains.size()) + " allowed domains");
-                
-                // Set up WKContentRuleList for blocking third-party resources
-                if (!allowed_domains.empty()) {
-                    json::array unless_domains;
-                    for (const auto& d : allowed_domains) unless_domains.emplace_back(d);
-                    
-                    json::array rules;
-                    rules.emplace_back(json::object{
-                        {"trigger", json::object{
-                            {"url-filter", ".*"},
-                            {"resource-type", json::array{"image", "style-sheet", "script", "font", "raw", "svg-document", "media"}},
-                            {"load-type", json::array{"third-party"}},
-                            {"unless-domain", unless_domains}
-                        }},
-                        {"action", json::object{{"type", "block"}}}
-                    });
-                    
-                    std::string rules_json = json::serialize(rules);
-                    NSString* rulesString = [NSString stringWithUTF8String:rules_json.c_str()];
-                    
-                    id ruleStore = [NSClassFromString(@"WKContentRuleListStore") defaultStore];
-                    [ruleStore compileContentRuleListForIdentifier:@"RenWebContentBlocker"
-                                                 encodedContentRuleList:rulesString
-                                                      completionHandler:^(id ruleList, NSError* error) {
-                        if (ruleList) {
-                            id userContentController = [[webview configuration] userContentController];
-                            [userContentController addContentRuleList:ruleList];
-                            this->logger->info("[security] Content filter active");
-                        } else {
-                            this->logger->error("[security] Content filter failed: " + 
-                                std::string(error ? [[error localizedDescription] UTF8String] : "unknown"));
-                        }
-                    }];
-                }
-                
-                // Set up WKNavigationDelegate for URI filtering and error handling
-                static Class navDelegateClass = nil;
-                if (!navDelegateClass) {
-                    navDelegateClass = objc_allocateClassPair([NSObject class], "RenWebSecurityNavigationDelegate", 0);
-                    
-                    // Shared policy check logic
-                    auto (^checkPolicy)(id, id, NSURL*, void (^)(int)) = ^(id self, id webView, NSURL* url, void (^handler)(int)) {
-                        WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
-                        std::string uri_str([[url absoluteString] UTF8String]);
-                        
-                        // Allow about: and file: URLs
-                        if (uri_str.find("about:") == 0 || uri_str.find("file:") == 0) {
-                            handler(1); // WKNavigationActionPolicyAllow
-                            return;
-                        }
-                        
-                        // Check if URI is allowed
-                        if (!wf->app->ws->isURIAllowed(uri_str)) {
-                            wf->logger->warn("[security] Blocked: " + uri_str);
-                            NSString* htmlString = [NSString stringWithUTF8String:
-                                IWebServer::generateBlockedNavigationHTML(uri_str,
-                                    "This URL is not in the list of allowed origins. Only resources from trusted sources can be accessed.").c_str()];
-                            [webView loadHTMLString:htmlString baseURL:[NSURL URLWithString:@"about:blank"]];
-                            handler(0); // WKNavigationActionPolicyCancel
-                        } else {
-                            handler(1); // WKNavigationActionPolicyAllow
-                        }
-                    };
-                    
-                    // decidePolicyForNavigationAction
-                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationAction:decisionHandler:"),
-                        imp_implementationWithBlock(^(id self, id webView, id navAction, void (^handler)(int)) {
-                            NSURL* url = [[navAction valueForKey:@"request"] URL];
-                            checkPolicy(self, webView, url, handler);
-                        }), "v@:@@?");
-                    
-                    // decidePolicyForNavigationResponse
-                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:decidePolicyForNavigationResponse:decisionHandler:"),
-                        imp_implementationWithBlock(^(id self, id webView, id navResponse, void (^handler)(int)) {
-                            NSURL* url = [[navResponse valueForKey:@"response"] URL];
-                            checkPolicy(self, webView, url, handler);
-                        }), "v@:@@?");
-                    
-                    // didFailProvisionalNavigation - handle main page load failures
-                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:didFailProvisionalNavigation:withError:"),
-                        imp_implementationWithBlock(^(id self, id webView, id navigation, NSError* error) {
-                            WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
-                            NSURL* failingURL = [error.userInfo objectForKey:NSURLErrorFailingURLErrorKey];
-                            std::string uri_str = failingURL ? [[failingURL absoluteString] UTF8String] : "unknown";
-                            std::string error_msg = [[error localizedDescription] UTF8String];
-                            
-                            // Skip about: URLs
-                            if (uri_str.find("about:") == 0) return;
-                            
-                            wf->logger->error("[security] Page load failed: " + uri_str + " - " + error_msg);
-                            
-                            NSString* htmlString = [NSString stringWithUTF8String:
-                                IWebServer::generateErrorHTML(static_cast<int>([error code]),
-                                    "Failed to Load Page",
-                                    "Could not load: " + uri_str + "<br><br><strong>Details:</strong> " + error_msg).c_str()];
-                            [webView loadHTMLString:htmlString baseURL:failingURL];
-                        }), "v@:@@@");
-                    
-                    // didFailNavigation - handle resource failures (NOT page-breaking, just log)
-                    class_addMethod(navDelegateClass, NSSelectorFromString(@"webView:didFailNavigation:withError:"),
-                        imp_implementationWithBlock(^(id self, id webView, id navigation, NSError* error) {
-                            WF* wf = (__bridge WF*)objc_getAssociatedObject(self, "wf");
-                            NSURL* failingURL = [error.userInfo objectForKey:NSURLErrorFailingURLErrorKey];
-                            std::string uri_str = failingURL ? [[failingURL absoluteString] UTF8String] : "unknown";
-                            
-                            if (uri_str.find("about:") == 0) return;
-                            
-                            // Resource load failure - just log, don't show error page
-                            wf->logger->warn("[security] Resource load failed: " + uri_str);
-                        }), "v@:@@@");
-                    
-                    objc_registerClassPair(navDelegateClass);
-                }
-                
-                id navDelegate = [[navDelegateClass alloc] init];
-                objc_setAssociatedObject(navDelegate, "wf", (__bridge id)this, OBJC_ASSOCIATION_ASSIGN);
-                [webview setNavigationDelegate:navDelegate];
-            #endif
-            
-            return json::value(nullptr);
     }))->add("performance_settings",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -3078,19 +2566,15 @@ WF* WF::setInternalCallbacks() {
                 webkit_settings_set_enable_2d_canvas_acceleration(settings, TRUE);
                 webkit_settings_set_enable_webgl(settings, TRUE);
                 webkit_settings_set_enable_page_cache(settings, TRUE);
-                webkit_settings_set_enable_javascript(settings, TRUE);
                 webkit_settings_set_javascript_can_access_clipboard(settings, TRUE);
                 webkit_settings_set_javascript_can_open_windows_automatically(settings, TRUE);
-                webkit_settings_set_enable_media(settings, TRUE);
                 webkit_settings_set_enable_media_capabilities(settings, TRUE);
                 webkit_settings_set_enable_mediasource(settings, TRUE);
                 webkit_settings_set_enable_encrypted_media(settings, TRUE);
-                webkit_settings_set_enable_html5_local_storage(settings, TRUE);
                 webkit_settings_set_enable_html5_database(settings, TRUE);
                 webkit_settings_set_enable_smooth_scrolling(settings, TRUE);
                 webkit_settings_set_enable_back_forward_navigation_gestures(settings, TRUE);
                 webkit_settings_set_enable_javascript_markup(settings, TRUE);
-                webkit_settings_set_enable_resizable_text_areas(settings, TRUE);
                 webkit_settings_set_enable_site_specific_quirks(settings, TRUE);
                 webkit_settings_set_enable_tabs_to_links(settings, TRUE);
                 webkit_settings_set_enable_fullscreen(settings, TRUE);
@@ -3128,13 +2612,10 @@ WF* WF::setInternalCallbacks() {
                 
                 // Configure base settings for optimal performance and UX
                 settings->put_IsZoomControlEnabled(TRUE);
-                settings->put_AreDefaultContextMenusEnabled(TRUE);
+                settings->put_AreDefaultContextMenusEnabled(FALSE);
                 settings->put_AreDefaultScriptDialogsEnabled(TRUE);
                 settings->put_IsBuiltInErrorPageEnabled(FALSE);
                 settings->put_IsStatusBarEnabled(FALSE);
-                settings->put_AreDevToolsEnabled(TRUE);
-                settings->put_IsScriptEnabled(TRUE);
-                settings->put_IsWebMessageEnabled(TRUE);
                 settings->put_AreHostObjectsAllowed(TRUE);
                 
                 
@@ -3214,7 +2695,6 @@ WF* WF::setInternalCallbacks() {
                 id prefs = [config preferences];
                 
                 // Core JavaScript
-                [prefs setJavaScriptEnabled:YES];
                 [prefs setJavaScriptCanOpenWindowsAutomatically:YES];
                 
                 // Media settings (10.15+ compatible)
@@ -3271,14 +2751,14 @@ WF* WF::setInternalCallbacks() {
 WF* WF::setup() {
     const json::value req = json::value(nullptr);
     const json::value& prop = this->app->config->getProperty("initially_shown");
-    #ifndef _WIN32
+#ifndef _WIN32
     if (prop.is_bool() && !prop.as_bool()) {
         this->window_callbacks->run(
             "show", 
             json::value((prop.is_bool()) ? (prop.as_bool()) : true)
         );
     }
-    #endif
+#endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;

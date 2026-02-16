@@ -52,9 +52,9 @@ namespace RenWeb {
                     if (!log_path.is_absolute()) {
                         log_path = RenWeb::Locate::currentDirectory() / log_path;
                     }
-                    this->file = std::shared_ptr<File>(new File(log_path));
+                    this->file = std::make_shared<File>(log_path);
                 } else {
-                    this->file = std::shared_ptr<File>(new File(Locate::currentDirectory() / "log.txt"));
+                    this->file = std::make_shared<File>(Locate::currentDirectory() / "log.txt");
                 }
                 this->refresh({});
             };
@@ -67,6 +67,8 @@ namespace RenWeb {
             { 
                 this->refresh({});
             };
+            ~Logger() override = default;
+            
             void trace(const std::string& msg) override {
                 this->logger->trace(msg);
             }

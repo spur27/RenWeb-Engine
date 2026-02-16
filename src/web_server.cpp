@@ -2,12 +2,24 @@
 
 #include "../include/app.hpp"
 #include "../include/json.hpp"
-#include "../include/info.hpp"
 #include "../include/config.hpp"
+#include "boost/json/serialize.hpp"
+#include <exception>
+
+#ifdef _WIN32
+    #include <windows.h>
+    #include <tlhelp32.h>
+    #include <psapi.h>
+#elif __APPLE__
+    #include <sys/sysctl.h>
+    #include <libproc.h>
+#else
+    #include <filesystem>
+    #include <fstream>
+#endif
 
 using WebServer = RenWeb::WebServer;
 using MethodsCM = RenWeb::CallbackManager<std::string, void, const httplib::Request&, httplib::Response&>;
-// namespace WH = RenWeb::WindowHelpers;
 
 
 WebServer::WebServer(
@@ -17,23 +29,22 @@ WebServer::WebServer(
     , app(app)
     , method_callbacks(new MethodsCM())
 { 
-    auto info_file = RenWeb::Info::getInfoFile();
-    const json::value server_obj = JSON::peek(info_file.get(), "server");
+    const json::value server_obj = this->app->info->getProperty("server");
     if (server_obj.is_object()) {
         const json::object server_object = server_obj.as_object();
-        if (server_object.find("ip") != server_object.end() && server_object.at("ip").is_string())
+        if (server_object.contains("ip") && server_object.at("ip").is_string())
             this->ip = server_object.at("ip").as_string().c_str();
-        if (server_object.find("port") != server_object.end() && server_object.at("port").is_int64())
+        if (server_object.contains("port") && server_object.at("port").is_int64())
             this->port =  static_cast<unsigned short>(server_object.at("port").as_int64());
-        if (server_object.find("protocol") != server_object.end() && server_object.at("protocol").is_bool())
+        if (server_object.contains("protocol") && server_object.at("protocol").is_bool())
             this->https = server_object.at("protocol").as_bool();
-        if (server_object.find("ssl_cert_path") != server_object.end() && server_object.at("ssl_cert_path").is_string()) {
+        if (server_object.contains("ssl_cert_path") && server_object.at("ssl_cert_path").is_string()) {
             this->ssl_cert_path = std::filesystem::path(server_object.at("ssl_cert_path").as_string().c_str());
             if (this->ssl_cert_path.is_relative()) {
                 this->ssl_cert_path = this->base_path / this->ssl_cert_path;
             }
         }
-        if (server_object.find("ssl_key_path") != server_object.end() && server_object.at("ssl_key_path").is_string()) {
+        if (server_object.contains("ssl_key_path") && server_object.at("ssl_key_path").is_string()) {
             this->ssl_key_path = std::filesystem::path(server_object.at("ssl_key_path").as_string().c_str());
             if (this->ssl_key_path.is_relative()) {
                 this->ssl_key_path = this->base_path / this->ssl_key_path;
@@ -64,8 +75,8 @@ WebServer::WebServer(
     } else {
         this->server = std::make_unique<httplib::Server>();
     }
-    this->logger->debug("[server] URL is " + std::string(this->https ? "https" : "http") + "://" + this->ip + ":" + (this->port == 0 ? "?????" : std::to_string(this->port)));
-    auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
+    
+    auto info_packaging_obj = this->app->info->getProperty("packaging");
     if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["base_path"].is_string()) {
         std::filesystem::path unformatted_base_path = std::filesystem::path(
             info_packaging_obj.as_object().at("base_path").as_string().c_str()
@@ -79,39 +90,21 @@ WebServer::WebServer(
     }
     this->logger->debug("[server] Base path is " + this->base_path.string());
     
-    this->cached_allowed_origins = "'self'";
-    const auto origins = JSON::peek(info_file.get(), "origins");
-    if (origins.is_array()) {
-        for (const auto& origin : origins.as_array()) {
-            if (origin.is_string()) {
-                this->cached_allowed_origins += " " + std::string(origin.as_string().c_str());
-            }
-        }
-    }
-    this->logger->debug("[server] CSP allowed origins:\n\t" + this->cached_allowed_origins);
-    
     this->setHandles();
     this->setMethodCallbacks();
 }
 
 WebServer::~WebServer() {
-    // Stop the server if it's still running
     if (this->server && this->server->is_running()) {
         this->logger->trace("[server] Stopping server during WebServer destruction");
         try {
             this->server->stop();
-        } catch (...) {
-            // Ignore exceptions during destruction
-        }
+        } catch (...) { }
     }
-    
-    // Wait for the server thread to finish
     if (this->server_thread.joinable()) {
         try {
             this->server_thread.join();
-        } catch (...) {
-            // Ignore exceptions during destruction
-        }
+        } catch (...) { }
     }
 
     this->logger->trace("[server] Deconstructing WebServer");
@@ -141,9 +134,10 @@ void WebServer::start() /*override*/ {
                 this->server->listen(this->ip, this->port);
             }
             return;
-        } catch (...) { }
-        this->logger->critical("[server] Something very bad happened to the server.");
-        throw std::runtime_error("[server] Something very bad happened to the server.");
+        } catch (const std::exception& e) {
+            this->logger->critical("[Server] " + std::string(e.what()));
+            std::rethrow_exception(std::current_exception());
+        }
     });
     this->server->wait_until_ready();
 }
@@ -170,6 +164,59 @@ void WebServer::stop() /*override*/ {
     this->logger->trace("[server] Deconstructing WebServer");
 }
 
+bool WebServer::isURI(const std::string& uri) const {
+    static const std::regex uri_regex(
+        R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
+    );
+    return std::regex_match(uri, uri_regex);
+}
+
+const std::vector<json::value>& WebServer::getMessages() const /*override*/ {
+    return this->messages;
+}
+
+void WebServer::sendMessage(const std::string& ip, const json::value& message, time_t timeout_s, time_t timeout_ms) const /*override*/ {
+    json::object payload;
+    payload["message"] = message;
+    payload["sender"] = this->app->procm->dumpCurrentProcess();
+    payload["timestamp"] = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();    
+    std::string url = ip;
+    if (url.find("://") == std::string::npos) {
+        url = "http://" + url; // assume http if no protocol specified
+    }
+    
+    this->logger->trace("[server] Sending message to " + url + ": " + json::serialize(message));
+    std::thread([url, payload, timeout_s, timeout_ms](){
+        httplib::Client client(url);
+        client.set_connection_timeout(timeout_s, timeout_ms);
+        client.set_read_timeout(timeout_s, timeout_ms);
+        client.set_write_timeout(timeout_s, timeout_ms);
+        client.Post("/??q=", json::serialize(payload), "application/json");
+        client.stop();
+    }).detach();
+
+    this->logger->trace("[server] Messaged " + ip);    
+}
+
+json::object WebServer::whoAreYou(const std::string& ip, time_t timeout_s, time_t timeout_ms) const /*override*/ {
+    std::string url = ip;
+    if (url.find("://") == std::string::npos) {
+        url = "http://" + url; // assume http if no protocol specified
+    }
+    
+    httplib::Client client(url);
+    client.set_connection_timeout(timeout_s, timeout_ms);
+    client.set_read_timeout(timeout_s, timeout_ms);
+    client.set_write_timeout(timeout_s, timeout_ms);
+    auto res = client.Get("/??q=");
+    client.stop();
+
+    this->logger->trace("[server] whoAreYou queried " + url);
+    return (res && res->status == 200) ? json::parse(res->body).as_object() : json::object{};
+}
+
 void WebServer::setHandles() {
     this->server->set_keep_alive_max_count(100);
     this->server->set_read_timeout(10, 0);
@@ -182,24 +229,39 @@ void WebServer::setHandles() {
         (void)req;
         this->logger->error("[server] " + httplib::to_string(err));
     });
-    this->server->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-        (void)req;
-        auto fmt = "<p>Error Status: <span style='color:red;'>%d</span></p>";
-        char buf[BUFSIZ];
-        snprintf(buf, sizeof(buf), fmt, res.status);
-        res.set_content(buf, "text/html");    
+    this->server->set_error_handler([this](const httplib::Request& req, httplib::Response& res) {
+        std::string details = "<p><strong>Request:</strong> " + req.method + " " + req.path + "</p>" +
+                            "<p><strong>Status:</strong> " + std::to_string(res.status) + " " + 
+                            std::string(httplib::status_message(res.status)) + "</p>" +
+                            "<p><strong>Page:</strong> " + this->app->config->current_page + "</p>";
+        std::string html = WebServer::generateErrorHTML(
+            res.status,
+            httplib::status_message(res.status),
+            details
+        );
+        res.set_content(html, "text/html");
     });
     this->server->set_exception_handler([this](const auto& req, auto& res, std::exception_ptr ep) {
         (void)req;
-        auto fmt = "<h1>Error 500</h1><p>%s</p>";
-        char buf[BUFSIZ];
+        std::string error_message;
         try {
             std::rethrow_exception(ep);
         } catch (const std::exception &e) {
             this->logger->error("[server] " + std::string(e.what()));
-            snprintf(buf, sizeof(buf), fmt, e.what());
+            error_message = e.what();
+        } catch (...) {
+            this->logger->error("[server] Unknown exception occurred");
+            error_message = "An unknown error occurred";
         }
-        res.set_content(buf, "text/html");
+        
+        std::string html = WebServer::generateErrorHTML(
+            500,
+            "Internal Server Error",
+            "<p>An exception was thrown while processing your request:</p>"
+            "<div style='background: #1a1a1a; padding: 10px; border-radius: 4px; font-family: monospace; "
+            "font-size: 0.9em; color: #b0b0b0; margin: 15px 0; word-break: break-word;'>" + error_message + "</div>"
+        );
+        res.set_content(html, "text/html");
         res.status = httplib::StatusCode::InternalServerError_500;
     });
     this->server->set_file_request_handler([this](const httplib::Request &req, httplib::Response &res) {
@@ -209,6 +271,17 @@ void WebServer::setHandles() {
 
 void WebServer::setMethodCallbacks() {
     this->server->Get(".*", [this](const httplib::Request &req, httplib::Response &res) {
+        if (req.target == "/??q=") {
+            try {
+                json::object proc_info = this->app->procm->dumpCurrentProcess();
+                proc_info["is_child"] = json::value(nullptr);
+                res.set_content(json::serialize(proc_info), "application/json");
+                res.status = httplib::StatusCode::OK_200;
+            } catch (const std::exception& e) {
+                this->sendStatus(req, res, httplib::StatusCode::InternalServerError_500, std::string(e.what()));
+            }
+            return;
+        }
         std::filesystem::path target_dir = (req.target == "/")
             ? "index.html"
             : std::filesystem::path(req.target.substr(1)).string();  
@@ -230,29 +303,74 @@ void WebServer::setMethodCallbacks() {
         };
         this->sendStatus(req, res, httplib::StatusCode::NotFound_404, 
             "File not found: <code>" + req.target + "</code><br><br>Searched in:<br>" +
-            "• " + make_link(this->base_path / "custom" / this->app->config->current_page / target_dir) + "<br>" +
-            "• " + make_link(this->base_path / "content" / this->app->config->current_page / target_dir) + "<br>" +
-            "• " + make_link(this->base_path / target_dir) + "<br>" +
-            "• " + make_link(this->base_path / "backup" / this->app->config->current_page / target_dir));
+            "- " + make_link(this->base_path / "custom" / this->app->config->current_page / target_dir) + "<br>" +
+            "- " + make_link(this->base_path / "content" / this->app->config->current_page / target_dir) + "<br>" +
+            "- " + make_link(this->base_path / target_dir) + "<br>" +
+            "- " + make_link(this->base_path / "backup" / this->app->config->current_page / target_dir));
     });
     this->server->Put(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
     this->server->Post(".*", [this](const httplib::Request &req, httplib::Response &res) {
-        this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
+        if (req.target == "/??q=") {
+            this->messages.push_back(json::parse(req.body));
+            
+            std::string escaped_body;
+            escaped_body.reserve(req.body.length() * 2);
+            for (char c : req.body) {
+                switch (c) {
+                    case '\\': escaped_body += "\\\\"; break;
+                    case '\'': escaped_body += "\\'"; break;
+                    case '\n': escaped_body += "\\n"; break;
+                    case '\r': escaped_body += "\\r"; break;
+                    default: escaped_body += c; break;
+                }
+            }
+            
+            std::string callback_js = 
+                "(function() {"
+                "  function decode(dec) {"
+                "    if (!dec || typeof dec !== 'object' || !dec.__encoding_type__ || !dec.__val__) return dec;"
+                "    switch (dec.__encoding_type__) {"
+                "      case 'base64':"
+                "        return new TextDecoder().decode(new Uint8Array(dec.__val__));"
+                "      default:"
+                "        return null;"
+                "    }"
+                "  }"
+                "  function decodeObj(obj) {"
+                "    if (!obj || typeof obj !== 'object') return obj;"
+                "    for (const key in obj) {"
+                "      if (obj[key] != null && typeof obj[key] === 'object' && '__encoding_type__' in obj[key] && '__val__' in obj[key]) {"
+                "        obj[key] = decode(obj[key]);"
+                "      }"
+                "    }"
+                "    return obj;"
+                "  }"
+                "  const message = JSON.parse('" + escaped_body + "');"
+                "  const decoded = decodeObj(message);"
+                "  if (window.onServerMessage && typeof window.onServerMessage === 'function') {"
+                "    window.onServerMessage(decoded);"
+                "  }"
+                "})();";
+            this->app->w->eval(callback_js);
+        } else {
+            this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405, "POST cannot be used in this context: " + req.target);
+        }
+        this->logger->trace("[server] Received message. New count is " + std::to_string(this->messages.size()));
     });
     this->server->Patch(".*", [this](const httplib::Request &req, httplib::Response &res) {
         this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
     this->server->Delete(".*", [this](const httplib::Request &req, httplib::Response &res) {
-        this->sendStatus(req, res, httplib::StatusCode::NotFound_404, "Resource not found at target " + req.target);
+        this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405);
     });
 }
 
 void WebServer::sendStatus(const httplib::Request& req, httplib::Response& res, const httplib::StatusCode& code, const std::string& desc) {
     (void)req;
-    // res.status = code;
-    std::string html = IWebServer::generateErrorHTML(
+    res.status = code;
+    std::string html = WebServer::generateErrorHTML(
         static_cast<int>(code),
         httplib::status_message(code),
         desc
@@ -264,30 +382,14 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
     std::error_code ec;
     auto file_size = std::filesystem::file_size(path, ec);
     if (ec) {
-        this->logger->critical("[server] Error getting file size");
-        res.status = 500;
-        this->sendStatus(req, res, httplib::StatusCode::PreconditionFailed_412, ec.message());
+        this->logger->critical("[server] Error getting file size: " + ec.message());
+        this->sendStatus(req, res, httplib::StatusCode::InternalServerError_500, 
+            "Failed to read file: <code>" + path.filename().string() + "</code><br><br>" +
+            "Error: " + ec.message());
         return;
     }
     
     res.set_header("Accept-Ranges", "bytes");
-    
-    // Security: Add exhaustive CSP header with whitelisted origins
-    std::string csp = "default-src " + this->cached_allowed_origins + "; "
-                     "img-src " + this->cached_allowed_origins + " data:; "
-                     "script-src " + this->cached_allowed_origins + " 'unsafe-inline' 'unsafe-eval'; "
-                     "style-src " + this->cached_allowed_origins + " 'unsafe-inline'; "
-                     "font-src " + this->cached_allowed_origins + " data:; "
-                     "connect-src " + this->cached_allowed_origins + "; "
-                     "media-src " + this->cached_allowed_origins + "; "
-                     "frame-src " + this->cached_allowed_origins + "; "
-                     "worker-src " + this->cached_allowed_origins + "; "
-                     "manifest-src " + this->cached_allowed_origins + "; "
-                     "form-action " + this->cached_allowed_origins + " file:; "
-                     "frame-ancestors 'self'; "
-                     "object-src 'none'; "
-                     "base-uri 'self';";
-    res.set_header("Content-Security-Policy", csp);
     
     res.set_content_provider(
         file_size,
@@ -318,25 +420,4 @@ void WebServer::sendFile(const httplib::Request& req, httplib::Response& res, co
             return remaining == 0;
         }
     );
-}
-
-bool WebServer::isURIAllowed(const std::string& uri) const /*override*/ {
-    if (uri.rfind(this->getURL(), 0) == 0) {
-        return true;
-    }
-    const auto origins = this->app->info->getProperty("origins");
-    if (origins.is_null()) {
-        this->logger->warn("[server] No origins specified in info file; denying all external URIs");
-        return false;
-    } else if (!origins.is_array()) {
-        this->logger->warn("[server] Origins property in info file is not an array; denying all external URIs");
-        return false;
-    } else {
-        for (const auto& origin : origins.as_array()) {
-            if (origin.is_string() && uri.rfind(origin.as_string(), 0) == 0) {
-                return true;
-            }
-        }
-        return false;
-    }
 }
