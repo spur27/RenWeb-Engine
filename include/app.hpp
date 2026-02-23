@@ -6,6 +6,7 @@
 #include "interfaces/Iwebview.hpp"
 #include "json.hpp"
 #include "config.hpp"
+#include "managers/plugin_manager.hpp"
 #include "window_functions.hpp"
 #include <map>
 #include <string>
@@ -28,6 +29,7 @@ namespace RenWeb {
           std::unique_ptr<RenWeb::IWebview> w = nullptr;
           std::unique_ptr<RenWeb::IWebServer> ws = nullptr;
           std::unique_ptr<RenWeb::WindowFunctions> fns = nullptr;
+          std::unique_ptr<RenWeb::PluginManager> pm = nullptr;
           
           void run();
           
@@ -46,6 +48,7 @@ namespace RenWeb {
           std::unique_ptr<RenWeb::IWebview> w = nullptr;
           std::unique_ptr<RenWeb::IWebServer> ws = nullptr;
           std::unique_ptr<RenWeb::WindowFunctions> fns = nullptr;
+          std::unique_ptr<RenWeb::PluginManager> pm = nullptr;
 
           void validateOpt(const std::string& opt);
       public:
@@ -58,6 +61,7 @@ namespace RenWeb {
           AppBuilder& withWebview(std::unique_ptr<RenWeb::IWebview> w);
           AppBuilder& withWebServer(std::unique_ptr<RenWeb::IWebServer> ws);
           AppBuilder& withWindowFunctions(std::unique_ptr<RenWeb::WindowFunctions> fns);
+          AppBuilder& withPluginManager(std::unique_ptr<RenWeb::PluginManager> pm);
 
           std::unique_ptr<App> build();
     };

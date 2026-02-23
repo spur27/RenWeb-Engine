@@ -616,11 +616,18 @@ export namespace FS {
  */
 export namespace Config {
     /**
-     * Gets the entire configuration object.
+     * Gets the config set for the current page.
      * @returns Promise that resolves to the configuration object
      */
     export async function getConfig(): Promise<any> 
         {  return decode(await BIND_get_config(null)); }
+
+    /**
+     * Gets the config set for __defaults__.
+     * @returns Promise that resolves to the configuration object
+     */
+    export async function getDefaults(): Promise<any> 
+        {  return decode(await BIND_get_defaults(null)); }
 
     /**
      * Gets all of the current property values of the window.
@@ -864,7 +871,7 @@ export class Process {
     }
     public static async duplicate(pid = -1, { is_detachable = true } = { is_detachable: true }): Promise<Process | null> {
         if (pid < 0) {
-            return Process.createWindow(await Window.initialPage(), [], { is_detachable:is_detachable, include_orig_args: true });
+            return Process.createWindow([], [], { is_detachable:is_detachable, include_orig_args: true });
         } else {
             const process = await Process.dumpProcess(pid);
             if (process != null) {
@@ -1048,6 +1055,18 @@ export namespace Navigate {
         { await BIND_open_uri(encode(uri)); }
 }
 
+/**
+ * Plugins
+ */
+export namespace Plugins {
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    export async function getPluginsList(): Promise<any[]> 
+        { return decode(await BIND_get_plugins_list(null)); }
+}
+
 /* 
 * -----------------------------------------------
 * ------------------Declares---------------------
@@ -1118,6 +1137,7 @@ declare const BIND_get_application_dir_path: (...args: any[]) => Promise<any>;
 declare const BIND_download_uri: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_config: (...args: any[]) => Promise<any>;
+declare const BIND_get_defaults: (...args: any[]) => Promise<any>;
 declare const BIND_get_state: (...args: any[]) => Promise<any>;
 declare const BIND_load_state: (...args: any[]) => Promise<any>;
 declare const BIND_save_config: (...args: any[]) => Promise<any>;
@@ -1153,3 +1173,5 @@ declare const BIND_stop_loading: (...args: any[]) => Promise<any>;
 declare const BIND_can_go_back: (...args: any[]) => Promise<any>;
 declare const BIND_can_go_forward: (...args: any[]) => Promise<any>;
 declare const BIND_open_uri: (...args: any[]) => Promise<any>;
+
+declare const BIND_get_plugins_list: (...args: any[]) => Promise<any>;

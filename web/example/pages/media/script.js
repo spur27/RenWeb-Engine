@@ -1,0 +1,1304 @@
+/// <reference path="./index.d.ts" />
+import {
+    Log, 
+    FS,
+    Window,
+    System,
+    Config,
+    Properties,
+    Process,
+    Debug,
+    Network,
+    Navigate,
+    Utils
+ } from './index.js';
+
+window.onload = async () => {
+    await Window.show(true);
+    await Log.info("Window has loaded");
+};
+// Web Audio API Setup
+let audioContext;
+let oscillator;
+let gainNode;
+let analyser;
+let animationId;
+
+function initAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 32;
+        createWaveformBars();
+    }
+}
+
+function createWaveformBars() {
+    const waveform = document.getElementById('waveform');
+    waveform.innerHTML = '';
+    for (let i = 0; i < 16; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'waveform-bar';
+        bar.style.height = '10px';
+        waveform.appendChild(bar);
+    }
+}
+
+function playTone(frequency) {
+    initAudioContext();
+    stopTone();
+    
+    oscillator = audioContext.createOscillator();
+    gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(analyser);
+    analyser.connect(audioContext.destination);
+    
+    oscillator.frequency.value = frequency;
+    oscillator.type = 'sine';
+    gainNode.gain.value = 0.3;
+    
+    oscillator.start();
+    document.getElementById('audio-status').textContent = `Playing tone at ${frequency.toFixed(2)} Hz`;
+    document.getElementById('audio-status').className = 'status success';
+    
+    visualizeAudio();
+}
+
+function stopTone() {
+    if (oscillator) {
+        oscillator.stop();
+        oscillator = null;
+    }
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+    document.getElementById('audio-status').textContent = 'Audio stopped';
+    document.getElementById('audio-status').className = 'status info';
+}
+
+function updateFrequency(value) {
+    document.getElementById('freq-display').textContent = value;
+    if (oscillator) {
+        oscillator.frequency.value = value;
+        document.getElementById('audio-status').textContent = `Playing tone at ${value} Hz`;
+    }
+}
+
+function visualizeAudio() {
+    if (!analyser) return;
+    
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    function draw() {
+        animationId = requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(dataArray);
+        
+        const bars = document.querySelectorAll('.waveform-bar');
+        bars.forEach((bar, i) => {
+            const value = dataArray[i] || 0;
+            const height = (value / 255) * 60;
+            bar.style.height = `${Math.max(height, 2)}px`;
+        });
+    }
+    
+    draw();
+}
+
+// Canvas 2D Animation - Particle System
+let canvas2DInterval;
+let particles = [];
+
+class Particle {
+    constructor(x, y, canvas) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 4;
+        this.vy = (Math.random() - 0.5) * 4;
+        this.radius = Math.random() * 3 + 1;
+        this.hue = Math.random() * 360;
+        this.life = 1;
+        this.decay = Math.random() * 0.01 + 0.005;
+        this.canvas = canvas;
+    }
+    
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+        
+        // Bounce off walls with energy loss
+        if (this.x + this.radius > this.canvas.width || this.x - this.radius < 0) {
+            this.vx *= -0.8;
+            this.x = Math.max(this.radius, Math.min(this.canvas.width - this.radius, this.x));
+        }
+        if (this.y + this.radius > this.canvas.height || this.y - this.radius < 0) {
+            this.vy *= -0.8;
+            this.y = Math.max(this.radius, Math.min(this.canvas.height - this.radius, this.y));
+        }
+        
+        // Gravity
+        this.vy += 0.1;
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        
+        // Create gradient for each particle
+        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+        gradient.addColorStop(0, `hsla(${this.hue}, 100%, 70%, 1)`);
+        gradient.addColorStop(1, `hsla(${this.hue}, 100%, 50%, 0)`);
+        
+        ctx.fillStyle = gradient;
+        ctx.fill();
+        ctx.restore();
+    }
+    
+    isDead() {
+        return this.life <= 0;
+    }
+}
+
+function startCanvas2D() {
+    const canvas = document.getElementById('canvas-2d');
+    const ctx = canvas.getContext('2d');
+    particles = [];
+    
+    stopCanvas2D();
+    
+    let frameCount = 0;
+    canvas2DInterval = setInterval(() => {
+        frameCount++;
+        
+        // Dark background with fade effect
+        ctx.fillStyle = 'rgba(10, 10, 20, 0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Add new particles periodically
+        if (frameCount % 3 === 0) {
+            particles.push(new Particle(
+                canvas.width / 2 + (Math.random() - 0.5) * 50,
+                canvas.height / 2,
+                canvas
+            ));
+        }
+        
+        // Update and draw particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            particles[i].update();
+            particles[i].draw(ctx);
+            
+            if (particles[i].isDead()) {
+                particles.splice(i, 1);
+            }
+        }
+        
+        // Draw particle count
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '12px monospace';
+        ctx.fillText(`Particles: ${particles.length}`, 10, 20);
+        
+    }, 1000 / 60);
+}
+
+function stopCanvas2D() {
+    if (canvas2DInterval) {
+        clearInterval(canvas2DInterval);
+        canvas2DInterval = null;
+    }
+}
+
+function clearCanvas2D() {
+    const canvas = document.getElementById('canvas-2d');
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0a0a14';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    particles = [];
+}
+
+function drawGradient() {
+    const canvas = document.getElementById('canvas-image');
+    const ctx = canvas.getContext('2d');
+    
+    // Animated radial gradients
+    const time = Date.now() / 1000;
+    
+    // Background
+    const bgGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    bgGradient.addColorStop(0, '#141e30');
+    bgGradient.addColorStop(1, '#243b55');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Multiple radial gradients
+    for (let i = 0; i < 3; i++) {
+        const x = canvas.width / 2 + Math.cos(time + i * 2) * 100;
+        const y = canvas.height / 2 + Math.sin(time + i * 2) * 50;
+        
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, 80);
+        const hue = (time * 30 + i * 120) % 360;
+        gradient.addColorStop(0, `hsla(${hue}, 100%, 60%, 0.8)`);
+        gradient.addColorStop(0.5, `hsla(${hue + 30}, 100%, 50%, 0.4)`);
+        gradient.addColorStop(1, 'transparent');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Add text overlay
+    ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 10;
+    ctx.fillText('Radial Gradients', canvas.width / 2, canvas.height / 2);
+    ctx.shadowBlur = 0;
+    
+    // Continue animation
+    if (window.gradientAnimationId) {
+        window.gradientAnimationId = requestAnimationFrame(drawGradient);
+    }
+}
+
+function drawShapes() {
+    const canvas = document.getElementById('canvas-image');
+    const ctx = canvas.getContext('2d');
+    
+    // Background with gradient
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    bgGradient.addColorStop(0, '#0f2027');
+    bgGradient.addColorStop(0.5, '#203a43');
+    bgGradient.addColorStop(1, '#2c5364');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Geometric pattern
+    const time = Date.now() / 2000;
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    
+    // Rotating hexagons
+    for (let layer = 3; layer > 0; layer--) {
+        ctx.save();
+        ctx.rotate(time * (layer % 2 ? 1 : -1) * 0.5);
+        
+        for (let i = 0; i < 6; i++) {
+            ctx.save();
+            ctx.rotate((Math.PI * 2 / 6) * i);
+            ctx.translate(0, -40 * layer);
+            
+            // Hexagon
+            ctx.beginPath();
+            for (let j = 0; j < 6; j++) {
+                const angle = (Math.PI * 2 / 6) * j;
+                const x = Math.cos(angle) * (15 + layer * 5);
+                const y = Math.sin(angle) * (15 + layer * 5);
+                if (j === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            
+            const hue = (i * 60 + layer * 20 + time * 50) % 360;
+            ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.7)`;
+            ctx.fill();
+            ctx.strokeStyle = `hsla(${hue}, 70%, 80%, 0.9)`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+        ctx.restore();
+    }
+    
+    // Center circle
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    const centerGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
+    centerGradient.addColorStop(0, '#fff');
+    centerGradient.addColorStop(1, '#667eea');
+    ctx.fillStyle = centerGradient;
+    ctx.fill();
+    
+    ctx.restore();
+    
+    // Continue animation
+    if (window.shapeAnimationId) {
+        window.shapeAnimationId = requestAnimationFrame(drawShapes);
+    }
+}
+
+function drawText() {
+    const canvas = document.getElementById('canvas-image');
+    const ctx = canvas.getContext('2d');
+    
+    // Dark background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    const time = Date.now() / 1000;
+    
+    // Glowing text effect
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    // Main text with glow
+    ctx.font = 'bold 48px Arial';
+    
+    // Multiple glow layers
+    for (let i = 0; i < 3; i++) {
+        ctx.shadowBlur = 20 + i * 10;
+        ctx.shadowColor = `hsl(${(time * 50) % 360}, 100%, 60%)`;
+        
+        const gradient = ctx.createLinearGradient(0, centerY - 30, 0, centerY + 30);
+        gradient.addColorStop(0, `hsl(${(time * 50) % 360}, 100%, 70%)`);
+        gradient.addColorStop(0.5, `hsl(${(time * 50 + 60) % 360}, 100%, 60%)`);
+        gradient.addColorStop(1, `hsl(${(time * 50 + 120) % 360}, 100%, 70%)`);
+        ctx.fillStyle = gradient;
+        
+        ctx.fillText('Canvas 2D', centerX, centerY);
+    }
+    
+    ctx.shadowBlur = 0;
+    
+    // Subtitle with wave effect
+    ctx.font = '20px Arial';
+    const text = 'Advanced Text Rendering';
+    const waveSpeed = time * 2;
+    const waveHeight = 5;
+    
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const x = centerX - (text.length * 6) + i * 12;
+        const y = centerY + 40 + Math.sin(waveSpeed + i * 0.3) * waveHeight;
+        const hue = ((time * 100 + i * 20) % 360);
+        
+        ctx.fillStyle = `hsl(${hue}, 80%, 70%)`;
+        ctx.fillText(char, x, y);
+    }
+    
+    // Continue animation
+    if (window.textAnimationId) {
+        window.textAnimationId = requestAnimationFrame(drawText);
+    }
+}
+
+// WebGL - Enhanced rotating shapes with lighting
+let webglInterval;
+let webglTime = 0;
+
+function startWebGL() {
+    const canvas = document.getElementById('webgl-canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    
+    if (!gl) {
+        document.getElementById('webgl-status').textContent = 'WebGL not supported!';
+        document.getElementById('webgl-status').className = 'status error';
+        return;
+    }
+    
+    document.getElementById('webgl-status').textContent = 'WebGL rendering with lighting...';
+    document.getElementById('webgl-status').className = 'status success';
+    
+    // Enhanced vertex shader with lighting
+    const vsSource = `
+        attribute vec4 aVertexPosition;
+        attribute vec3 aVertexNormal;
+        attribute vec4 aVertexColor;
+        
+        uniform mat4 uModelViewMatrix;
+        uniform mat4 uProjectionMatrix;
+        uniform mat4 uNormalMatrix;
+        
+        varying lowp vec4 vColor;
+        varying highp vec3 vLighting;
+        
+        void main() {
+            gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+            
+            // Lighting calculation
+            highp vec3 ambientLight = vec3(0.2, 0.2, 0.3);
+            highp vec3 directionalLightColor = vec3(1.0, 0.9, 0.8);
+            highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
+            
+            highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
+            highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
+            
+            vLighting = ambientLight + (directionalLightColor * directional);
+            vColor = aVertexColor;
+        }
+    `;
+    
+    // Enhanced fragment shader
+    const fsSource = `
+        varying lowp vec4 vColor;
+        varying highp vec3 vLighting;
+        
+        void main() {
+            gl_FragColor = vec4(vColor.rgb * vLighting, vColor.a);
+        }
+    `;
+    
+    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+    const programInfo = {
+        program: shaderProgram,
+        attribLocations: {
+            vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+            vertexNormal: gl.getAttribLocation(shaderProgram, 'aVertexNormal'),
+            vertexColor: gl.getAttribLocation(shaderProgram, 'aVertexColor'),
+        },
+        uniformLocations: {
+            projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+            modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+            normalMatrix: gl.getUniformLocation(shaderProgram, 'uNormalMatrix'),
+        },
+    };
+    
+    const cubeBuffers = initBuffers(gl);
+    const sphereBuffers = initSphereBuffers(gl);
+    const torusBuffers = initTorusBuffers(gl);
+    
+    stopWebGL();
+    webglTime = 0;
+    
+    function render() {
+        webglTime += 0.016; // ~60fps
+        drawEnhancedScene(gl, programInfo, cubeBuffers, sphereBuffers, torusBuffers, webglTime);
+        webglInterval = requestAnimationFrame(render);
+    }
+    
+    render();
+}
+
+function stopWebGL() {
+    if (webglInterval) {
+        cancelAnimationFrame(webglInterval);
+        webglInterval = null;
+    }
+    document.getElementById('webgl-status').textContent = 'WebGL stopped';
+    document.getElementById('webgl-status').className = 'status info';
+}
+
+function initSphereBuffers(gl) {
+    const latitudeBands = 20;
+    const longitudeBands = 20;
+    const radius = 1.0;
+    
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const indices = [];
+    
+    for (let lat = 0; lat <= latitudeBands; lat++) {
+        const theta = lat * Math.PI / latitudeBands;
+        const sinTheta = Math.sin(theta);
+        const cosTheta = Math.cos(theta);
+        
+        for (let lon = 0; lon <= longitudeBands; lon++) {
+            const phi = lon * 2 * Math.PI / longitudeBands;
+            const sinPhi = Math.sin(phi);
+            const cosPhi = Math.cos(phi);
+            
+            const x = cosPhi * sinTheta;
+            const y = cosTheta;
+            const z = sinPhi * sinTheta;
+            
+            normals.push(x, y, z);
+            positions.push(radius * x, radius * y, radius * z);
+            
+            // Color based on position
+            colors.push(
+                (x + 1) / 2,
+                (y + 1) / 2,
+                (z + 1) / 2,
+                1.0
+            );
+        }
+    }
+    
+    for (let lat = 0; lat < latitudeBands; lat++) {
+        for (let lon = 0; lon < longitudeBands; lon++) {
+            const first = (lat * (longitudeBands + 1)) + lon;
+            const second = first + longitudeBands + 1;
+            
+            indices.push(first, second, first + 1);
+            indices.push(second, second + 1, first + 1);
+        }
+    }
+    
+    return createBufferObjects(gl, positions, normals, colors, indices);
+}
+
+function initTorusBuffers(gl) {
+    const majorRadius = 1.0;
+    const minorRadius = 0.3;
+    const majorSegments = 24;
+    const minorSegments = 16;
+    
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const indices = [];
+    
+    for (let i = 0; i <= majorSegments; i++) {
+        const u = (i / majorSegments) * Math.PI * 2;
+        
+        for (let j = 0; j <= minorSegments; j++) {
+            const v = (j / minorSegments) * Math.PI * 2;
+            
+            const x = (majorRadius + minorRadius * Math.cos(v)) * Math.cos(u);
+            const y = (majorRadius + minorRadius * Math.cos(v)) * Math.sin(u);
+            const z = minorRadius * Math.sin(v);
+            
+            positions.push(x, y, z);
+            
+            // Normal calculation
+            const nx = Math.cos(u) * Math.cos(v);
+            const ny = Math.sin(u) * Math.cos(v);
+            const nz = Math.sin(v);
+            normals.push(nx, ny, nz);
+            
+            // Rainbow colors around torus
+            const hue = (i / majorSegments + j / minorSegments) * 0.5;
+            colors.push(
+                Math.abs(Math.sin(hue * Math.PI * 2)),
+                Math.abs(Math.sin((hue + 0.33) * Math.PI * 2)),
+                Math.abs(Math.sin((hue + 0.66) * Math.PI * 2)),
+                1.0
+            );
+        }
+    }
+    
+    for (let i = 0; i < majorSegments; i++) {
+        for (let j = 0; j < minorSegments; j++) {
+            const a = i * (minorSegments + 1) + j;
+            const b = a + minorSegments + 1;
+            
+            indices.push(a, b, a + 1);
+            indices.push(b, b + 1, a + 1);
+        }
+    }
+    
+    return createBufferObjects(gl, positions, normals, colors, indices);
+}
+
+function createBufferObjects(gl, positions, normals, colors, indices) {
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+    
+    const normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+    
+    const colorBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+    
+    const indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    
+    return {
+        position: positionBuffer,
+        normal: normalBuffer,
+        color: colorBuffer,
+        indices: indexBuffer,
+        indexCount: indices.length
+    };
+}
+
+function drawEnhancedScene(gl, programInfo, cubeBuffers, sphereBuffers, torusBuffers, time) {
+    // Dark background with slight gradient
+    gl.clearColor(0.05, 0.05, 0.1, 1.0);
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+    const fieldOfView = 30 * Math.PI / 180;
+    const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+    const zNear = 0.1;
+    const zFar = 100.0;
+    const projectionMatrix = mat4_perspective(fieldOfView, aspect, zNear, zFar);
+    
+    gl.useProgram(programInfo.program);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+    
+    // Draw center torus
+    {
+        const modelViewMatrix = mat4_create();
+        mat4_translate(modelViewMatrix, [0.0, Math.sin(time * 0.8) * 0.5, -12.0]);
+        mat4_rotate(modelViewMatrix, time * 0.5, [1, 0.5, 0]);
+        mat4_scale(modelViewMatrix, [1.0, 1.0, 1.0]);
+        
+        const normalMatrix = mat4_invert(mat4_transpose(mat4_copy(modelViewMatrix)));
+        
+        drawObject(gl, programInfo, torusBuffers, modelViewMatrix, normalMatrix);
+    }
+    
+    // Draw bobbing spheres
+    for (let i = 0; i < 3; i++) {
+        const phase = (i * Math.PI * 2 / 3);
+        const modelViewMatrix = mat4_create();
+        mat4_translate(modelViewMatrix, [
+            -3.0 + i * 3.0,
+            Math.sin(time * 1.2 + phase) * 1.5,
+            -12.0
+        ]);
+        mat4_rotate(modelViewMatrix, time * 2, [0, 1, 0]);
+        mat4_scale(modelViewMatrix, [0.5, 0.5, 0.5]);
+        
+        const normalMatrix = mat4_invert(mat4_transpose(mat4_copy(modelViewMatrix)));
+        
+        drawObject(gl, programInfo, sphereBuffers, modelViewMatrix, normalMatrix);
+    }
+    
+    // Draw bobbing cubes
+    for (let i = 0; i < 2; i++) {
+        const phase = i * Math.PI;
+        const modelViewMatrix = mat4_create();
+        mat4_translate(modelViewMatrix, [
+            -1.5 + i * 3.0,
+            Math.sin(time * 0.9 + phase) * 1.8,
+            -12.0
+        ]);
+        mat4_rotate(modelViewMatrix, time * 1.5, [1, 1, 1]);
+        mat4_scale(modelViewMatrix, [0.6, 0.6, 0.6]);
+        
+        const normalMatrix = mat4_invert(mat4_transpose(mat4_copy(modelViewMatrix)));
+        
+        drawObject(gl, programInfo, cubeBuffers, modelViewMatrix, normalMatrix);
+    }
+}
+
+function drawObject(gl, programInfo, buffers, modelViewMatrix, normalMatrix) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexColor, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
+    
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+    
+    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.normalMatrix, false, normalMatrix);
+    
+    gl.drawElements(gl.TRIANGLES, buffers.indexCount, gl.UNSIGNED_SHORT, 0);
+}
+
+function initShaderProgram(gl, vsSource, fsSource) {
+    const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+    const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+    
+    const shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram, vertexShader);
+    gl.attachShader(shaderProgram, fragmentShader);
+    gl.linkProgram(shaderProgram);
+    
+    return shaderProgram;
+}
+
+function loadShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    return shader;
+}
+
+function initBuffers(gl) {
+    const positions = [
+        // Front face
+        -1.0, -1.0,  1.0,  1.0, -1.0,  1.0,  1.0,  1.0,  1.0, -1.0,  1.0,  1.0,
+        // Back face
+        -1.0, -1.0, -1.0, -1.0,  1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0, -1.0,
+        // Top face
+        -1.0,  1.0, -1.0, -1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0, -1.0,
+        // Bottom face
+        -1.0, -1.0, -1.0,  1.0, -1.0, -1.0,  1.0, -1.0,  1.0, -1.0, -1.0,  1.0,
+        // Right face
+         1.0, -1.0, -1.0,  1.0,  1.0, -1.0,  1.0,  1.0,  1.0,  1.0, -1.0,  1.0,
+        // Left face
+        -1.0, -1.0, -1.0, -1.0, -1.0,  1.0, -1.0,  1.0,  1.0, -1.0,  1.0, -1.0,
+    ];
+    
+    const normals = [
+        // Front
+        0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,
+        // Back
+        0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,
+        // Top
+        0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,
+        // Bottom
+        0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,
+        // Right
+        1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,  1.0,  0.0,  0.0,
+        // Left
+       -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0, -1.0,  0.0,  0.0,
+    ];
+    
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+    
+    const normalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+    
+    const faceColors = [
+        [0.8, 0.2, 0.2, 1.0], // Front: red
+        [0.2, 0.8, 0.2, 1.0], // Back: green  
+        [0.2, 0.2, 0.8, 1.0], // Top: blue
+        [0.8, 0.8, 0.2, 1.0], // Bottom: yellow
+        [0.8, 0.2, 0.8, 1.0], // Right: magenta
+        [0.2, 0.8, 0.8, 1.0], // Left: cyan
+    ];
+    
+    let colors = [];
+    for (let c of faceColors) {
+        colors = colors.concat(c, c, c, c);
+    }
+    
+    const colorBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+    
+    const indices = [
+        0,  1,  2,    0,  2,  3,    // front
+        4,  5,  6,    4,  6,  7,    // back
+        8,  9,  10,   8,  10, 11,   // top
+        12, 13, 14,   12, 14, 15,   // bottom
+        16, 17, 18,   16, 18, 19,   // right
+        20, 21, 22,   20, 22, 23,   // left
+    ];
+    
+    const indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    
+    return {
+        position: positionBuffer,
+        normal: normalBuffer,
+        color: colorBuffer,
+        indices: indexBuffer,
+        indexCount: 36
+    };
+}
+
+function drawScene(gl, programInfo, buffers, rotation) {
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+    const fieldOfView = 45 * Math.PI / 180;
+    const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+    const zNear = 0.1;
+    const zFar = 100.0;
+    const projectionMatrix = mat4_perspective(fieldOfView, aspect, zNear, zFar);
+    
+    const modelViewMatrix = mat4_create();
+    mat4_translate(modelViewMatrix, [0.0, 0.0, -6.0]);
+    mat4_rotate(modelViewMatrix, rotation, [1, 1, 1]);
+    
+    const normalMatrix = mat4_invert(mat4_transpose(mat4_copy(modelViewMatrix)));
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexColor, 4, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
+    
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+    gl.useProgram(programInfo.program);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix);
+    gl.uniformMatrix4fv(programInfo.uniformLocations.normalMatrix, false, normalMatrix);
+    
+    gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+}
+
+// Simple matrix functions for WebGL
+function mat4_create() {
+    return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+}
+
+function mat4_perspective(fov, aspect, near, far) {
+    const f = 1.0 / Math.tan(fov / 2);
+    const nf = 1 / (near - far);
+    return [
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, 2 * far * near * nf, 0
+    ];
+}
+
+function mat4_translate(mat, vec) {
+    mat[12] += vec[0];
+    mat[13] += vec[1];
+    mat[14] += vec[2];
+}
+
+function mat4_rotate(mat, angle, axis) {
+    const len = Math.sqrt(axis[0]*axis[0] + axis[1]*axis[1] + axis[2]*axis[2]);
+    const x = axis[0] / len;
+    const y = axis[1] / len;
+    const z = axis[2] / len;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const t = 1 - c;
+    
+    const rot = [
+        x*x*t+c, x*y*t-z*s, x*z*t+y*s, 0,
+        y*x*t+z*s, y*y*t+c, y*z*t-x*s, 0,
+        z*x*t-y*s, z*y*t+x*s, z*z*t+c, 0,
+        0, 0, 0, 1
+    ];
+    
+    const result = [];
+    for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+            result[i*4+j] = 0;
+            for (let k = 0; k < 4; k++) {
+                result[i*4+j] += mat[i*4+k] * rot[k*4+j];
+            }
+        }
+    }
+    
+    for (let i = 0; i < 16; i++) {
+        mat[i] = result[i];
+    }
+}
+
+function mat4_copy(mat) {
+    return [...mat];
+}
+
+function mat4_transpose(mat) {
+    return [
+        mat[0], mat[4], mat[8],  mat[12],
+        mat[1], mat[5], mat[9],  mat[13],
+        mat[2], mat[6], mat[10], mat[14],
+        mat[3], mat[7], mat[11], mat[15]
+    ];
+}
+
+function mat4_invert(mat) {
+    const a00 = mat[0], a01 = mat[1], a02 = mat[2], a03 = mat[3];
+    const a10 = mat[4], a11 = mat[5], a12 = mat[6], a13 = mat[7];
+    const a20 = mat[8], a21 = mat[9], a22 = mat[10], a23 = mat[11];
+    const a30 = mat[12], a31 = mat[13], a32 = mat[14], a33 = mat[15];
+    
+    const b00 = a00 * a11 - a01 * a10;
+    const b01 = a00 * a12 - a02 * a10;
+    const b02 = a00 * a13 - a03 * a10;
+    const b03 = a01 * a12 - a02 * a11;
+    const b04 = a01 * a13 - a03 * a11;
+    const b05 = a02 * a13 - a03 * a12;
+    const b06 = a20 * a31 - a21 * a30;
+    const b07 = a20 * a32 - a22 * a30;
+    const b08 = a20 * a33 - a23 * a30;
+    const b09 = a21 * a32 - a22 * a31;
+    const b10 = a21 * a33 - a23 * a31;
+    const b11 = a22 * a33 - a23 * a32;
+    
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    
+    if (!det) {
+        return null;
+    }
+    det = 1.0 / det;
+    
+    return [
+        (a11 * b11 - a12 * b10 + a13 * b09) * det,
+        (a02 * b10 - a01 * b11 - a03 * b09) * det,
+        (a31 * b05 - a32 * b04 + a33 * b03) * det,
+        (a22 * b04 - a21 * b05 - a23 * b03) * det,
+        (a12 * b08 - a10 * b11 - a13 * b07) * det,
+        (a00 * b11 - a02 * b08 + a03 * b07) * det,
+        (a32 * b02 - a30 * b05 - a33 * b01) * det,
+        (a20 * b05 - a22 * b02 + a23 * b01) * det,
+        (a10 * b10 - a11 * b08 + a13 * b06) * det,
+        (a01 * b08 - a00 * b10 - a03 * b06) * det,
+        (a30 * b04 - a31 * b02 + a33 * b00) * det,
+        (a21 * b02 - a20 * b04 - a23 * b00) * det,
+        (a11 * b07 - a10 * b09 - a12 * b06) * det,
+        (a00 * b09 - a01 * b07 + a02 * b06) * det,
+        (a31 * b01 - a30 * b03 - a32 * b00) * det,
+        (a20 * b03 - a21 * b01 + a22 * b00) * det
+    ];
+}
+
+function mat4_scale(mat, vec) {
+    mat[0] *= vec[0];
+    mat[1] *= vec[0];
+    mat[2] *= vec[0];
+    mat[3] *= vec[0];
+    mat[4] *= vec[1];
+    mat[5] *= vec[1];
+    mat[6] *= vec[1];
+    mat[7] *= vec[1];
+    mat[8] *= vec[2];
+    mat[9] *= vec[2];
+    mat[10] *= vec[2];
+    mat[11] *= vec[2];
+}
+
+// Canvas Video Stream
+let canvasStream;
+let canvasVideoElement;
+
+function startCanvasVideo() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    
+    canvasVideoElement = document.getElementById('canvas-video');
+    
+    // Create a MediaStream from canvas
+    canvasStream = canvas.captureStream(30); // 30 FPS
+    canvasVideoElement.srcObject = canvasStream;
+    canvasVideoElement.play();
+    
+    let hue = 0;
+    let particles = [];
+    
+    for (let i = 0; i < 50; i++) {
+        particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            radius: Math.random() * 5 + 2
+        });
+    }
+    
+    function animate() {
+        if (!canvasStream) return;
+        
+        // Draw background
+        ctx.fillStyle = `hsl(${hue}, 50%, 10%)`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw and update particles
+        particles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            
+            if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+            if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+            
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fillStyle = `hsl(${(hue + p.x / 2) % 360}, 70%, 50%)`;
+            ctx.fill();
+        });
+        
+        // Draw text
+        ctx.font = 'bold 48px Arial';
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.fillText('Canvas Stream', canvas.width / 2, canvas.height / 2);
+        
+        hue = (hue + 0.5) % 360;
+        requestAnimationFrame(animate);
+    }
+    
+    animate();
+    document.getElementById('video-status').textContent = 'Canvas stream active';
+    document.getElementById('video-status').className = 'status success';
+}
+
+function stopCanvasVideo() {
+    if (canvasStream) {
+        canvasStream.getTracks().forEach(track => track.stop());
+        canvasStream = null;
+    }
+    if (canvasVideoElement) {
+        canvasVideoElement.srcObject = null;
+    }
+    document.getElementById('video-status').textContent = 'Stream stopped';
+    document.getElementById('video-status').className = 'status info';
+}
+
+// Data URL Tests
+function testDataURL() {
+    const canvas = document.getElementById('canvas-image');
+    try {
+        const dataURL = canvas.toDataURL('image/png');
+        const img = new Image();
+        img.onload = () => {
+            document.getElementById('dataurl-status').textContent = `✓ Data URL generated (${(dataURL.length / 1024).toFixed(2)} KB)`;
+            document.getElementById('dataurl-status').className = 'status success';
+        };
+        img.src = dataURL;
+    } catch (e) {
+        document.getElementById('dataurl-status').textContent = `✗ Failed: ${e.message}`;
+        document.getElementById('dataurl-status').className = 'status error';
+    }
+}
+
+function testBlob() {
+    const canvas = document.getElementById('canvas-image');
+    canvas.toBlob((blob) => {
+        if (blob) {
+            document.getElementById('dataurl-status').textContent = `✓ Blob created (${(blob.size / 1024).toFixed(2)} KB, ${blob.type})`;
+            document.getElementById('dataurl-status').className = 'status success';
+        } else {
+            document.getElementById('dataurl-status').textContent = '✗ Blob creation failed';
+            document.getElementById('dataurl-status').className = 'status error';
+        }
+    });
+}
+
+// Display Media Capabilities
+async function displayMediaCapabilities() {
+    const container = document.getElementById('media-capabilities');
+    const video = document.createElement('video');
+    const audio = document.createElement('audio');
+    
+    // Async check for image formats
+    const webpSupport = await checkImageFormatAsync('webp');
+    const avifSupport = await checkImageFormatAsync('avif');
+    
+    const capabilities = {
+        'Video Formats': {
+            'MP4 (H.264)': video.canPlayType('video/mp4; codecs="avc1.42E01E"'),
+            'WebM (VP8)': video.canPlayType('video/webm; codecs="vp8"'),
+            'WebM (VP9)': video.canPlayType('video/webm; codecs="vp9"'),
+            'OGG (Theora)': video.canPlayType('video/ogg; codecs="theora"'),
+        },
+        'Audio Formats': {
+            'MP3': audio.canPlayType('audio/mpeg'),
+            'OGG (Vorbis)': audio.canPlayType('audio/ogg; codecs="vorbis"'),
+            'WAV': audio.canPlayType('audio/wav'),
+            'AAC': audio.canPlayType('audio/mp4; codecs="mp4a.40.2"'),
+            'WebM (Opus)': audio.canPlayType('audio/webm; codecs="opus"'),
+        },
+        'Image Formats': {
+            'WebP': webpSupport ? 'probably' : '',
+            'AVIF': avifSupport ? 'probably' : '',
+            'SVG': 'probably',
+        },
+        'APIs': {
+            'Web Audio API': !!window.AudioContext || !!window.webkitAudioContext,
+            'WebGL': !!document.createElement('canvas').getContext('webgl'),
+            'WebGL2': !!document.createElement('canvas').getContext('webgl2'),
+            'Canvas': !!document.createElement('canvas').getContext('2d'),
+            'MediaStream': !!navigator.mediaDevices,
+            'getUserMedia': !!navigator.mediaDevices?.getUserMedia,
+        }
+    };
+    
+    let html = '';
+    for (const [category, items] of Object.entries(capabilities)) {
+        html += `<div class="media-source-info"><h4>${category}</h4><ul>`;
+        for (const [name, support] of Object.entries(items)) {
+            let status, color;
+            if (support === true || support === 'probably') {
+                status = '✓ Supported';
+                color = '#4CAF50';
+            } else if (support === 'maybe') {
+                status = '? Maybe';
+                color = '#ff9800';
+            } else {
+                status = '✗ Not supported';
+                color = '#f44336';
+            }
+            html += `<li><strong>${name}:</strong> <span style="color: ${color}">${status}</span></li>`;
+        }
+        html += '</ul></div>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function checkImageFormatAsync(format) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        
+        // Timeout after 100ms
+        const timeout = setTimeout(() => {
+            resolve(false);
+        }, 100);
+        
+        img.onload = () => {
+            clearTimeout(timeout);
+            // Check if image actually loaded (width > 0)
+            resolve(img.width > 0 && img.height > 0);
+        };
+        
+        img.onerror = () => {
+            clearTimeout(timeout);
+            resolve(false);
+        };
+        
+        // Minimal 1x1 pixel images in WebP and AVIF formats
+        if (format === 'webp') {
+            // 1x1 transparent WebP
+            img.src = 'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAA=';
+        } else if (format === 'avif') {
+            // 1x1 transparent AVIF
+            img.src = 'data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAB0AAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAAAIAAAACAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgQ0MAAAAABNjb2xybmNseAACAAIAAYAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAACVtZGF0EgAKCBgANogQEAwgMg8f8D///8WfhwB8+ErK42A=';
+        } else {
+            resolve(false);
+        }
+    });
+}
+
+function checkImageFormat(format) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    return canvas.toDataURL(`image/${format}`).indexOf(`data:image/${format}`) === 0 ? 'probably' : '';
+}
+
+// Initialize on load
+window.addEventListener('load', () => {
+    displayMediaCapabilities();
+    drawGradient();
+    
+    // Set up media error handlers
+    const mediaElements = document.querySelectorAll('video, audio');
+    mediaElements.forEach(el => {
+        el.addEventListener('error', (e) => {
+            console.error(`Media error on ${el.id}:`, e);
+        });
+    });
+});
+
+// Cleanup on unload
+window.addEventListener('beforeunload', () => {
+    stopTone();
+    stopCanvas2D();
+    stopWebGL();
+    stopCanvasVideo();
+    
+    // Cancel any running animations
+    if (window.gradientAnimationId) cancelAnimationFrame(window.gradientAnimationId);
+    if (window.shapeAnimationId) cancelAnimationFrame(window.shapeAnimationId);
+    if (window.textAnimationId) cancelAnimationFrame(window.textAnimationId);
+    if (window.stopGradientTimer) clearTimeout(window.stopGradientTimer);
+    if (window.stopShapeTimer) clearTimeout(window.stopShapeTimer);
+    if (window.stopTextTimer) clearTimeout(window.stopTextTimer);
+});
+
+// Event listeners for keyboard shortcuts
+document.addEventListener("keydown", async (e) => {
+    if (e.ctrlKey) {
+        if (e.key === 'q') {
+            await Log.debug("CTRL + q was pressed.");
+            await Window.terminate();
+            return;
+        } else if (e.key === 'r') {
+            await Log.debug("CTRL + r was pressed.");
+            await Window.reloadPage();
+            return;
+        } else if (e.key === 's') {
+            await Log.debug("CTRL + s was pressed.");
+            await Config.saveConfig();
+            return;
+        } else if (e.key === 'i') {
+            await Log.debug("CTRL + i was pressed.");
+            await Debug.openDevtools();
+        }
+    }
+});
+
+// Prevent trackpad horizontal swipe navigation
+document.addEventListener("wheel", (e) => {
+    // Prevent horizontal scrolling that triggers browser navigation
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Additional prevention for touchpad gestures
+window.addEventListener("touchstart", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+window.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Show window on load
+window.addEventListener('load', async () => {
+    await Window.show(true);
+    
+    // Initialize canvas backgrounds (exclude WebGL canvas)
+    const canvases = ['canvas-2d', 'canvas-image'];
+    canvases.forEach(id => {
+        const canvas = document.getElementById(id);
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.fillStyle = '#0a0a14';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+    });
+    
+    // Initialize WebGL canvas separately
+    const webglCanvas = document.getElementById('webgl-canvas');
+    if (webglCanvas) {
+        const gl = webglCanvas.getContext('webgl') || webglCanvas.getContext('experimental-webgl');
+        if (gl) {
+            gl.clearColor(0.04, 0.04, 0.08, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+        }
+    }
+});
+
+// Back button
+document.querySelector('.back-button')?.addEventListener('click', async () => {
+    try {
+        await Window.navigatePage('test');
+    } catch (e) {
+        await Log.error(e.message);
+    }
+});
+
+// Expose functions to global scope for inline onclick handlers
+window.startCanvasVideo = startCanvasVideo;
+window.stopCanvasVideo = stopCanvasVideo;
+window.playTone = playTone;
+window.stopTone = stopTone;
+window.updateFrequency = updateFrequency;
+window.startCanvas2D = startCanvas2D;
+window.stopCanvas2D = stopCanvas2D;
+window.clearCanvas2D = clearCanvas2D;
+window.drawGradient = drawGradient;
+window.drawShapes = drawShapes;
+window.drawText = drawText;
+window.startWebGL = startWebGL;
+window.stopWebGL = stopWebGL;
+window.testDataURL = testDataURL;
+window.testBlob = testBlob;

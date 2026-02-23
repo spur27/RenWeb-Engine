@@ -161,7 +161,8 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
       process_callbacks(new CM()),
       debug_callbacks(new CM()),
       network_callbacks(new CM()),
-      navigate_callbacks(new CM())
+      navigate_callbacks(new CM()),
+      plugin_callbacks(new CM())
 { 
     this->setGetSets()
         ->setWindowCallbacks()
@@ -173,6 +174,7 @@ WF::WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app)
         ->setDebugCallbacks()
         ->setNetworkCallbacks()
         ->setNavigateCallbacks()
+        ->setPluginCallbacks()
         ->setInternalCallbacks();
     this->bindDefaults();
 }
@@ -354,6 +356,7 @@ WF* WF::bindDefaults() {
     bindCMs(this->debug_callbacks.get());
     bindCMs(this->network_callbacks.get());
     bindCMs(this->navigate_callbacks.get());
+    bindCMs(this->plugin_callbacks.get());
     return this;
 }
 json::value WF::get(const std::string& property) {
@@ -1646,6 +1649,10 @@ WF* WF::setConfigCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             return this->app->config->getJson();
+    }))->add("get_defaults",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return this->app->config->getDefaultsJson();
     }))->add("get_state",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -1681,7 +1688,8 @@ WF* WF::setConfigCallbacks() {
     }))->add("reset_to_defaults",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            this->logger->critical("[function] reset_to_defaults NOT IMPLEMENTED");
+            auto defaults_json = this->app->config->getDefaultsJson();
+            this->app->config->update((defaults_json.is_object()) ? defaults_json.as_object() : json::object());
             return json::value(nullptr);
     }));
     return this;
@@ -2088,12 +2096,41 @@ WF* WF::setNavigateCallbacks() {
     return this;
 }
 #pragma endregion
+#pragma region PluginCallbacks
+WF* WF::setPluginCallbacks() {
+    this->plugin_callbacks
+    ->add("get_plugins_list",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return this->app->pm->getPluginList();
+    }));
+    
+    auto lowercase = [](const std::string& str) {
+        std::string result = str;
+        std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+        return result;
+    };
+    
+    for (const auto& [plugin_name, plugin] : this->app->pm->getPlugins()) {
+        for (const auto& [plugin_fn_name, fn] : plugin->getFunctions()) {
+            this->plugin_callbacks->add("plugin_" + lowercase(plugin_name) + "_" + lowercase(plugin_fn_name), fn);
+        }
+    }
+    return this;
+}
+#pragma endregion
 #pragma region InternalCallbacks
 WF* WF::setInternalCallbacks() {
     this->internal_callbacks->add("csp",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            json::value origins_obj =this->app->info->getProperty("origins");
+
+            if (this->saved_states.find("csp") != this->saved_states.end()) {
+                this->logger->debug("[csp] CSP already applied. Skipping re-application...");
+                return json::value(nullptr);
+            }
+            
+            json::value origins_obj = this->app->info->getProperty("origins");
             json::array origins_array;
             if (origins_obj.is_string()) {
                 origins_array.push_back(origins_obj.as_string());
@@ -2115,88 +2152,547 @@ WF* WF::setInternalCallbacks() {
             }
             
             const std::string webserver_url = this->app->ws->getURL();
-            std::string connect_src = "'self' " + webserver_url;
-            std::string default_src = "'self' " + webserver_url;
-            std::string img_src = "'self' " + webserver_url + " data: blob:";
-            std::string style_src = "'self' " + webserver_url + " 'unsafe-inline'";
-            std::string font_src = "'self' " + webserver_url + " data:";
-            std::string media_src = "'self' " + webserver_url;
-            std::string frame_src = "'self' " + webserver_url;
-            std::string child_src = "'self' " + webserver_url;
-            std::string worker_src = "'self' " + webserver_url;
-            std::string manifest_src = "'self' " + webserver_url;
-            std::string form_action = "'self' " + webserver_url;
             
-            if (allow_all) {
-                connect_src += " *";
-                default_src += " *";
-                img_src += " *";
-                style_src += " *";
-                font_src += " *";
-                media_src += " *";
-                frame_src += " *";
-                child_src += " *";
-                worker_src += " *";
-                manifest_src += " *";
-                form_action += " *";
-            } else if (!allowed_origins.empty()) {
-                for (const auto& origin : allowed_origins) {
-                    connect_src += " " + origin;
-                    default_src += " " + origin;
-                    img_src += " " + origin;
-                    media_src += " " + origin;
-                    frame_src += " " + origin;
-                    child_src += " " + origin;
-                    worker_src += " " + origin;
-                    manifest_src += " " + origin;
-                    form_action += " " + origin;
+            #if defined(__linux__)
+                auto widget_result = this->app->w->widget();
+                if (!widget_result.has_value()) {
+                    this->logger->error("[csp] Failed to get webview widget");
+                    return json::value(nullptr);
                 }
-            }
-            
-            std::string csp = 
-                "default-src " + default_src + "; " +
-                "script-src 'self' " + webserver_url + " 'unsafe-inline' 'unsafe-eval'; " +
-                "connect-src " + connect_src + " ws: wss:; " +
-                "img-src " + img_src + "; " +
-                "style-src " + style_src + "; " +
-                "font-src " + font_src + "; " +
-                "media-src " + media_src + "; " +
-                "frame-src " + frame_src + "; " +
-                "child-src " + child_src + "; " +
-                "worker-src " + worker_src + "; " +
-                "manifest-src " + manifest_src + "; " +
-                "form-action " + form_action + "; " +
-                "base-uri 'self'; " +
-                "object-src 'none'; " + 
-                "frame-ancestors 'self';";
-            
-            std::string csp_escaped = csp;
-            size_t pos = 0;
-            while ((pos = csp_escaped.find('\\', pos)) != std::string::npos) {
-                csp_escaped.replace(pos, 1, "\\\\");
-                pos += 2;
-            }
-            pos = 0;
-            while ((pos = csp_escaped.find('\'', pos)) != std::string::npos) {
-                csp_escaped.replace(pos, 1, "\\'");
-                pos += 2;
-            }
-            
-            this->app->w->init("(function() {"
-                "  if (!document.head) {"
-                "    document.addEventListener('DOMContentLoaded', function() {"
-                "      var meta = document.createElement('meta');"
-                "      meta.httpEquiv = 'Content-Security-Policy';"
-                "      meta.content = '" + csp_escaped + "';"
-                "      document.head.appendChild(meta);"
-                "    });"
-                "  } else {"
-                "    var meta = document.createElement('meta');"
-                "    meta.httpEquiv = 'Content-Security-Policy';"
-                "    meta.content = '" + csp_escaped + "';"
-                "    document.head.appendChild(meta);"
-                "  }"
-                "})();");
+                
+                WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
+                
+                // Helper: Extract domain from URL (strips protocol and path)
+                auto extract_domain = [](const std::string& url) -> std::string {
+                    size_t start = url.find("://");
+                    if (start == std::string::npos) return "";
+                    start += 3;
+                    size_t end = url.find_first_of(":/?", start);
+                    return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
+                };
+                
+                // Helper: Escape dots for regex patterns
+                auto escape_domain_regex = [](const std::string& domain) -> std::string {
+                    std::string escaped = domain;
+                    size_t pos = 0;
+                    while ((pos = escaped.find('.', pos)) != std::string::npos) {
+                        escaped.replace(pos, 1, "\\.");
+                        pos += 2;
+                    }
+                    return escaped;
+                };
+                
+                // Context for navigation and filter callbacks
+                struct CSPContext {
+                    App* app;
+                    std::shared_ptr<ILogger> logger;
+                    std::vector<std::string> allowed_origins;
+                    bool allow_all;
+                    std::string webserver_url;
+                };
+                
+                auto* ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
+                g_object_set_data_full(G_OBJECT(webview), "renweb-csp-ctx", ctx,
+                    [](gpointer p){ delete static_cast<CSPContext*>(p); });
+                
+                // Navigation policy handler
+                g_signal_connect(webview, "decide-policy", 
+                    G_CALLBACK(+[](WebKitWebView*, WebKitPolicyDecision* decision, 
+                                   WebKitPolicyDecisionType type, gpointer user_data) -> gboolean {
+                        auto* ctx = static_cast<CSPContext*>(user_data);
+                        
+                        // Content filter handles subresources
+                        if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION && 
+                            type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) {
+                            webkit_policy_decision_use(decision);
+                            return TRUE;
+                        }
+                        
+                        WebKitNavigationAction* nav_action = webkit_navigation_policy_decision_get_navigation_action(
+                            WEBKIT_NAVIGATION_POLICY_DECISION(decision));
+                        WebKitURIRequest* request = webkit_navigation_action_get_request(nav_action);
+                        std::string url(webkit_uri_request_get_uri(request));
+                        
+                        bool is_user_navigation = [&]() {
+                            WebKitNavigationType nav_type = webkit_navigation_action_get_navigation_type(nav_action);
+                            return nav_type == WEBKIT_NAVIGATION_TYPE_LINK_CLICKED ||
+                                   nav_type == WEBKIT_NAVIGATION_TYPE_FORM_SUBMITTED ||
+                                   nav_type == WEBKIT_NAVIGATION_TYPE_BACK_FORWARD ||
+                                   nav_type == WEBKIT_NAVIGATION_TYPE_RELOAD ||
+                                   nav_type == WEBKIT_NAVIGATION_TYPE_FORM_RESUBMITTED;
+                        }();
+                        
+                        ctx->logger->debug("[csp] Navigation request to: " + url);
+                        
+                        // Allow non-HTTP protocols (data:, blob:, etc.)
+                        if (url.find("http://") != 0 && url.find("https://") != 0) {
+                            ctx->logger->debug("[csp] Allowing non-HTTP protocol");
+                            webkit_policy_decision_use(decision);
+                            return TRUE;
+                        }
+                        
+                        // Allow webserver or wildcard mode
+                        if (url.find(ctx->webserver_url) == 0 || ctx->allow_all) {
+                            webkit_policy_decision_use(decision);
+                            return TRUE;
+                        }
+                        
+                        // Check whitelist
+                        std::string origin;
+                        size_t proto_end = url.find("://");
+                        if (proto_end != std::string::npos) {
+                            size_t origin_end = url.find('/', proto_end + 3);
+                            origin = (origin_end != std::string::npos) ? url.substr(0, origin_end) : url;
+                        }
+                        
+                        bool allowed = false;
+                        for (const auto& allowed_origin : ctx->allowed_origins) {
+                            if (origin.find(allowed_origin) == 0 || url.find(allowed_origin) == 0) {
+                                allowed = true;
+                                break;
+                            }
+                        }
+                        
+                        if (allowed) {
+                            ctx->logger->info("[csp] Allowing whitelisted origin: " + origin);
+                            webkit_policy_decision_use(decision);
+                        } else if (is_user_navigation) {
+                            ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
+                            webkit_policy_decision_ignore(decision);
+                            ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                                "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url + 
+                                "</code></p><p>Navigation blocked for security.</p>"));
+                        } else {
+                            ctx->logger->debug("[csp] Allowing programmatic navigation");
+                            webkit_policy_decision_use(decision);
+                        }
+                        
+                        return TRUE;
+                    }), ctx);
+                
+                // Build content filter for subresources
+                if (!allow_all) {
+                    std::vector<std::string> allowed_domains{extract_domain(webserver_url)};
+                    for (const auto& origin : allowed_origins) {
+                        std::string domain = extract_domain(origin);
+                        if (!domain.empty()) allowed_domains.push_back(domain);
+                    }
+                    
+                    if (!allowed_domains.empty()) {
+                        json::array resource_types{"image", "style-sheet", "script", "font", 
+                                                   "raw", "svg-document", "media", "fetch"};
+                        
+                        json::array rules;
+                        // Block all third-party resources
+                        rules.emplace_back(json::object{
+                            {"trigger", json::object{
+                                {"url-filter", ".*"},
+                                {"resource-type", resource_types},
+                                {"load-type", json::array{"third-party"}}
+                            }},
+                            {"action", json::object{{"type", "block"}}}
+                        });
+                        
+                        // Allow whitelisted domains
+                        for (const auto& domain : allowed_domains) {
+                            rules.emplace_back(json::object{
+                                {"trigger", json::object{
+                                    {"url-filter", escape_domain_regex(domain)},
+                                    {"resource-type", resource_types}
+                                }},
+                                {"action", json::object{{"type", "ignore-previous-rules"}}}
+                            });
+                        }
+                        
+                        std::string rules_json = json::serialize(rules);
+                        this->logger->info("[csp] Content filter: " + std::to_string(allowed_domains.size()) + 
+                                         " allowed domains");
+                        
+                        GBytes* rules_bytes = g_bytes_new(rules_json.c_str(), rules_json.length());
+                        WebKitUserContentFilterStore* store = webkit_user_content_filter_store_new("/tmp/renweb-filters");
+                        
+                        auto* filter_ctx = new CSPContext{this->app, this->logger, {}, false, ""};
+                        webkit_user_content_filter_store_save(store, "renweb-filter", rules_bytes, nullptr,
+                            +[](GObject* src, GAsyncResult* res, gpointer data) {
+                                auto* ctx = static_cast<CSPContext*>(data);
+                                GError* err = nullptr;
+                                auto* filter = webkit_user_content_filter_store_save_finish(
+                                    WEBKIT_USER_CONTENT_FILTER_STORE(src), res, &err);
+                                
+                                if (filter) {
+                                    webkit_user_content_manager_add_filter(
+                                        webkit_web_view_get_user_content_manager(
+                                            WEBKIT_WEB_VIEW(ctx->app->w->widget().value())), filter);
+                                    webkit_user_content_filter_unref(filter);
+                                    ctx->logger->info("[csp] Content filter active - subresources blocked");
+                                } else {
+                                    ctx->logger->error("[csp] Filter failed: " + 
+                                        std::string(err ? err->message : "unknown"));
+                                    if (err) g_error_free(err);
+                                }
+                                delete ctx;
+                            }, filter_ctx);
+                        
+                        g_bytes_unref(rules_bytes);
+                        g_object_unref(store);
+                    }
+                }
+                
+            #elif defined(_WIN32)
+                // Windows WebView2: Navigation interception with WebResourceRequested
+                auto webview2_opt = this->app->w->widget();
+                if (!webview2_opt.has_value()) {
+                    this->logger->error("[csp] Failed to get WebView2 widget");
+                    return json::value(nullptr);
+                }
+                
+                ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
+                if (!webview2) {
+                    this->logger->error("[csp] WebView2 pointer invalid");
+                    return json::value(nullptr);
+                }
+                
+                // Context for navigation callback
+                struct CSPContext {
+                    App* app;
+                    std::shared_ptr<ILogger> logger;
+                    std::vector<std::string> allowed_origins;
+                    bool allow_all;
+                    std::string webserver_url;
+                };
+                
+                auto* ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
+                
+                // Navigation interception
+                HRESULT hr = webview2->add_NavigationStarting(
+                    Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                        [ctx](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                            (void)sender;
+                            
+                            LPWSTR uri_wide;
+                            args->get_Uri(&uri_wide);
+                            std::wstring wide_url(uri_wide);
+                            std::string url(wide_url.begin(), wide_url.end());
+                            CoTaskMemFree(uri_wide);
+                            
+                            BOOL is_user_initiated;
+                            args->get_IsUserInitiated(&is_user_initiated);
+                            
+                            ctx->logger->debug("[csp] Navigation request to: " + url);
+                            
+                            // Allow non-HTTP protocols
+                            if (url.find("http://") != 0 && url.find("https://") != 0) {
+                                ctx->logger->debug("[csp] Allowing non-HTTP protocol");
+                                return S_OK;
+                            }
+                            
+                            // Allow webserver or wildcard mode
+                            if (url.find(ctx->webserver_url) == 0 || ctx->allow_all) {
+                                return S_OK;
+                            }
+                            
+                            // Check whitelist
+                            std::string origin;
+                            size_t proto_end = url.find("://");
+                            if (proto_end != std::string::npos) {
+                                size_t origin_end = url.find('/', proto_end + 3);
+                                origin = (origin_end != std::string::npos) ? url.substr(0, origin_end) : url;
+                            }
+                            
+                            bool allowed = false;
+                            for (const auto& allowed_origin : ctx->allowed_origins) {
+                                if (origin.find(allowed_origin) == 0 || url.find(allowed_origin) == 0) {
+                                    allowed = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (allowed) {
+                                ctx->logger->info("[csp] Allowing whitelisted origin: " + origin);
+                            } else if (is_user_initiated) {
+                                ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
+                                args->put_Cancel(TRUE);
+                                ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                                    "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url + 
+                                    "</code></p><p>Navigation blocked for security.</p>"));
+                            } else {
+                                ctx->logger->debug("[csp] Allowing programmatic navigation");
+                            }
+                            
+                            return S_OK;
+                        }
+                    ).Get(),
+                    nullptr
+                );
+                
+                if (FAILED(hr)) {
+                    this->logger->error("[csp] Failed to register NavigationStarting handler");
+                    delete ctx;
+                    return json::value(nullptr);
+                }
+                
+                // Resource filtering for subresources
+                if (!allow_all && !allowed_origins.empty()) {
+                    auto* filter_ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
+                    
+                    hr = webview2->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                    if (SUCCEEDED(hr)) {
+                        hr = webview2->add_WebResourceRequested(
+                            Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+                                [filter_ctx](ICoreWebView2* sender, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                                    (void)sender;
+                                    
+                                    ICoreWebView2WebResourceRequest* request;
+                                    args->get_Request(&request);
+                                    
+                                    LPWSTR uri_wide;
+                                    request->get_Uri(&uri_wide);
+                                    std::wstring wide_url(uri_wide);
+                                    std::string url(wide_url.begin(), wide_url.end());
+                                    CoTaskMemFree(uri_wide);
+                                    
+                                    // Allow webserver or wildcard mode
+                                    if (url.find(filter_ctx->webserver_url) == 0 || filter_ctx->allow_all) {
+                                        return S_OK;
+                                    }
+                                    
+                                    // Check whitelist
+                                    bool allowed = false;
+                                    for (const auto& allowed_origin : filter_ctx->allowed_origins) {
+                                        if (url.find(allowed_origin) == 0) {
+                                            allowed = true;
+                                            break;
+                                        }
+                                    }
+                                    
+                                    if (!allowed) {
+                                        filter_ctx->logger->debug("[csp] Blocking third-party resource: " + url);
+                                        // Block by creating empty response
+                                        ICoreWebView2WebResourceResponse* response;
+                                        ICoreWebView2Environment* env;
+                                        sender->get_Environment(&env);
+                                        
+                                        IStream* nullStream = SHCreateMemStream(nullptr, 0);
+                                        env->CreateWebResourceResponse(nullStream, 403, L"Forbidden", L"", &response);
+                                        args->put_Response(response);
+                                        
+                                        nullStream->Release();
+                                        response->Release();
+                                        env->Release();
+                                    }
+                                    
+                                    request->Release();
+                                    return S_OK;
+                                }
+                            ).Get(),
+                            nullptr
+                        );
+                        
+                        if (SUCCEEDED(hr)) {
+                            this->logger->info("[csp] WebResourceRequested filter active - subresources blocked");
+                        } else {
+                            this->logger->error("[csp] Failed to register WebResourceRequested handler");
+                            delete filter_ctx;
+                        }
+                    }
+                }
+                
+                this->logger->info("[csp] Origin-based navigation security enabled");
+                
+            #elif defined(__APPLE__)
+                // macOS WKWebView: Navigation interception with WKNavigationDelegate
+                auto window_result = this->app->w->window();
+                if (!window_result.has_value()) {
+                    this->logger->error("[csp] Failed to get window");
+                    return json::value(nullptr);
+                }
+                
+                id nsWindow = (__bridge id)window_result.value();
+                id webview = nil;
+                for (id view in [[nsWindow contentView] subviews]) {
+                    if ([view isKindOfClass:NSClassFromString(@"WKWebView")]) {
+                        webview = view;
+                        break;
+                    }
+                }
+                
+                if (!webview) {
+                    this->logger->error("[csp] Failed to get WKWebView");
+                    return json::value(nullptr);
+                }
+                
+                // Context for navigation callback
+                struct CSPContext {
+                    App* app;
+                    std::shared_ptr<ILogger> logger;
+                    std::vector<std::string> allowed_origins;
+                    bool allow_all;
+                    std::string webserver_url;
+                };
+                
+                auto* ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
+                
+                // Create navigation delegate
+                static Class delegateClass = nil;
+                if (!delegateClass) {
+                    delegateClass = objc_allocateClassPair([NSObject class], "RenWebCSPNavigationDelegate", 0);
+                    
+                    class_addMethod(delegateClass, 
+                        @selector(webView:decidePolicyForNavigationAction:decisionHandler:),
+                        imp_implementationWithBlock(^(id self, id webView, id navigationAction, void (^decisionHandler)(WKNavigationActionPolicy)) {
+                            (void)self;
+                            (void)webView;
+                            
+                            CSPContext* ctx = (CSPContext*)objc_getAssociatedObject(self, "cspContext");
+                            if (!ctx) {
+                                decisionHandler(WKNavigationActionPolicyAllow);
+                                return;
+                            }
+                            
+                            NSURL* url = [[navigationAction request] URL];
+                            NSString* urlString = [url absoluteString];
+                            std::string url_str([urlString UTF8String]);
+                            
+                            WKNavigationType navType = [navigationAction navigationType];
+                            bool is_user_navigation = (navType == WKNavigationTypeLinkActivated ||
+                                                      navType == WKNavigationTypeFormSubmitted ||
+                                                      navType == WKNavigationTypeBackForward ||
+                                                      navType == WKNavigationTypeReload ||
+                                                      navType == WKNavigationTypeFormResubmitted);
+                            
+                            ctx->logger->debug("[csp] Navigation request to: " + url_str);
+                            
+                            // Allow non-HTTP protocols
+                            if (url_str.find("http://") != 0 && url_str.find("https://") != 0) {
+                                ctx->logger->debug("[csp] Allowing non-HTTP protocol");
+                                decisionHandler(WKNavigationActionPolicyAllow);
+                                return;
+                            }
+                            
+                            // Allow webserver or wildcard mode
+                            if (url_str.find(ctx->webserver_url) == 0 || ctx->allow_all) {
+                                decisionHandler(WKNavigationActionPolicyAllow);
+                                return;
+                            }
+                            
+                            // Check whitelist
+                            std::string origin;
+                            size_t proto_end = url_str.find("://");
+                            if (proto_end != std::string::npos) {
+                                size_t origin_end = url_str.find('/', proto_end + 3);
+                                origin = (origin_end != std::string::npos) ? url_str.substr(0, origin_end) : url_str;
+                            }
+                            
+                            bool allowed = false;
+                            for (const auto& allowed_origin : ctx->allowed_origins) {
+                                if (origin.find(allowed_origin) == 0 || url_str.find(allowed_origin) == 0) {
+                                    allowed = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (allowed) {
+                                ctx->logger->info("[csp] Allowing whitelisted origin: " + origin);
+                                decisionHandler(WKNavigationActionPolicyAllow);
+                            } else if (is_user_navigation) {
+                                ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
+                                decisionHandler(WKNavigationActionPolicyCancel);
+                                ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                                    "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url_str + 
+                                    "</code></p><p>Navigation blocked for security.</p>"));
+                            } else {
+                                ctx->logger->debug("[csp] Allowing programmatic navigation");
+                                decisionHandler(WKNavigationActionPolicyAllow);
+                            }
+                        }),
+                        "v@:@@@");
+                    
+                    objc_registerClassPair(delegateClass);
+                }
+                
+                id delegate = [[delegateClass alloc] init];
+                objc_setAssociatedObject(delegate, "cspContext", ctx, OBJC_ASSOCIATION_ASSIGN);
+                [webview setNavigationDelegate:delegate];
+                
+                // Content filter for subresources
+                if (!allow_all && !allowed_origins.empty()) {
+                    // Helper: Extract domain from URL
+                    auto extract_domain = [](const std::string& url) -> std::string {
+                        size_t start = url.find("://");
+                        if (start == std::string::npos) return "";
+                        start += 3;
+                        size_t end = url.find_first_of(":/?", start);
+                        return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
+                    };
+                    
+                    // Helper: Escape dots for regex
+                    auto escape_domain_regex = [](const std::string& domain) -> std::string {
+                        std::string escaped = domain;
+                        size_t pos = 0;
+                        while ((pos = escaped.find('.', pos)) != std::string::npos) {
+                            escaped.replace(pos, 1, "\\.");
+                            pos += 2;
+                        }
+                        return escaped;
+                    };
+                    
+                    std::vector<std::string> allowed_domains{extract_domain(webserver_url)};
+                    for (const auto& origin : allowed_origins) {
+                        std::string domain = extract_domain(origin);
+                        if (!domain.empty()) allowed_domains.push_back(domain);
+                    }
+                    
+                    json::array resource_types{"image", "style-sheet", "script", "font", 
+                                              "raw", "svg-document", "media", "fetch"};
+                    
+                    json::array rules;
+                    // Block all third-party resources
+                    rules.emplace_back(json::object{
+                        {"trigger", json::object{
+                            {"url-filter", ".*"},
+                            {"resource-type", resource_types},
+                            {"load-type", json::array{"third-party"}}
+                        }},
+                        {"action", json::object{{"type", "block"}}}
+                    });
+                    
+                    // Allow whitelisted domains
+                    for (const auto& domain : allowed_domains) {
+                        rules.emplace_back(json::object{
+                            {"trigger", json::object{
+                                {"url-filter", escape_domain_regex(domain)},
+                                {"resource-type", resource_types}
+                            }},
+                            {"action", json::object{{"type", "ignore-previous-rules"}}}
+                        });
+                    }
+                    
+                    std::string rules_json = json::serialize(rules);
+                    this->logger->info("[csp] Content filter: " + std::to_string(allowed_domains.size()) + " allowed domains");
+                    
+                    id store = [NSClassFromString(@"WKContentRuleListStore") defaultStore];
+                    NSString* identifier = @"renweb-filter";
+                    NSString* rulesString = [NSString stringWithUTF8String:rules_json.c_str()];
+                    
+                    [store compileContentRuleListForIdentifier:identifier
+                        encodedContentRuleList:rulesString
+                        completionHandler:^(id ruleList, NSError* error) {
+                            if (ruleList) {
+                                id config = [webview configuration];
+                                id contentController = [config userContentController];
+                                [contentController addContentRuleList:ruleList];
+                                this->logger->info("[csp] Content filter active - subresources blocked");
+                            } else {
+                                NSString* errorMsg = error ? [error localizedDescription] : @"unknown";
+                                this->logger->error("[csp] Filter failed: " + std::string([errorMsg UTF8String]));
+                            }
+                        }];
+                }
+                
+                this->logger->info("[csp] Origin-based navigation security enabled");
+                
+            #endif
+            this->saved_states["csp"] = json::value(true);
             return json::value(nullptr);
         }))->add("dependency_check",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -2748,14 +3244,19 @@ WF* WF::setInternalCallbacks() {
     return this;
 }
 
-WF* WF::setup() {
+WF* WF::setup(const json::object& setup_state) {
     const json::value req = json::value(nullptr);
-    const json::value& prop = this->app->config->getProperty("initially_shown");
 #ifndef _WIN32
-    if (prop.is_bool() && !prop.as_bool()) {
+    if (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool() && !setup_state.at("initially_shown").as_bool()) {
         this->window_callbacks->run(
             "show", 
-            json::value((prop.is_bool()) ? (prop.as_bool()) : true)
+            json::array({setup_state.at("initially_shown")})
+        );
+    }
+    if (setup_state.contains("title") && setup_state.at("title").is_string()) {
+        this->window_callbacks->run(
+            "change_title", 
+            json::array({setup_state.at("title")})
         );
     }
 #endif

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Origin Security Test</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" type="module" defer></script>
+    <script src="starfield.js" defer></script>
+</head>
+<body>
+    <button class="back-button" title="Back to Test Suite">←</button>
+    <canvas id="starfield"></canvas>
+    <div class="container">
+        <h1>🔒 Origin-Based Navigation Security Test</h1>
+        <p class="subtitle"><strong>Whitelisted Origin:</strong> <code>https://www.google.com</code></p>
+        <p class="subtitle">This page tests C++-level navigation blocking. User navigations to non-whitelisted origins show error pages, while subresources are silently blocked.</p>
+
+    <div class="test-section">
+        <h2>Navigation Tests (User-Initiated)</h2>
+        <p class="section-note">These links trigger user navigation. Non-whitelisted URLs should show a 403 error page.</p>
+        
+        <div class="test-item pending" id="test-nav-google">
+            <span class="status pending">MANUAL</span>
+            <strong>Navigate to Google (Whitelisted)</strong>
+            <div class="test-description">Click to navigate to whitelisted origin</div>
+            <a href="https://www.google.com" class="test-link">🔗 Navigate to Google</a>
+            <div class="test-result">Should navigate successfully</div>
+        </div>
+
+        <div class="test-item pending" id="test-nav-github">
+            <span class="status pending">MANUAL</span>
+            <strong>Navigate to GitHub (Non-Whitelisted)</strong>
+            <div class="test-description">Click to navigate to non-whitelisted origin</div>
+            <a href="https://github.com" class="test-link">🔗 Navigate to GitHub</a>
+            <div class="test-result">Should show 403 Forbidden error page</div>
+        </div>
+
+        <div class="test-item pending" id="test-nav-example">
+            <span class="status pending">MANUAL</span>
+            <strong>Navigate to Example.com (Non-Whitelisted)</strong>
+            <div class="test-description">Click to navigate to non-whitelisted origin</div>
+            <a href="https://example.com" class="test-link">🔗 Navigate to Example.com</a>
+            <div class="test-result">Should show 403 Forbidden error page</div>
+        </div>
+
+        <div class="test-item pending" id="test-nav-programmatic">
+            <span class="status pending">MANUAL</span>
+            <strong>Programmatic Navigation (Non-Whitelisted)</strong>
+            <div class="test-description">JavaScript-triggered navigation to non-whitelisted URL</div>
+            <button onclick="window.location.href='https://www.cloudflare.com'" class="test-link">🔗 window.location.href to Cloudflare</button>
+            <div class="test-result">Should show 403 Forbidden error page</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Subresource Loading Tests</h2>
+        <p class="section-note">These resources load automatically. Non-whitelisted origins should be silently blocked.</p>
+        
+        <div class="test-item pending" id="test-img-google">
+            <span class="status pending">AUTO</span>
+            <strong>Image from Google (Whitelisted)</strong>
+            <div class="test-description">Tests loading image from whitelisted origin</div>
+            <img id="google-img" src="https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png" 
+                 alt="Google Logo">
+            <div class="test-result" id="result-img-google">Loading...</div>
+        </div>
+
+        <div class="test-item pending" id="test-img-placeholder">
+            <span class="status pending">AUTO</span>
+            <strong>Image from Placeholder (Non-Whitelisted)</strong>
+            <div class="test-description">Tests loading image from non-whitelisted origin</div>
+            <img id="placeholder-img" src="https://via.placeholder.com/150" 
+                 alt="Placeholder" style="border: 2px solid #666;">
+            <div class="test-result" id="result-img-placeholder">Loading...</div>
+        </div>
+
+        <div class="test-item pending" id="test-img-unsplash">
+            <span class="status pending">AUTO</span>
+            <strong>Image from Unsplash (Non-Whitelisted)</strong>
+            <div class="test-description">Tests loading image from non-whitelisted origin</div>
+            <img id="unsplash-img" src="https://source.unsplash.com/random/150x150" 
+                 alt="Unsplash" style="border: 2px solid #666;">
+            <div class="test-result" id="result-img-unsplash">Loading...</div>
+        </div>
+
+        <div class="test-item pending" id="test-script-external">
+            <span class="status pending">AUTO</span>
+            <strong>External Script (Non-Whitelisted)</strong>
+            <div class="test-description">Tests loading script from non-whitelisted CDN</div>
+            <div class="test-result" id="result-script-external">Testing...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Fetch/XHR Tests (connect-src)</h2>
+        <p class="section-note">These requests are made via JavaScript. Non-whitelisted origins should be blocked.</p>
+        
+        <div class="test-item pending" id="test-fetch-google">
+            <span class="status pending">AUTO</span>
+            <strong>Fetch from Google (Whitelisted)</strong>
+            <div class="test-description">Tests fetch/XHR to whitelisted origin</div>
+            <div class="test-result" id="result-fetch-google">Testing...</div>
+        </div>
+
+        <div class="test-item pending" id="test-fetch-github">
+            <span class="status pending">AUTO</span>
+            <strong>Fetch from GitHub API (Non-Whitelisted)</strong>
+            <div class="test-description">Tests fetch/XHR to non-whitelisted origin</div>
+            <div class="test-result" id="result-fetch-github">Testing...</div>
+        </div>
+
+        <div class="test-item pending" id="test-fetch-jsonplaceholder">
+            <span class="status pending">AUTO</span>
+            <strong>Fetch from JSONPlaceholder (Non-Whitelisted)</strong>
+            <div class="test-description">Tests fetch/XHR to non-whitelisted API</div>
+            <div class="test-result" id="result-fetch-jsonplaceholder">Testing...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>iFrame Embedding Tests</h2>
+        <p class="section-note">These iframes load automatically. Non-whitelisted origins should be blocked.</p>
+        
+        <div class="test-item pending" id="test-iframe-example">
+            <span class="status pending">AUTO</span>
+            <strong>iFrame from Example.com (Non-Whitelisted)</strong>
+            <div class="test-description">Tests embedding iframe from non-whitelisted origin</div>
+            <iframe id="example-frame" src="https://example.com" style="width: 100%; height: 200px; border: 2px solid #666;"></iframe>
+            <div class="test-result" id="result-iframe-example">Loading...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>Special Cases</h2>
+        
+        <div class="test-item pending" id="test-data-uri">
+            <span class="status pending">AUTO</span>
+            <strong>Data URI Image</strong>
+            <div class="test-description">Tests loading image from data: URI (should be allowed - internal protocol)</div>
+            <img id="data-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect fill='%234CAF50' width='100' height='100'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='20'%3EDATA%3C/text%3E%3C/svg%3E" 
+                 alt="Data URI Test">
+            <div class="test-result" id="result-data-uri">Loading...</div>
+        </div>
+
+        <div class="test-item pending" id="test-webserver">
+            <span class="status pending">AUTO</span>
+            <strong>Local WebServer Resource</strong>
+            <div class="test-description">Resources from the local webserver should always be allowed</div>
+            <div class="test-result" id="result-webserver">WebServer origin is always whitelisted</div>
+        </div>
+    </div>
+
+    <!-- External script that should be blocked -->
+    <script id="external-script-test" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    </div>
+</body>
+</html>

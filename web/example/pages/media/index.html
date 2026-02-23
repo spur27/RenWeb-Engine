@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Test Suite</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="./script.js" type="module" defer></script>
+    <script src="./starfield.js" defer></script>
+</head>
+<body>
+    <button class="back-button" title="Back to Test Suite">←</button>
+    <canvas id="starfield"></canvas>
+    <div class="container">
+        <h1>🎬 Comprehensive Media Test Suite</h1>
+        <p class="subtitle">Testing various media formats, codecs, and APIs</p>
+
+        <div class="grid">
+            <!-- Video Tests -->
+            <div class="media-card">
+                <h2>📹 Video Tests</h2>
+                
+                <h3>Generated Video (Canvas Stream)</h3>
+                <div class="video-container">
+                    <video id="canvas-video" controls playsinline></video>
+                </div>
+                <div class="controls">
+                    <button onclick="startCanvasVideo()">▶ Start Animation Stream</button>
+                    <button onclick="stopCanvasVideo()">⏹ Stop</button>
+                </div>
+                <div id="video-status" class="status info">Click start to generate video from canvas</div>
+
+                <h3>MP4 Video (H.264)</h3>
+                <video id="mp4-video" controls playsinline>
+                    <source src="../../assets/test-video.mp4" type="video/mp4">
+                    Your browser doesn't support MP4 video.
+                </video>
+                <div class="file-info">Expected file: assets/test-video.mp4 (H.264/AAC)</div>
+
+                <h3>WebM Video (VP8/VP9)</h3>
+                <video id="webm-video" controls playsinline>
+                    <source src="../../assets/test-video.webm" type="video/webm">
+                    Your browser doesn't support WebM video.
+                </video>
+                <div class="file-info">Expected file: assets/test-video.webm (VP8/VP9)</div>
+
+                <h3>OGG Video (Theora)</h3>
+                <video id="ogv-video" controls playsinline>
+                    <source src="../../assets/test-video.ogv" type="video/ogg">
+                    Your browser doesn't support OGG video.
+                </video>
+                <div class="file-info">Expected file: assets/test-video.ogv (Theora)</div>
+            </div>
+
+            <!-- Audio Tests -->
+            <div class="media-card">
+                <h2>🔊 Audio Tests</h2>
+                
+                <h3>Generated Audio (Web Audio API)</h3>
+                <div class="waveform" id="waveform">
+                    <!-- Waveform bars will be generated -->
+                </div>
+                <div class="controls">
+                    <button onclick="playTone(440)">▶ Play A (440Hz)</button>
+                    <button onclick="playTone(523.25)">▶ Play C (523Hz)</button>
+                    <button onclick="playTone(698.46)">▶ Play F (698Hz)</button>
+                    <button onclick="stopTone()">⏹ Stop</button>
+                </div>
+                <div>
+                    <label for="frequency">Frequency: <span id="freq-display">440</span> Hz</label>
+                    <input type="range" id="frequency" min="100" max="2000" value="440" 
+                           oninput="updateFrequency(this.value)">
+                </div>
+                <div id="audio-status" class="status info">Web Audio API ready</div>
+
+                <h3>MP3 Audio</h3>
+                <audio id="mp3-audio" controls>
+                    <source src="../../assets/test-audio.mp3" type="audio/mpeg">
+                    Your browser doesn't support MP3 audio.
+                </audio>
+                <div class="file-info">Expected file: assets/test-audio.mp3</div>
+
+                <h3>OGG Audio (Vorbis)</h3>
+                <audio id="ogg-audio" controls>
+                    <source src="../../assets/test-audio.ogg" type="audio/ogg">
+                    Your browser doesn't support OGG audio.
+                </audio>
+                <div class="file-info">Expected file: assets/test-audio.ogg (Vorbis)</div>
+
+                <h3>WAV Audio</h3>
+                <audio id="wav-audio" controls>
+                    <source src="../../assets/test-audio.wav" type="audio/wav">
+                    Your browser doesn't support WAV audio.
+                </audio>
+                <div class="file-info">Expected file: assets/test-audio.wav</div>
+
+                <h3>M4A Audio (AAC)</h3>
+                <audio id="m4a-audio" controls>
+                    <source src="../../assets/test-audio.m4a" type="audio/mp4">
+                    Your browser doesn't support M4A audio.
+                </audio>
+                <div class="file-info">Expected file: assets/test-audio.m4a (AAC)</div>
+            </div>
+
+            <!-- Canvas Tests -->
+            <div class="media-card">
+                <h2>🎨 Canvas & Graphics</h2>
+                
+                <h3>Particle System Animation</h3>
+                <canvas id="canvas-2d" class="example-canvas" width="400" height="300"></canvas>
+                <div class="controls">
+                    <button onclick="startCanvas2D()">▶ Start Particles</button>
+                    <button onclick="stopCanvas2D()">⏹ Stop</button>
+                    <button onclick="clearCanvas2D()">🗑 Clear</button>
+                </div>
+                <div class="file-info">Physics-based particle system with gravity and collisions</div>
+
+                <h3>Canvas Image Operations</h3>
+                <canvas id="canvas-image" class="example-canvas" width="400" height="200"></canvas>
+                <div class="controls">
+                    <button onclick="window.gradientAnimationId = requestAnimationFrame(drawGradient); clearTimeout(window.stopGradientTimer); window.stopGradientTimer = setTimeout(() => cancelAnimationFrame(window.gradientAnimationId), 10000)">✨ Animate Gradients (10s)</button>
+                    <button onclick="window.shapeAnimationId = requestAnimationFrame(drawShapes); clearTimeout(window.stopShapeTimer); window.stopShapeTimer = setTimeout(() => cancelAnimationFrame(window.shapeAnimationId), 10000)">🔷 Animate Shapes (10s)</button>
+                    <button onclick="window.textAnimationId = requestAnimationFrame(drawText); clearTimeout(window.stopTextTimer); window.stopTextTimer = setTimeout(() => cancelAnimationFrame(window.textAnimationId), 10000)">📝 Animate Text (10s)</button>
+                </div>
+                <div class="file-info">Animated radial gradients, geometric patterns, and glowing text effects</div>
+            </div>
+
+            <!-- WebGL Tests -->
+            <div class="media-card">
+                <h2>🔷 WebGL & 3D</h2>
+                
+                <h3>WebGL Rotating Cube</h3>
+                <canvas id="webgl-canvas" class="example-canvas" width="400" height="400"></canvas>
+                <div class="controls">
+                    <button onclick="startWebGL()">▶ Start WebGL</button>
+                    <button onclick="stopWebGL()">⏹ Stop</button>
+                </div>
+                <div id="webgl-status" class="status info">WebGL ready</div>
+
+                <h3>Canvas toDataURL Test</h3>
+                <div class="controls">
+                    <button onclick="testDataURL()">Generate Data URL</button>
+                    <button onclick="testBlob()">Generate Blob</button>
+                </div>
+                <div id="dataurl-status" class="status info">Click to test</div>
+            </div>
+
+            <!-- Image Tests -->
+            <div class="media-card full-width">
+                <h2>🖼 Image Format Tests</h2>
+                
+                <div class="image-tests">
+                    <div class="image-test">
+                        <img id="svg-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:rgb(102,126,234);stop-opacity:1'/%3E%3Cstop offset='100%25' style='stop-color:rgb(118,75,162);stop-opacity:1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23grad)' width='200' height='200'/%3E%3Ccircle cx='100' cy='100' r='60' fill='white' opacity='0.3'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='24' font-weight='bold'%3ESVG%3C/text%3E%3C/svg%3E" alt="SVG Test">
+                        <div class="label">SVG (Data URI)</div>
+                    </div>
+                    
+                    <div class="image-test">
+                        <img id="png-img" src="../../assets/test-image.png" alt="PNG Test" 
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%23ff6b6b\' width=\'200\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'16\'%3EPNG Missing%3C/text%3E%3C/svg%3E'">
+                        <div class="label">PNG</div>
+                        <div class="file-info">assets/test-image.png</div>
+                    </div>
+                    
+                    <div class="image-test">
+                        <img id="jpg-img" src="../../assets/test-image.jpg" alt="JPG Test"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%234ecdc4\' width=\'200\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'16\'%3EJPG Missing%3C/text%3E%3C/svg%3E'">
+                        <div class="label">JPEG/JPG</div>
+                        <div class="file-info">assets/test-image.jpg</div>
+                    </div>
+                    
+                    <div class="image-test">
+                        <img id="webp-img" src="../../assets/test-image.webp" alt="WebP Test"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%23f7b731\' width=\'200\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'16\'%3EWebP Missing%3C/text%3E%3C/svg%3E'">
+                        <div class="label">WebP</div>
+                        <div class="file-info">assets/test-image.webp</div>
+                    </div>
+                    
+                    <div class="image-test">
+                        <img id="gif-img" src="../../assets/test-animation.gif" alt="GIF Test"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%235f27cd\' width=\'200\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'16\'%3EGIF Missing%3C/text%3E%3C/svg%3E'">
+                        <div class="label">GIF (Animated)</div>
+                        <div class="file-info">assets/test-animation.gif</div>
+                    </div>
+                    
+                    <div class="image-test">
+                        <img id="apng-img" src="../../assets/test-animation.apng" alt="APNG Test"
+                             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'200\' height=\'200\'%3E%3Crect fill=\'%23fd79a8\' width=\'200\' height=\'200\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'16\'%3EAPNG Missing%3C/text%3E%3C/svg%3E'">
+                        <div class="label">APNG (Animated)</div>
+                        <div class="file-info">assets/test-animation.apng</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Capabilities -->
+            <div class="media-card full-width">
+                <h2>🔍 Media API Information</h2>
+                <div id="media-capabilities"></div>
+            </div>
+
+        </div>
+    </div>
+</body>
+</html>

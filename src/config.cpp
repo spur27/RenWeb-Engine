@@ -4,6 +4,7 @@
 #include "../include/info.hpp"
 #include "../include/json.hpp"
 #include "../include/locate.hpp"
+#include "boost/json/serialize.hpp"
 #include <memory>
 
 using Config = RenWeb::Config;
@@ -115,13 +116,40 @@ void Config::setDefaultProperty(const std::string& key, const json::value& value
 
 const json::value& Config::getJson() const /*override*/ {
     try {
-        return this->json_data.as_object().at(this->current_page);
+        if (this->json_data.is_object()) {
+            if (this->json_data.as_object().contains(this->current_page)) {
+                return this->json_data.as_object().at(this->current_page);
+            } else {
+                throw std::runtime_error("Current page '" + this->current_page + "' not found in config '" + this->file->getPath().string() + "'.");
+            }
+        } else {
+            throw std::runtime_error("Config is not a JSON object.");
+        }
     } catch (const std::exception& e) {
-        this->logger->error("[config] Couldn't retrieve config.json:  " + std::string(e.what()));
+        this->logger->error("[config] An error occurred when getting config.json data:  " + std::string(e.what()));
         static const json::value null_value = nullptr;
         return null_value;
     }
 }
+
+const json::value& Config::getDefaultsJson() const /*override*/ {
+    try {
+        if (this->json_data.is_object()) {
+            if (this->json_data.as_object().contains(this->DEFAULTS_KEY)) {
+                return this->json_data.as_object().at(this->DEFAULTS_KEY);
+            } else {
+                throw std::runtime_error("Defaults not found in config '" + this->file->getPath().string() + "'.");
+            }
+        } else {
+            throw std::runtime_error("Config is not a JSON object.");
+        }
+    } catch (const std::exception& e) {
+        this->logger->error("[config] An error occurred when getting config.json data:  " + std::string(e.what()));
+        static const json::value null_value = nullptr;
+        return null_value;
+    }
+}
+
 
 void Config::update(const json::object &new_data) /*override*/ {
     json::object data = new_data;

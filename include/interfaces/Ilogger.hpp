@@ -4,6 +4,8 @@
 #include <map>
 
 namespace RenWeb {
+#ifndef RENWEB_ILOGGER_DEFINED
+#define RENWEB_ILOGGER_DEFINED
     class ILogger {
         public:
             virtual ~ILogger() = default;
@@ -15,4 +17,5 @@ namespace RenWeb {
             virtual void critical(const std::string& msg) = 0;
             virtual void refresh(std::map<std::string, std::string> fmt) = 0;
     };
+#endif
 }

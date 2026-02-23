@@ -429,15 +429,10 @@ export declare namespace FS {
  */
 export declare namespace Config {
     /**
-     * Gets the config set for the current page.
+     * Gets the entire configuration object.
      * @returns Promise that resolves to the configuration object
      */
     function getConfig(): Promise<any>;
-    /**
-     * Gets the config set for __defaults__.
-     * @returns Promise that resolves to the configuration object
-     */
-    function getDefaults(): Promise<any>;
     /**
      * Gets all of the current property values of the window.
      * @returns Promise that resolves to state object
@@ -633,15 +628,5 @@ export declare namespace Navigate {
      * @returns Promise that resolves when the URI is opened
      */
     function openURI(uri: string): Promise<void>;
-}
-/**
- * Plugins
- */
-export declare namespace Plugins {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    function getPluginsList(): Promise<any[]>;
 }
 export {};

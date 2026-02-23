@@ -173,6 +173,40 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
             }
         }
 
+        function decode(dec) {
+            switch (typeof dec) {
+                case "object":
+                    if (dec === null) {
+                        return null;
+                    }
+                    else if ("__encoding_type__" in dec && "__val__" in dec) {
+                        switch (dec.__encoding_type__) {
+                            case "base64":
+                                return new TextDecoder().decode(new Uint8Array(dec.__val__));
+                            default:
+                                return dec;
+                        }
+                    }
+                    else if (Array.isArray(dec)) {
+                        return dec.map(el => decode(el));
+                    }
+                    else {
+                        const decodedObj = {};
+                        for (const key in dec) {
+                            decodedObj[key] = decode(dec[key]);
+                        }
+                        return decodedObj;
+                    }
+                default:
+                    return dec;
+            }
+        }
+
+        window.onload = async () => {
+            await BIND_show(true);
+            await BIND_log_debug(encode('Error page has been loaded'));
+        };
+
         if (window.history && window.history.length > 1) {
             document.getElementById('backButton').style.display = 'inline-block';
         }
@@ -189,20 +223,20 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
                     window.location.reload();
                 }
             } catch (err) {
-                console.error('Failed to reset:', err);
+                BIND_log_error(encode('Failed to reset: ' + err));
                 window.location.reload();
             }
         }
         async function restartApp() {
             try {
-                if (typeof BIND_duplicate_process !== 'undefined' && typeof BIND_terminate !== 'undefined') {
-                    await BIND_duplicate_process(null);
+                if (typeof BIND_create_window !== 'undefined' && typeof BIND_initial_page !== 'undefined' && typeof BIND_terminate !== 'undefined') {
+                    await BIND_create_window([], [], encode({ is_detachable: true, include_orig_args: true }));
                     await BIND_terminate(null);
                 } else {
                     window.location.reload();
                 }
             } catch (err) {
-                console.error('Failed to restart:', err);
+                BIND_log_error(encode('Failed to restart: ' + err));
                 window.location.reload();
             }
         }
@@ -214,7 +248,7 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
                     window.location.reload();
                 }
             } catch (err) {
-                console.error('Failed to close:', err);
+                BIND_log_error(encode('Failed to close: ' + err));
                 window.location.reload();
             }
         }

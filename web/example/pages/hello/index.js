@@ -548,17 +548,11 @@ export var FS;
 export var Config;
 (function (Config) {
     /**
-     * Gets the config set for the current page.
+     * Gets the entire configuration object.
      * @returns Promise that resolves to the configuration object
      */
     async function getConfig() { return decode(await BIND_get_config(null)); }
     Config.getConfig = getConfig;
-    /**
-     * Gets the config set for __defaults__.
-     * @returns Promise that resolves to the configuration object
-     */
-    async function getDefaults() { return decode(await BIND_get_defaults(null)); }
-    Config.getDefaults = getDefaults;
     /**
      * Gets all of the current property values of the window.
      * @returns Promise that resolves to state object
@@ -853,16 +847,62 @@ export var Navigate;
     async function openURI(uri) { await BIND_open_uri(encode(uri)); }
     Navigate.openURI = openURI;
 })(Navigate || (Navigate = {}));
-/**
- * Plugins
- */
-export var Plugins;
-(function (Plugins) {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
-    Plugins.getPluginsList = getPluginsList;
-})(Plugins || (Plugins = {}));
+
+// Event listeners for keyboard shortcuts
+document.addEventListener("keydown", async (e) => {
+    if (e.ctrlKey) {
+        if (e.key === 'q') {
+            await Log.debug("CTRL + q was pressed.");
+            await Window.terminate();
+            return;
+        } else if (e.key === 'r') {
+            await Log.debug("CTRL + r was pressed.");
+            await Window.reloadPage();
+            return;
+        } else if (e.key === 's') {
+            await Log.debug("CTRL + s was pressed.");
+            await Config.saveConfig();
+            return;
+        } else if (e.key === 'i') {
+            await Log.debug("CTRL + i was pressed.");
+            await Debug.openDevtools();
+        }
+    }
+});
+
+// Prevent trackpad horizontal swipe navigation
+document.addEventListener("wheel", (e) => {
+    // Prevent horizontal scrolling that triggers browser navigation
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Additional prevention for touchpad gestures
+window.addEventListener("touchstart", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+window.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 1) {
+        e.preventDefault();
+    }
+}, { passive: false });
+
+// Window onload event
+window.onload = async () => {
+    await Window.show(true);
+};
+
+// Back button
+document.querySelector('.back-button')?.addEventListener('click', async () => {
+    try {
+        await Window.navigatePage('test');
+    } catch (e) {
+        await Log.error(e.message);
+    }
+});
+
 //# sourceMappingURL=index.js.map

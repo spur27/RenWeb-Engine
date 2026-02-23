@@ -50,6 +50,7 @@ namespace RenWeb {
             WindowFunctions* setDebugCallbacks();
             WindowFunctions* setNetworkCallbacks();
             WindowFunctions* setNavigateCallbacks();
+            WindowFunctions* setPluginCallbacks();
          /* Hidden-API function setters*/
             WindowFunctions* setInternalCallbacks();
             
@@ -64,6 +65,7 @@ namespace RenWeb {
             std::unique_ptr<CM> debug_callbacks;
             std::unique_ptr<CM> network_callbacks;
             std::unique_ptr<CM> navigate_callbacks;
+            std::unique_ptr<CM> plugin_callbacks;
 
             WindowFunctions(std::shared_ptr<ILogger> logger, RenWeb::App* app);
             ~WindowFunctions();
@@ -79,7 +81,7 @@ namespace RenWeb {
             json::object getState();
             void setState(const json::object& json);
 
-            WindowFunctions* setup();
+            WindowFunctions* setup(const json::object& setup_state = json::object{});
             WindowFunctions* teardown();
 
          // ------------ state -----------------

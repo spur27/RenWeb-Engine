@@ -286,7 +286,7 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   "description": "Base RenWeb engine",
   "license": "BSL",
   "repository": "https://github.com/spur27/RenWeb-Engine",
-  "categories": ["Utility"]
+  "categories": ["Utility"],
   "copyright": "Copyright © 2025 Spur27",
   "app_id": "io.github.spur27.renweb-engine",
   "starting_pages": ["test"],
@@ -420,12 +420,7 @@ All window properties are get/set-able via the client API:
 - `taskbar_show` (boolean) - Show window in taskbar/dock
 - `opacity` (number) - Window opacity (0.0 = transparent, 1.0 = opaque)
 - `initially_shown` (boolean) - Show window immediately on load (if `false`, must call `Window.show()`)
-
-**Note:** 
-- Settings are automatically saved when changed via the client API
-- Any property not specified in a page's config inherits from `__defaults__`
-- If `__defaults__` is not specified, hardcoded defaults are used
-- `title` is page-specific and cannot be set in `__defaults__`
+- `merge_defaults` (boolean) - Merge page settings with defaults on initial load (if `false`, only uses per-page settings)
 
 ### File Resolution Order
 

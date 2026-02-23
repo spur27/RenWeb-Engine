@@ -1,5 +1,6 @@
 #pragma once
 
+#include "boost/json/object.hpp"
 #include "json.hpp"
 #include <boost/json.hpp>
 #include <boost/json/serialize.hpp>
@@ -29,6 +30,7 @@ namespace RenWeb {
             json::value getDefaultProperty(const std::string& key) const;
             void setDefaultProperty(const std::string& key, const json::value& value);
             const json::value& getJson() const override;
+            const json::value& getDefaultsJson() const;
             void update(const json::object &new_data) override;
     };
 };

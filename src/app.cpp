@@ -7,6 +7,7 @@
 #include "../include/web_server.hpp"
 #include "../include/webview.hpp"
 #include "../include/interfaces/Iprocess_manager.hpp"
+#include "managers/plugin_manager.hpp"
 #include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
@@ -59,6 +60,11 @@ AppBuilder& AppBuilder::withWebServer(std::unique_ptr<IWebServer> ws) {
 
 AppBuilder& AppBuilder::withWindowFunctions(std::unique_ptr<WindowFunctions> fns) {
     this->fns = std::move(fns);
+    return *this;
+}
+
+AppBuilder& AppBuilder::withPluginManager(std::unique_ptr<PluginManager> pm) {
+    this->pm = std::move(pm);
     return *this;
 }
 
@@ -115,27 +121,42 @@ std::unique_ptr<App> AppBuilder::build() {
     }
     app->ws = std::move(this->ws);
 
+    if (this->pm == nullptr) {
+        this->withPluginManager(std::make_unique<PluginManager>(
+            this->logger
+        ));
+    }
+    app->pm = std::move(this->pm);
+
     if (this->fns == nullptr) {
         this->withWindowFunctions(std::make_unique<WindowFunctions>(this->logger, app.get()));
     }
-    app->fns = std::move(this->fns);
+    app->fns = std::move(this->fns);  
 
     return app;
 }
 
 void App::run() {
-    const json::object current_state = this->config->getJson().is_object() 
-        ? this->config->getJson().as_object() : json::object{};
-
     this->ws->start();
     
     this->procm->registerProcess();
     
     this->fns->setup();
 
-    this->w->dispatch([this, &current_state](){
+    this->w->dispatch([this](){
         this->fns->setup();
-        this->fns->setState(current_state);
+        json::object current_state = this->config->getJson().is_object() 
+            ? this->config->getJson().as_object() : json::object{};
+        if (current_state["merge_defaults"] == json::value(true)) {
+            json::object defaults = this->config->getDefaultsJson().is_object() 
+                ? this->config->getDefaultsJson().as_object() : json::object{};
+            auto merged_state = JSON::merge(defaults, current_state);
+            this->fns->setup(merged_state);
+            this->fns->setState(merged_state);
+        } else {
+            this->fns->setup(current_state);
+            this->fns->setState(current_state);
+        }
     });
 
     this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
