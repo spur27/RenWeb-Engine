@@ -73,10 +73,9 @@ namespace RenWeb {
                         }
                     #endif
                     
-                    std::string plugin_name = plugin_raw->getName();
-                    plugins[plugin_name] = std::unique_ptr<Plugin>(plugin_raw);
+                    plugins[plugin_raw->getInternalName()] = std::unique_ptr<Plugin>(plugin_raw);
                     
-                    logger->info("[plugins] Loaded plugin: " + plugin_name + " v" + 
+                    logger->info("[plugins] Loaded plugin: " + plugin_raw->getName() + " v" + 
                                 plugin_raw->getVersion() + " from " + path.string());
                     
                 } catch (const std::exception& e) {

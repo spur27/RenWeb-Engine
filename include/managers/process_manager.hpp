@@ -896,14 +896,27 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
                 std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".txt";
             std::filesystem::path temp_path = proc_dir / temp_filename;
             
+            std::ofstream test_file(temp_path);
+            if (!test_file.is_open()) {
+                throw std::runtime_error("Failed to create output file: " + temp_path.string());
+            }
+            test_file.close();
+            
             proc = Child(args,
                         boost::process::v1::std_out > temp_path.string(),
                         boost::process::v1::std_err > temp_path.string());
             pid = static_cast<Pid>(proc.id());
             
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
-            std::filesystem::rename(temp_path, final_path);
-            out_file = File(final_path.string());
+            std::error_code rename_ec;
+            std::filesystem::rename(temp_path, final_path, rename_ec);
+            if (rename_ec) {
+                this->logger->warn("[proc] Failed to rename output file: " + rename_ec.message() + 
+                                 ", keeping temp file: " + temp_path.string());
+                out_file = File(temp_path.string());
+            } else {
+                out_file = File(final_path.string());
+            }
         }
         
         this->child_processes.emplace(pid, Process{

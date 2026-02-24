@@ -1,167 +1,84 @@
-/**
- * @file example_plugin.cpp
- * @brief Example RenWeb plugin demonstrating the plugin system
- * 
- * This demonstrates how to create a plugin for RenWeb engine.
- * Plugins can register custom functions that can be called from JavaScript.
- * 
- * Build instructions (Linux):
- *   g++ -shared -fPIC example_plugin.cpp -o example_plugin.so -I../include -std=c++17
- * 
- * Build instructions (macOS):
- *   g++ -shared -fPIC example_plugin.cpp -o example_plugin.dylib -I../include -std=c++17
- * 
- * Build instructions (Windows):
- *   cl /LD example_plugin.cpp /I..\include /Fe:example_plugin.dll
- */
-
 #include "../include/plugin.hpp"
-#include <boost/json.hpp>
-#include <cmath>
+
+#if defined(_WIN32) || defined(_WIN64)
+    #define PLUGIN_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+    #define PLUGIN_EXPORT __attribute__((visibility("default")))
+#else
+    #define PLUGIN_EXPORT
+#endif
 
 namespace json = boost::json;
 
-/**
- * @brief Example plugin that provides custom mathematical and utility functions
- */
 class ExamplePlugin : public RenWeb::Plugin {
 public:
     ExamplePlugin(std::shared_ptr<RenWeb::ILogger> logger)
-        : RenWeb::Plugin("ExamplePlugin", "1.0.0", "Example plugin with math and utility functions", logger) {
-        
-        // Log initialization
-        logger->info("[ExamplePlugin] Initializing plugin...");
-        
-        // Register custom functions
+        : RenWeb::Plugin(
+            "ExamplePlugin", 
+            "example", 
+            "1.0.0", 
+            "Example plugin with math and utility functions", 
+            "FAKE: https://github.com/example/example_plugin", 
+            logger) 
+        {
+        logger->info("[example_plugin] Initializing plugin...");
         registerFunctions();
-        
-        logger->info("[ExamplePlugin] Plugin initialized successfully!");
+        logger->info("[example_plugin] Plugin initialized successfully!");
     }
 
-    ~ExamplePlugin() override {
-        // Cleanup if needed
-    }
+    ~ExamplePlugin() override { }
 
 private:
     void registerFunctions() {
-        // Example 1: Square function
+
         functions["square"] = [this](const json::value& req) -> json::value {
             try {
-                if (!req.is_object()) {
-                    return json::object{{"error", "Request must be an object"}};
+                const json::value param = req.as_array()[0];
+                if (param.is_int64()) {
+                    return json::value(param.as_int64() * param.as_int64());
+                } else if (param.is_uint64()) {
+                    return json::value(param.as_uint64() * param.as_uint64());
+                } else if (param.is_double()) {
+                    return json::value(param.as_double() * param.as_double());
+                } else {
+                    throw std::runtime_error("[example_plugin] Invalid parameter type for 'square' function. Expected number.");
                 }
-                
-                auto& obj = req.as_object();
-                if (!obj.contains("value")) {
-                    return json::object{{"error", "Missing 'value' parameter"}};
-                }
-                
-                double value = obj.at("value").as_double();
-                double result = value * value;
-                
-                return json::object{
-                    {"result", result},
-                    {"input", value}
-                };
             } catch (const std::exception& e) {
-                return json::object{{"error", e.what()}};
+                this->logger->error(e.what());
+                return json::value(nullptr);
             }
         };
 
-        // Example 2: Factorial function
         functions["factorial"] = [this](const json::value& req) -> json::value {
             try {
-                if (!req.is_object()) {
-                    return json::object{{"error", "Request must be an object"}};
+                const json::value param = req.as_array()[0];
+                if (param.is_int64()) {
+                    return json::value(std::tgamma(param.as_int64()));
+                } else if (param.is_uint64()) {
+                    return json::value(std::tgamma(param.as_uint64()));
+                } else if (param.is_double()) {
+                    return json::value(std::tgamma(param.as_double()));
+                } else {
+                    throw std::runtime_error("[example_plugin] Invalid parameter type for 'factorial' function. Expected number.");
                 }
-                
-                auto& obj = req.as_object();
-                if (!obj.contains("n")) {
-                    return json::object{{"error", "Missing 'n' parameter"}};
-                }
-                
-                int64_t n = obj.at("n").as_int64();
-                if (n < 0) {
-                    return json::object{{"error", "Factorial not defined for negative numbers"}};
-                }
-                if (n > 20) {
-                    return json::object{{"error", "Number too large (max 20)"}};
-                }
-                
-                int64_t result = 1;
-                for (int64_t i = 2; i <= n; i++) {
-                    result *= i;
-                }
-                
-                return json::object{
-                    {"result", result},
-                    {"input", n}
-                };
             } catch (const std::exception& e) {
-                return json::object{{"error", e.what()}};
+                this->logger->error(e.what());
+                return json::value(nullptr);
             }
         };
 
-        // Example 3: Power function
-        functions["power"] = [this](const json::value& req) -> json::value {
-            try {
-                if (!req.is_object()) {
-                    return json::object{{"error", "Request must be an object"}};
-                }
-                
-                auto& obj = req.as_object();
-                if (!obj.contains("base") || !obj.contains("exponent")) {
-                    return json::object{{"error", "Missing 'base' or 'exponent' parameter"}};
-                }
-                
-                double base = obj.at("base").as_double();
-                double exponent = obj.at("exponent").as_double();
-                double result = std::pow(base, exponent);
-                
-                return json::object{
-                    {"result", result},
-                    {"base", base},
-                    {"exponent", exponent}
-                };
-            } catch (const std::exception& e) {
-                return json::object{{"error", e.what()}};
-            }
-        };
-
-        // Example 4: Reverse string function
         functions["reverse_string"] = [this](const json::value& req) -> json::value {
             try {
-                if (!req.is_object()) {
-                    return json::object{{"error", "Request must be an object"}};
-                }
-                
-                auto& obj = req.as_object();
-                if (!obj.contains("text")) {
-                    return json::object{{"error", "Missing 'text' parameter"}};
-                }
-                
-                std::string text = std::string(obj.at("text").as_string());
-                std::string reversed(text.rbegin(), text.rend());
-                
-                return json::object{
-                    {"result", reversed},
-                    {"original", text}
-                };
+                const json::value param = req.as_array()[0];
+                const std::string input = this->processInput(param).as_string().c_str();
+                std::string reversed(input.rbegin(), input.rend());
+                return this->formatOutput(json::value(reversed));
             } catch (const std::exception& e) {
-                return json::object{{"error", e.what()}};
+                this->logger->error(e.what());
+                return json::value(nullptr);
             }
         };
 
-        // Example 5: Get plugin info
-        functions["info"] = [this](const json::value& req) -> json::value {
-            (void)req; // Unused parameter
-            return json::object{
-                {"name", getName()},
-                {"version", getVersion()},
-                {"description", getDescription()},
-                {"functions", json::array{"square", "factorial", "power", "reverse_string", "info"}}
-            };
-        };
     }
 };
 
@@ -169,8 +86,6 @@ private:
  * @brief Plugin factory function
  * This function is called by the PluginManager to create an instance of the plugin
  */
-extern "C" {
-    RenWeb::Plugin* createPlugin(std::shared_ptr<RenWeb::ILogger> logger) {
-        return new ExamplePlugin(logger);
-    }
+extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr<RenWeb::ILogger> logger) {
+    return new ExamplePlugin(logger);
 }

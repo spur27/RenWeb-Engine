@@ -30,6 +30,7 @@ WebServer::WebServer(
     , method_callbacks(new MethodsCM())
 { 
     const json::value server_obj = this->app->info->getProperty("server");
+    this->base_path = Locate::currentDirectory();
     if (server_obj.is_object()) {
         const json::object server_object = server_obj.as_object();
         if (server_object.contains("ip") && server_object.at("ip").is_string())
@@ -75,21 +76,7 @@ WebServer::WebServer(
     } else {
         this->server = std::make_unique<httplib::Server>();
     }
-    
-    auto info_packaging_obj = this->app->info->getProperty("packaging");
-    if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["base_path"].is_string()) {
-        std::filesystem::path unformatted_base_path = std::filesystem::path(
-            info_packaging_obj.as_object().at("base_path").as_string().c_str()
-        );
-        if (!unformatted_base_path.is_absolute()) {
-            unformatted_base_path = Locate::currentDirectory() / unformatted_base_path;
-        }
-        this->base_path = unformatted_base_path;
-    } else {
-        this->base_path = Locate::currentDirectory();
-    }
-    this->logger->debug("[server] Base path is " + this->base_path.string());
-    
+        
     this->setHandles();
     this->setMethodCallbacks();
 }
@@ -328,7 +315,7 @@ void WebServer::setMethodCallbacks() {
             }
             
             std::string callback_js = 
-                "(function() {"
+                "(async () => {"
                 "  function decode(dec) {"
                 "    if (!dec || typeof dec !== 'object' || !dec.__encoding_type__ || !dec.__val__) return dec;"
                 "    switch (dec.__encoding_type__) {"
@@ -350,7 +337,7 @@ void WebServer::setMethodCallbacks() {
                 "  const message = JSON.parse('" + escaped_body + "');"
                 "  const decoded = decodeObj(message);"
                 "  if (window.onServerMessage && typeof window.onServerMessage === 'function') {"
-                "    window.onServerMessage(decoded);"
+                "    await window.onServerMessage(decoded);"
                 "  }"
                 "})();";
             this->app->w->eval(callback_js);

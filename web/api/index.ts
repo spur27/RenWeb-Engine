@@ -623,7 +623,7 @@ export namespace Config {
         {  return decode(await BIND_get_config(null)); }
 
     /**
-     * Gets the config set for __defaults__.
+     * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object
      */
     export async function getDefaults(): Promise<any> 

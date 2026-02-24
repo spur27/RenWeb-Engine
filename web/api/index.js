@@ -554,7 +554,7 @@ export var Config;
     async function getConfig() { return decode(await BIND_get_config(null)); }
     Config.getConfig = getConfig;
     /**
-     * Gets the config set for __defaults__.
+     * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object
      */
     async function getDefaults() { return decode(await BIND_get_defaults(null)); }

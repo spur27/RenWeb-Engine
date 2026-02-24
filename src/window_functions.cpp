@@ -1601,14 +1601,9 @@ WF* WF::setFileSystemCallbacks() {
             }
             return json::value(true);
     }))->add("get_application_dir_path",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
             (void)req;
-            json::value info_packaging_obj = this->app->info->getJson();
-            if (info_packaging_obj.is_object() && info_packaging_obj.as_object().contains("base_path") && info_packaging_obj.as_object().at("base_path").is_string()) {
-                return info_packaging_obj.at("application_dir_path");
-            } else {
-                return json::value(Locate::currentDirectory().string());
-            }
+            return json::value(Locate::currentDirectory().string());
     }))->add("download_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string uri = this->getSingleParameter(req).as_string().c_str();
@@ -3253,10 +3248,18 @@ WF* WF::setup(const json::object& setup_state) {
             json::array({setup_state.at("initially_shown")})
         );
     }
-    if (setup_state.contains("title") && setup_state.at("title").is_string()) {
+    std::string title = "";
+    if (this->app->config->getProperty("title").is_string()) {
+        title = this->app->config->getProperty("title").as_string();
+    } else if (this->app->config->getDefaultProperty("title").is_string()) {
+        title = this->app->config->getDefaultProperty("title").as_string();
+    } else if (this->app->info->getProperty("title").is_string()) {
+        title = this->app->info->getProperty("title").as_string();
+    }
+    if (title.length() > 0) {
         this->window_callbacks->run(
             "change_title", 
-            json::array({setup_state.at("title")})
+            json::array({title})
         );
     }
 #endif

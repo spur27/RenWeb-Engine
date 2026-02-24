@@ -298,17 +298,8 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
     "install_missing_media_plugins": true,
     "device_info": true
   },
-  "packaging": {
-    "pkg_id": "renweb",
-    "resource_path": "[Immutable] path to icons",
-    "config_path": "[Mutable] path to config.json", 
-    "log_path": "[Mutable] path to log.txt",
-    "base_path": "[Mutable] path to content, custom, backup, asset, etc.",
-    "desktop_path": "[Immutable] path to sym file",
-    "static_path": "[Immutable] path to executable and info.json",
-    "bin_path": "[Immutable] path to wrapper executable script",
-    "startup_notify": false
-  },
+  "pkg_id": "renweb",
+  "startup_notify": false,
   "origins": [
     "https://example.one",
     "http://example.two/sequel"
@@ -337,8 +328,6 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
 - `copyright` - Copyright notice
 - `appId` - Unique application identifier (used for packaging)
 - `config_path` - Path to config.json (defaults to `./config.json`)
-- `log_path` - Path to log file (defaults to `./log.txt`)
-- `base_path` - Base directory for content/assets/custom/backup folders (defaults to `.`)
 - `permissions` - WebView permissions object
   - `geolocation` - Allow location access
   - `notifications` - Allow desktop notifications
@@ -346,27 +335,15 @@ Application metadata file - **required** for RenWeb to run. Must be in the same 
   - `pointer_lock` - Allow mouse pointer locking
   - `install_missing_media_plugins` - Auto-install codecs
   - `device_info` - Allow hardware information access
-- `packaging` - Contains paths and info for where to find files
-  - `pkg_id` - Unused in app; only used by packaging tools
-  - `resource_path` - Unused in app; only used by packaging tools
-  - `config_path` - USED in app AND packaging tools: tells app where to find and write to config file
-  - `log_path` - USED in app AND packaging tools: tells app where to find and write to log file
-  - `base_path` - USED in app AND packaging tools: tells app where to look for `content`, `assets`, `backup`, and `custom` directories.
-  - `desktop_path` - Unused in app; only used by packaging tools
-  - `static_path` - Unused in app; only used by packaging tools
-  - `bin_path` - Unused in app; only used by packaging tools
-  - `startup_notify` - Unused in app; only used by packaging tools
+- `pkg_id` - Unused in app; only used by packaging tools
+- `startup_notify` - Unused in app; only used by packaging tools
 - `origins` - Contains array of base urls with protocols
 - `web_server`
   - `ip` - IP address for webserver (default is 127.0.0.1)
   - `port` - Port (default is random)
   - `https` - Boolean that enables HTTPS as opposed to http
-  - `ssl_cert_path` - HTTPS only - path to SSL certificate file
-  - `ssl_key_path` - HTTPS only - path to SSL key
-
-__NOTE:__ Should you set the path for `config_path`, `log_path`, or `base_path`, relative paths are interpreted *relative to wherever the executable is stored*. Similarly, the default paths used when values aren't provided is `./`. meaning the same directory as the executable. If `base_path` is set in `packaging`, then that will be used as the relative path and default directory for when the client requests the application directory.
-- It is recommended not to touch any `packaging.*` properties unless you have a good reason.
-- `ssl_cert_path` and `ssl_key_path` search from `base_path` when they are relative. Both are required only for HTTPS; fallback to HTTP is automatic when things go wrong.
+  - `ssl_cert_path` - HTTPS only - path to SSL certificate file (defaults to app directory)
+  - `ssl_key_path` - HTTPS only - path to SSL key (defaults to app directory)
 
 ### config.json
 
@@ -377,7 +354,6 @@ Window configuration file - auto-generated if missing. Stores per-page window se
 {
   "__defaults__": { ... },
   "test": {
-    "__defaults__": { ... },
     "title_bar": true,
     "size": {
       "width": 720,

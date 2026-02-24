@@ -10,7 +10,8 @@ import {
     Debug,
     Network,
     Navigate,
-    Utils
+    Utils,
+    Plugins
  } from './index.js';
 
 
@@ -104,6 +105,8 @@ window.onload = async () => {
         document.querySelector(".opacity_input").value = opacity.toFixed(2);
         document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
         document.querySelector(".systems_os").textContent = `${await System.getOS()}`;
+        const plugins = await Plugins.getPluginsList();
+        document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
         document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);
         document.querySelector(".settings_output").style.borderColor = "green";
         document.querySelector(".settings_output").style.borderWidth = "2px";
@@ -115,9 +118,9 @@ window.onload = async () => {
         document.querySelector('.message_url').value = proc.url;
         document.querySelector('.message_pid').value = proc.pid;
         document.querySelector('.refresh_messages').click();
-        setInterval(async (event) => {
+        window.onServerMessage = async (message) => {
             document.querySelector('.refresh_messages').click();
-        }, 500);
+        };
     } catch (e) {
         await Log.error(e.message);
     }
@@ -793,6 +796,12 @@ document.querySelector(".send_notif_2").onclick = async () => {
     });
 };
 
+document.querySelector(".get_plugin_list").onclick = async () => {
+    await Log.debug(`Getting plugin list...`);
+    const plugins = await Plugins.getPluginsList();
+    document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
+};
+
 // ============================================================================
 // CONFIG SECTION
 // ============================================================================
@@ -827,6 +836,12 @@ document.querySelector(".get_config").onclick = async () => {
     await Log.debug(`Getting Config...`);
     const config = await Config.getConfig();
     document.querySelector(".settings_output").value = JSON.stringify(config, null, 2);
+};
+
+document.querySelector(".get_defaults").onclick = async () => {
+    await Log.debug(`Getting Defaults...`);
+    const defaults = await Config.getDefaults();
+    document.querySelector(".settings_output").value = JSON.stringify(defaults, null, 2);
 };
 
 document.querySelector(".get_state").onclick = async () => {
@@ -1218,9 +1233,9 @@ document.querySelector('.open_msg_modal_pid').onclick = async () => {
 
 document.querySelector('.refresh_messages').onclick = async () => {
     try {
-        Log.debug('Refreshing messages...');
+        //Log.debug('Refreshing messages...');
         const messages = await Process.getMessages();
-        Log.debug(`Received ${messages.length} messages: ${JSON.stringify(messages)}`);
+        //Log.debug(`Received ${messages.length} messages: ${JSON.stringify(messages)}`);
         const receivedBox = document.querySelector('.received_messages');
         if (!receivedBox) return;
         
