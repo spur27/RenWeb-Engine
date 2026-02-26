@@ -19,14 +19,14 @@ namespace RenWeb {
             virtual json::object createSystemProcess(
                 const std::vector<std::string>& args, 
                 bool is_detachable = false,
-                bool use_terminal_stdio = false
+                bool share_stdio = false
             ) = 0;
             virtual json::object createRenWebProcess(
                 const std::vector<std::string>& pages, 
                 std::vector<std::string> args = {},
                 bool is_detachable = false,
                 bool include_current_args = true,
-                bool use_terminal_stdio = false
+                bool share_stdio = false
             ) = 0;
             virtual Pid getPid() const = 0;
             virtual void kill(Pid pid, int32_t signal = SIGINT) = 0;

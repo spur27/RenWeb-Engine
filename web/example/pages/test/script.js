@@ -113,6 +113,10 @@ window.onload = async () => {
         const proc = await Process.dumpCurrentProcess();
         document.querySelector('.system_processes_list').innerHTML = '';
         document.querySelector('.system_processes_list').appendChild(createProcessCard(proc.info));
+        const proc_card = createProcessCard(proc.info);
+        document.querySelector('.control_output').innerHTML = '';
+        document.querySelector('.control_output').appendChild(proc_card);
+        document.querySelector('.get_process').style.backgroundColor = 'green';
         document.querySelector('.renweb_page').value = await Window.currentPage();
         document.querySelector('.control_pid').value = proc.pid;
         document.querySelector('.message_url').value = proc.url;
@@ -919,22 +923,6 @@ document.querySelector(".terminate").onclick = async () => {
 let monitorInterval = null;
 let receivedMessages = [];
 
-// Utility functions
-function logProc(message, type = 'info') {
-    const eventLog = document.querySelector('.event_log');
-    if (!eventLog) return;
-    const timestamp = new Date().toLocaleTimeString();
-    const entry = document.createElement('div');
-    entry.className = `log_entry ${type}`;
-    entry.innerHTML = `<span class="log_timestamp">[${timestamp}]</span> ${message}`;
-    eventLog.insertBefore(entry, eventLog.firstChild);
-    
-    // Keep only last 50 entries
-    while (eventLog.children.length > 50) {
-        eventLog.removeChild(eventLog.lastChild);
-    }
-}
-
 function createProcessCard(proc) {
     const card = document.createElement('div');
     card.className = 'process_card';
@@ -1038,7 +1026,8 @@ document.querySelector('.spawn_process').onclick = async () => {
         const command = document.querySelector('.process_command').value.trim();
         const argsStr = document.querySelector('.process_args').value.trim();
         const is_detachable = document.querySelector('.process_detachable').checked;
-        await Process.createProcess([command, argsStr], { is_detachable: is_detachable });
+        const share_stdio = document.querySelector('.process_stdio').checked;
+        await Process.createProcess([command, argsStr], { is_detachable: is_detachable, share_stdio: share_stdio });
     } catch (e) {
         await Log.error(e.message);
     }
@@ -1050,8 +1039,9 @@ document.querySelector('.spawn_renweb').onclick = async () => {
         const page = document.querySelector('.renweb_page').value.trim();
         const argsStr = document.querySelector('.renweb_args').value.trim();
         const is_detachable = document.querySelector('.renweb_detachable').checked;
-        const add_original_args = document.querySelector('.renweb_orig').checked;
-       await Process.createWindow(page, [argsStr], { is_detachable: is_detachable, add_original_args: add_original_args });
+        const include_orig_args = document.querySelector('.renweb_orig').checked;
+        const share_stdio = document.querySelector('.renweb_stdio').checked;
+       await Process.createWindow(page, [argsStr], { is_detachable: is_detachable, include_orig_args: include_orig_args, share_stdio: share_stdio });
     } catch (e) {
         await Log.error(e.message);
     }
@@ -1061,7 +1051,8 @@ document.querySelector('.duplicate').onclick = async () => {
     try {
         await Log.debug('Duplicating...');
         const is_detachable = document.querySelector('.renweb_detachable').checked;
-        Process.duplicate();
+        const share_stdio = document.querySelector('.renweb_stdio').checked;
+        Process.duplicate(-1, { is_detachable: is_detachable, share_stdio: share_stdio });
     } catch (e) {
         await Log.error(e.message);
     }
@@ -1097,95 +1088,95 @@ document.querySelector('.security_test').onclick = async () => {
 
 
 
-// Process Control
-/*const getProcessBtn = document.querySelector('.get_process');
-if (getProcessBtn) {
-    getProcessBtn.onclick = async () => {
-        try {
-            const pid = parseInt(document.querySelector('.control_pid').value);
-            if (isNaN(pid)) {
-                logProc('Please enter a valid PID', 'error');
-                return;
-            }
-            
-            const proc = await Process.get(pid);
-            const output = document.querySelector('.control_output');
-            output.textContent = formatProcessInfo(proc);
-            
-            logProc(`Retrieved info for PID ${pid}`, 'success');
-        } catch (error) {
-            logProc(`Error getting process info: ${error.message}`, 'error');
+// Process Control - Helper Functions
+function setProcessControlButtonState(activeButton, isError = false) {
+    const buttons = ['get_process', 'listen_process', 'kill_process', 'wait_process', 'detach_process'];
+    buttons.forEach(btn => {
+        const element = document.querySelector(`.${btn}`);
+        if (btn === activeButton) {
+            element.style.backgroundColor = isError ? 'red' : 'green';
+        } else {
+            element.style.backgroundColor = '#3a3a3a';
         }
-    };
+    });
 }
 
-const killProcessBtn = document.querySelector('.kill_process');
-if (killProcessBtn) {
-    killProcessBtn.onclick = async () => {
-        try {
-            const pid = parseInt(document.querySelector('.control_pid').value);
-            if (isNaN(pid)) {
-                logProc('Please enter a valid PID', 'error');
-                return;
-            }
-            
-            const proc = await Process.get(pid);
-            await proc.kill();
-            
-            document.querySelector('.control_output').textContent = `Process ${pid} killed`;
-            logProc(`Killed process PID ${pid}`, 'success');
-            const btn = document.querySelector('.get_child_processes');
-            if (btn) btn.click();
-        } catch (error) {
-            logProc(`Error killing process: ${error.message}`, 'error');
+async function handleProcessControl(buttonName, operationFn) {
+    const container = document.querySelector('.control_output');
+    try {
+        const pid = parseInt(document.querySelector('.control_pid').value);
+        
+        if (isNaN(pid)) {
+            await Log.error('Please enter a valid PID');
+            container.innerHTML = '';
+            container.textContent = `Please enter a valid PID`;
+            setProcessControlButtonState(buttonName, true);
+            return;
         }
-    };
+        
+        const process = await Process.dumpProcess(pid);
+        if (process == null) {
+            await Log.error(`Couldn't find process at pid ${pid}`);
+            container.innerHTML = '';
+            container.textContent = `Couldn't find process at pid ${pid}`;
+            setProcessControlButtonState(buttonName, true);
+            return;
+        }
+        
+        const result = await operationFn(process);
+        
+        container.innerHTML = '';
+        const proc_card = createProcessCard(process.info);
+        container.appendChild(proc_card);
+        
+        if (result && result.output !== undefined) {
+            const outputPre = document.createElement('pre');
+            outputPre.style.cssText = 'background: #1a1a1a; padding: 12px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 12px;';
+            outputPre.textContent = result.output.length > 0 
+                ? result.output 
+                : 'No output at the moment...';
+            container.appendChild(outputPre);
+        }
+        
+        setProcessControlButtonState(buttonName, false);
+    } catch (error) {
+        await Log.error(`Error getting process: ${error.message}`);
+        container.innerHTML = '';
+        container.textContent = `Error getting process: ${error.message}`;
+        setProcessControlButtonState(buttonName, true);
+    }
 }
 
-const waitProcessBtn = document.querySelector('.wait_process');
-if (waitProcessBtn) {
-    waitProcessBtn.onclick = async () => {
-        try {
-            const pid = parseInt(document.querySelector('.control_pid').value);
-            if (isNaN(pid)) {
-                logProc('Please enter a valid PID', 'error');
-                return;
-            }
-            
-            const proc = await Process.get(pid);
-            logProc(`Waiting for process PID ${pid}...`, 'info');
-            await proc.wait();
-            
-            document.querySelector('.control_output').textContent = `Process ${pid} completed\n${formatProcessInfo(proc)}`;
-            logProc(`Process PID ${pid} completed`, 'success');
-        } catch (error) {
-            logProc(`Error waiting for process: ${error.message}`, 'error');
-        }
-    };
-}
+// Process Control Handlers
+document.querySelector('.get_process').onclick = async () => {
+    await handleProcessControl('get_process', async (process) => { });
+};
 
-const detachProcessBtn = document.querySelector('.detach_process');
-if (detachProcessBtn) {
-    detachProcessBtn.onclick = async () => {
-        try {
-            const pid = parseInt(document.querySelector('.control_pid').value);
-            if (isNaN(pid)) {
-                logProc('Please enter a valid PID', 'error');
-                return;
-            }
-            
-            const proc = await Process.get(pid);
-            await proc.detach();
-            
-            document.querySelector('.control_output').textContent = `Process ${pid} detached`;
-            logProc(`Detached from process PID ${pid}`, 'success');
-            const btn = document.querySelector('.get_child_processes');
-            if (btn) btn.click();
-        } catch (error) {
-            logProc(`Error detaching process: ${error.message}`, 'error');
-        }
-    };
-}*/
+document.querySelector('.listen_process').onclick = async () => {
+    await handleProcessControl('listen_process', async (process) => {
+        const output = await process.listenToOutput();
+        return { output: output.join('\n') };
+    });
+};
+
+document.querySelector('.kill_process').onclick = async () => {
+    await handleProcessControl('kill_process', async (process) => {
+        await process.kill();
+    });
+};
+
+document.querySelector('.wait_process').onclick = async () => {
+    await handleProcessControl('wait_process', async (process) => {
+        await process.wait();
+    });
+};
+
+document.querySelector('.detach_process').onclick = async () => {
+    await handleProcessControl('detach_process', async (process) => {
+        await process.detach();
+    });
+};
+
 
 // RenWeb Messaging
 document.querySelector('.open_msg_modal_url').onclick = async () => {

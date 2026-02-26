@@ -578,6 +578,11 @@ input[type="checkbox"] {
     margin-top: var(--spacing-sm);
 }
 
+.control_output {
+    max-height: 500px;
+    overflow-y: scroll;
+}
+
 .info-display {
     background: #1e1e1e;
     padding: var(--spacing-sm) var(--spacing-md);

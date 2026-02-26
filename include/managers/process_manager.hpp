@@ -4,10 +4,12 @@
 #include "../interfaces/Iprocess_manager.hpp"
 #include "../app.hpp"
 #include "../file.hpp"
-#include "boost/process/v1/io.hpp"
 #include "locate.hpp"
 #include <boost/process/v1/child.hpp>
+#include <boost/process/v1/io.hpp>
 #include <boost/json.hpp>
+#include <boost/asio/signal_set.hpp>
+#include <boost/asio/io_context.hpp>
 #include <csignal>
 #include <chrono>
 #include <cstdint>
@@ -78,7 +80,10 @@ namespace RenWeb {
         private:
             std::shared_ptr<ILogger> logger;
             App* app;
-            std::map<Pid, Process> child_processes;
+            mutable std::map<Pid, Process> child_processes;
+            std::unique_ptr<boost::asio::io_context> signal_io_context;
+            std::unique_ptr<boost::asio::signal_set> signals;
+            std::thread signal_thread;
             
             static std::filesystem::path getRegistryPath();
             static std::filesystem::path getProcessOutputDir(Pid pid);
@@ -87,6 +92,8 @@ namespace RenWeb {
             static json::array readRegistryFile();
             static bool writeRegistryFile(const json::array& entries);
             static void cleanStaleEntries();
+            std::filesystem::path searchExecutableInPath(const std::string& executable);
+            void setupSignalHandler();
 
             json::object buildProcessInfo(
                 Pid pid, 
@@ -112,7 +119,7 @@ namespace RenWeb {
                 const std::vector<std::string>& args, 
                 bool is_detachable, 
                 bool is_renweb,
-                bool use_terminal_stdio
+                bool share_stdio
             );
         public:
             ProcessManager(std::shared_ptr<ILogger> logger, App* app);
@@ -126,14 +133,14 @@ namespace RenWeb {
             json::object createSystemProcess(
                 const std::vector<std::string>& args, 
                 bool is_detachable,
-                bool use_terminal_stdio
+                bool share_stdio
             ) override;
             json::object createRenWebProcess(
                 const std::vector<std::string>& pages, 
                 std::vector<std::string> args,
                 bool is_detachable,
                 bool include_current_args,
-                bool use_terminal_stdio
+                bool share_stdio
             ) override;
             Pid getPid() const override;
             void kill(Pid pid, int32_t signal = SIGTERM) override;
@@ -171,7 +178,7 @@ inline /*static*/ std::filesystem::path PM::getRegistryPath() {
 
 inline /*static*/ std::filesystem::path PM::getProcessOutputDir(Pid pid) {
     std::filesystem::path temp_dir = getTempBaseDir();
-    std::filesystem::path pid_dir = temp_dir / std::to_string(pid);
+    std::filesystem::path pid_dir = temp_dir / ".renweb" / "proc" / std::to_string(pid);
     
     std::error_code ec;
     if (!std::filesystem::exists(pid_dir)) {
@@ -298,9 +305,10 @@ inline /*static*/ void PM::cleanStaleEntries() {
     
  // PID directories
     try {
-        if (!std::filesystem::exists(temp_dir)) return;
+        std::filesystem::path proc_dir = renweb_dir / "proc";
+        if (!std::filesystem::exists(proc_dir)) return;
         
-        for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(proc_dir)) {
             if (!entry.is_directory()) continue;
             
             std::string dir_name = entry.path().filename().string();
@@ -444,9 +452,17 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
         url = "http://" + host + ":" + std::to_string(port);
     }
     
+    // Check if this is a managed child process and get actual running state
+    bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
+    
     return buildProcessInfo(pid, parent_pid, name, exe_path, args,
                            is_background,
-                           true,   // is_running
+                           is_running,
+                           is_child,
                            0,      // exit_code - N/A for running process
                            started_at,
                            memory_kb, threads, url, "", false);
@@ -498,9 +514,17 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
         url = "http://" + host + ":" + std::to_string(port);
     }
     
+    // Check if this is a managed child process and get actual running state
+    bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
+    
     return buildProcessInfo(pid, ppid, name, exe_path, args,
                            is_background,
-                           true,   // is_running
+                           is_running,
+                           is_child,
                            0,      // exit_code
                            started_at,
                            memory_kb, threads, url, "", false);
@@ -593,10 +617,14 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
     
  // check if child
     bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
     
     return buildProcessInfo(pid, ppid, name, exe_path, args,
                            is_background,
-                           true,
+                           is_running,
                            is_child,
                            0,
                            started_at,
@@ -650,6 +678,7 @@ inline PM::ProcessManager(std::shared_ptr<ILogger> logger, App* app)
   : logger(logger), app(app) 
 {
     PM::cleanStaleEntries();
+    this->setupSignalHandler();
 }
 
 // ----------------------------------------------------------
@@ -657,6 +686,13 @@ inline PM::ProcessManager(std::shared_ptr<ILogger> logger, App* app)
 // ----------------------------------------------------------
 
 inline PM::~ProcessManager() {
+    if (this->signal_io_context) {
+        this->signal_io_context->stop();
+    }
+    if (this->signal_thread.joinable()) {
+        this->signal_thread.join();
+    }
+    
     this->unregisterProcess();
     
     for (auto& [pid, child_info] : this->child_processes) {
@@ -793,8 +829,8 @@ inline json::array PM::dumpRenWebProcesses() const {
 
 inline json::array PM::dumpChildProcesses() const {
     json::array children;
-    for (const auto& [pid, child] : this->child_processes) {
-        if (child.is_renweb) {
+    for (auto& [pid, child] : this->child_processes) {
+        if (child.is_renweb && child.process.running()) {
             children.push_back(this->dumpRenWebProcess(pid));
         } else {
             children.push_back(this->dumpSystemProcess(pid));
@@ -872,9 +908,8 @@ inline json::array PM::dumpSystemProcesses() const {
 
 // ----------------------------------------------------------
 // ----------------------------------------------------------
-// ----------------------------------------------------------
 
-inline json::object PM::createChildProcess(const std::vector<std::string>& args, bool is_detachable, bool is_renweb, bool use_terminal_stdio) {
+inline json::object PM::createChildProcess(const std::vector<std::string>& args, bool is_detachable, bool is_renweb, bool share_stdio) {
     if (args.empty()) {
         this->logger->error("[proc] can't create process with no arguments");
         return json::object();
@@ -883,12 +918,25 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
     try {
         std::filesystem::path proc_dir = getProcessOutputDir(this->getPid());
         
+        std::string executable = args[0];
+        if (!std::filesystem::path(executable).is_absolute()) {
+            auto found_path = searchExecutableInPath(executable);
+            if (found_path.empty()) {
+                throw std::runtime_error("Executable '" + executable + "' not found in PATH");
+            }
+            executable = found_path.string();
+            this->logger->debug("[proc] Resolved '" + args[0] + "' to '" + executable + "'");
+        }
+        
+        std::vector<std::string> resolved_args = args;
+        resolved_args[0] = executable;
+        
         Child proc;
         Pid pid;
         File out_file;
-        
-        if (use_terminal_stdio) {
-            proc = Child(args);
+
+        if (share_stdio) {
+            proc = Child(resolved_args, boost::process::v1::std_in.close());
             pid = static_cast<Pid>(proc.id());
             out_file = File("");
         } else {
@@ -902,9 +950,10 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
             }
             test_file.close();
             
-            proc = Child(args,
+            proc = Child(resolved_args,
                         boost::process::v1::std_out > temp_path.string(),
-                        boost::process::v1::std_err > temp_path.string());
+                        boost::process::v1::std_err > temp_path.string(),
+                        boost::process::v1::std_in.close());
             pid = static_cast<Pid>(proc.id());
             
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
@@ -942,8 +991,8 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
 // ----------------------------------------------------------
 // ----------------------------------------------------------
 
-inline json::object PM::createSystemProcess(const std::vector<std::string>& args, bool is_detachable, bool use_terminal_stdio) {
-    return createChildProcess(args, is_detachable, false, use_terminal_stdio);
+inline json::object PM::createSystemProcess(const std::vector<std::string>& args, bool is_detachable, bool share_stdio) {
+    return createChildProcess(args, is_detachable, false, share_stdio);
 }
 
 // ----------------------------------------------------------
@@ -955,23 +1004,40 @@ inline json::object PM::createRenWebProcess(
     std::vector<std::string> args,
     bool is_detachable,
     bool include_current_args,
-    bool use_terminal_stdio) 
+    bool share_stdio) 
 {
     if (include_current_args) {
-        if (this->app && this->app->orig_args.size() > 1) {
-            for (const auto& arg : this->app->orig_args) {
-                args.push_back(arg);
-            }
-        } else if (this->app) {
+        if (!this->app) {
             this->logger->error("[proc] App is null. Cannot include current arguments for new RenWeb process");
+        } else if (this->app->orig_args.size() > 1) {
+            const std::vector<std::string> copyable_orig_args = {this->app->orig_args.begin() + 1, this->app->orig_args.end()}; 
+            bool page_skip_flag = false;
+            for (const auto& arg : copyable_orig_args) {
+                if (page_skip_flag) {
+                    page_skip_flag = false;
+                    continue;
+                }
+                bool is_empty = arg.empty();
+                bool is_whitespace = std::all_of(arg.begin(), arg.end(), [](unsigned char c) { return std::isspace(c); });
+                bool is_page = arg.rfind("-p", 0) == 0 || arg.rfind("--page=", 0) == 0;
+                if (arg.rfind("--page", 0) == 0 && !is_page) {
+                    is_page = true;
+                    page_skip_flag = true;
+                }
+                if (!is_empty && !is_whitespace && !is_page) {
+                    args.push_back(arg);
+                }
+            }
         }
     }
     for (const auto& page : pages) {
         args.push_back("-p" + page);
     }
+    if (std::find(args.begin(), args.end(), "-b") == args.end()) {
+        args.push_back("-b");
+    }
     args.insert(args.begin(), Locate::executable().string());
-    
-    return createChildProcess(args, is_detachable, true, use_terminal_stdio);
+    return createChildProcess(args, is_detachable, true, share_stdio);
 }
 
 // ----------------------------------------------------------
@@ -1085,13 +1151,9 @@ inline void PM::send(Pid pid, const json::value& message) {
 inline std::vector<std::string> PM::listen(Pid pid, int64_t lines, bool truncate) const {
     std::vector<std::string> lines_v;
     
-    auto it = this->child_processes.find(pid);
-    if (it == this->child_processes.end()) {
-        this->logger->warn("[proc] listen: PID " + std::to_string(pid) + " is not a managed child process");
-        return lines_v;
-    }    
-
-    std::filesystem::path file_path = getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
+    std::filesystem::path file_path = (this->getPid() == pid) 
+        ? Locate::currentDirectory() / "log.txt" 
+        : getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
     std::ifstream file(file_path, std::ios::binary);
     if (!file.is_open()) {
         this->logger->error("[proc] listen: Failed to open output file for PID " + std::to_string(pid));
@@ -1242,4 +1304,75 @@ inline void PM::unregisterProcess() const {
     } catch (const std::exception& e) {
         this->logger->error("[proc] Error unregistering process: " + std::string(e.what()));
     }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::setupSignalHandler() {
+    this->signal_io_context = std::make_unique<boost::asio::io_context>();
+    this->signals = std::make_unique<boost::asio::signal_set>(*this->signal_io_context, SIGINT, SIGTERM);
+    
+#if defined(_WIN32)
+    this->signals->add(SIGBREAK);
+#endif
+
+    this->signals->async_wait([this](const boost::system::error_code& error, int signal_number) {
+        if (!error) {
+            this->logger->info("[proc] Received signal " + std::to_string(signal_number) + ", terminating application");
+            if (this->app && this->app->w) {
+                this->app->w->terminate();
+            }
+        }
+    });
+    
+    this->signal_thread = std::thread([this]() {
+        this->signal_io_context->run();
+    });
+    
+    this->logger->debug("[proc] Signal handler initialized for SIGINT, SIGTERM" +
+#if defined(_WIN32)
+        std::string(", SIGBREAK")
+#else
+        std::string("")
+#endif
+    );
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline std::filesystem::path PM::searchExecutableInPath(const std::string& executable) {
+#if defined(_WIN32)
+    char buffer[MAX_PATH];
+    DWORD len = SearchPathA(nullptr, executable.c_str(), ".exe", MAX_PATH, buffer, nullptr);
+    return (len > 0 && len < MAX_PATH) ? std::filesystem::path(buffer) : std::filesystem::path();
+#else
+    const char* path_env = std::getenv("PATH");
+    if (!path_env || *path_env == '\0') { // fallback to standard unix application paths
+        path_env = "/usr/local/bin:/usr/bin:/bin";
+    }
+    
+    const char* start = path_env;
+    const char* end;
+    
+    while (*start) {
+        end = std::strchr(start, ':');
+        if (!end) end = start + std::strlen(start);
+        
+        if (end > start) {
+            std::filesystem::path full_path(std::string(start, end - start));
+            full_path /= executable;
+            if (access(full_path.c_str(), X_OK) == 0) {
+                return full_path;
+            }
+        }
+        
+        start = (*end == ':') ? end + 1 : end;
+    }
+    
+    return std::filesystem::path();
+#endif
 }

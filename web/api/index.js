@@ -56,7 +56,7 @@ function decode(dec) {
  * Arrays and objects are processed recursively.
  *
  * @param enc - The value to encode (can be any type)
- * @param options - Encoding options
+ * @param options - Encoding options (default: { string: "base64" })
  * @param options.string - The encoding type for strings (default: "base64")
  * @returns The encoded value with all nested strings converted to encoded format
  *
@@ -70,7 +70,8 @@ function decode(dec) {
  * encode({ name: "John", age: 30 })
  * // Returns: { name: { __encoding_type__: "base64", __val__: [...] }, age: 30 }
  */
-function encode(enc, { string } = { string: "base64" }) {
+function encode(enc, options = { string: "base64" }) {
+    const string = options?.string ?? "base64";
     switch (typeof enc) {
         case "string":
             switch (string) {
@@ -90,12 +91,12 @@ function encode(enc, { string } = { string: "base64" }) {
                 return null;
             }
             else if (Array.isArray(enc)) {
-                return enc.map(el => encode(el, { string }));
+                return enc.map(el => encode(el, { string: string }));
             }
             else {
                 const encodedObj = {};
                 for (const key in enc) {
-                    encodedObj[key] = encode(enc[key], { string });
+                    encodedObj[key] = encode(enc[key], { string: string });
                 }
                 return encodedObj;
             }
@@ -124,11 +125,7 @@ export const Utils = {
     encode,
     serialize
 };
-/*
-* -----------------------------------------------
-* ------------------Exports----------------------
-* -----------------------------------------------
-*/
+window.onServerMessage = async (msg) => { };
 /**
  * Window property getters and setters.
  */
@@ -160,7 +157,7 @@ export var Properties;
      * @param y - Y coordinate in pixels
      * @returns Promise that resolves when position is set
      */
-    async function setPosition(x, y) { await BIND_set_position({ x, y }); }
+    async function setPosition(x, y) { await BIND_set_position({ x: x, y: y }); }
     Properties.setPosition = setPosition;
     /**
      * Gets whether window has a title bar.
@@ -468,7 +465,8 @@ export var FS;
      * Writes contents to a file.
      * @param path - Path to the file to write
      * @param contents - Content to write to the file
-     * @param settings - Write settings (append mode)
+     * @param settings - Write settings (default: { append: false })
+     * @param settings.append - Whether to append to file instead of overwriting (default: false)
      * @returns Promise that resolves to true if successful
      */
     async function writeFile(path, contents, settings = { append: false }) { return await BIND_write_file(encode(path), encode(contents), settings); }
@@ -497,7 +495,8 @@ export var FS;
     /**
      * Removes a file or directory.
      * @param path - Path to remove
-     * @param settings - Remove settings (recursive mode for directories)
+     * @param settings - Remove settings (default: { recursive: false })
+     * @param settings.recursive - Whether to recursively remove directories (default: false)
      * @returns Promise that resolves to true if successful
      */
     async function rm(path, settings = { recursive: false }) { return await BIND_rm(encode(path), settings); }
@@ -513,7 +512,8 @@ export var FS;
      * Renames or moves a file or directory.
      * @param orig_path - Original path
      * @param new_path - New path
-     * @param settings - Rename settings (overwrite mode)
+     * @param settings - Rename settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
     async function rename(orig_path, new_path, settings = { overwrite: false }) { return await BIND_rename(encode(orig_path), encode(new_path), settings); }
@@ -522,7 +522,8 @@ export var FS;
      * Copies a file or directory.
      * @param orig_path - Source path
      * @param new_path - Destination path
-     * @param settings - Copy settings (overwrite mode)
+     * @param settings - Copy settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
     async function copy(orig_path, new_path, settings = { overwrite: false }) { return await BIND_copy(encode(orig_path), encode(new_path), settings); }
@@ -612,7 +613,21 @@ export var System;
     System.getOS = getOS;
 })(System || (System = {}));
 /**
- * Process class.
+ * Represents a system or RenWeb process with methods for process management and communication.
+ * Process instances can only be created through static factory methods like createProcess() or createWindow().
+ *
+ * @example
+ * // Create a new RenWeb window
+ * const proc = await Process.createWindow("home");
+ *
+ * @example
+ * // Create a system process
+ * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+ *
+ * @example
+ * // Get current process info
+ * const current = await Process.dumpCurrentProcess();
+ * console.log(current?.pid);
  */
 export class Process {
     constructor(pid, ppid, name, path, args, is_background_process, is_running, is_child, exit_code, started_at, memory_kb, threads, url, page, renweb) {
@@ -632,6 +647,10 @@ export class Process {
         this._page = page;
         this._renweb = renweb;
     }
+    /**
+     * Gets all process information as an object.
+     * @returns Object containing all process properties
+     */
     get info() {
         return {
             pid: this._pid,
@@ -651,21 +670,44 @@ export class Process {
             renweb: this._renweb
         };
     }
+    /** Gets the process ID */
     get pid() { return this._pid; }
+    /** Gets the parent process ID */
     get ppid() { return this._ppid; }
+    /** Gets the process name */
     get name() { return this._name; }
+    /** Gets the process executable path */
     get path() { return this._path; }
+    /** Gets the process command-line arguments */
     get args() { return this._args; }
+    /** Gets whether this is a background process */
     get is_background_process() { return this._is_background_process; }
+    /** Gets whether the process is currently running */
     get is_running() { return this._is_running; }
+    /** Gets whether this is a child process of the current process */
     get is_child() { return this._is_child; }
+    /** Gets the process exit code (0 if still running) */
     get exit_code() { return this._exit_code; }
+    /** Gets the process start time */
     get started_at() { return this._started_at; }
+    /** Gets the process memory usage in kilobytes */
     get memory_kb() { return this._memory_kb; }
+    /** Gets the number of threads in the process */
     get threads() { return this._threads; }
+    /** Gets the URL (for RenWeb processes) */
     get url() { return this._url; }
+    /** Gets the page name (for RenWeb processes) */
     get page() { return this._page; }
+    /** Gets whether this is a RenWeb process */
     get renweb() { return this._renweb; }
+    /**
+     * Refreshes the process information from the system.
+     * Updates all properties with current values.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.refresh();
+     * console.log(proc.memory_kb); // Updated memory usage
+     */
     async refresh() {
         const updated_proc_info = await BIND_dump_process(this._pid);
         this._pid = updated_proc_info.pid;
@@ -685,64 +727,156 @@ export class Process {
         this._renweb = updated_proc_info.renweb;
         return this;
     }
+    /**
+     * Sends a signal to terminate or interrupt the process.
+     * @param signal - Signal number to send (default: 0x2 = SIGINT)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.kill(); // Send SIGINT
+     * await proc.kill(0x9); // Send SIGKILL
+     */
     async kill(signal = 0x2) {
         await BIND_kill_process(this._pid, signal);
         return this;
     }
+    /**
+     * Detaches the process, allowing it to run independently.
+     * After detaching, the process will continue running even if the parent terminates.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.detach();
+     */
     async detach() {
         await BIND_detach_process(this._pid);
         return this;
     }
+    /**
+     * Sends a message to this process.
+     * The message will be automatically encoded before sending.
+     * @param msg - Message to send (can be any serializable value)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.send({ type: "command", data: "hello" });
+     */
     async send(msg) {
         await BIND_send_message(this._pid, encode(msg));
         return this;
     }
-    async listenToOutput(lines = -1, { truncate = false }) {
+    /**
+     * Listens to and retrieves output from the process.
+     * @param lines - Number of lines to retrieve (default: -1 for all)
+     * @param options - Options object (default: { truncate: false })
+     * @param options.truncate - Whether to truncate the output buffer after reading (default: false)
+     * @returns Array of output lines
+     * @example
+     * const output = await proc.listenToOutput(10); // Last 10 lines
+     * const allOutput = await proc.listenToOutput(); // All lines
+     */
+    async listenToOutput(lines = -1, options = { truncate: false }) {
+        const truncate = options?.truncate ?? false;
         return decode(await BIND_listen_to_output(this._pid, lines, { truncate: truncate }));
     }
+    /**
+     * Gets messages sent to this process.
+     * @returns Array of messages received by this process
+     * @example
+     * const messages = await proc.getMessages();
+     */
     async getMessages() {
         return Process.getMessages(this._pid);
     }
+    /**
+     * Waits for the process to complete execution.
+     * This will block until the process exits.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.wait();
+     * console.log("Process finished with code:", proc.exit_code);
+     */
     async wait() {
         await BIND_wait(this._pid);
         return this;
     }
-    static async createProcess(args, { is_detachable = false }) {
-        const process = decode(await BIND_create_process(encode(args), is_detachable));
+    /**
+     * Creates a new system process.
+     * @param args - Array of command and arguments (first element is the executable)
+     * @param options - Options object (default: { is_detachable: false })
+     * @param options.is_detachable - Whether the process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if creation failed
+     * @example
+     * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+     * await proc.wait();
+     */
+    static async createProcess(args, options = { is_detachable: false, share_stdio: false }) {
+        const is_detachable = options?.is_detachable ?? false;
+        const share_stdio = options?.share_stdio ?? false;
+        const process = decode(await BIND_create_process(encode(args), encode({ is_detachable: is_detachable, share_stdio: share_stdio })));
         if (typeof process === "object" && process?.pid != null) {
             return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
         }
         return null;
     }
     static async createWindow(pageOrPages, args = [], options = {}) {
-        const { is_detachable = false, include_orig_args = true } = options;
+        const is_detachable = options?.is_detachable ?? false;
+        const include_orig_args = options?.include_orig_args ?? true;
+        const share_stdio = options?.share_stdio ?? false;
         const pages = typeof pageOrPages === 'string' ? [pageOrPages] : pageOrPages;
-        const process = decode(await BIND_create_window(encode(pages), encode(args), encode({ is_detachable: is_detachable, include_orig_args: include_orig_args })));
+        const process = decode(await BIND_create_window(encode(pages), encode(args), encode({ is_detachable: is_detachable, include_orig_args: include_orig_args, share_stdio: share_stdio })));
         if (typeof process === "object" && process?.pid != null) {
             return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
         }
         return null;
     }
-    static async duplicate(pid = -1, { is_detachable = true } = { is_detachable: true }) {
+    /**
+     * Duplicates a process or creates a duplicate of the current window.
+     * @param pid - Process ID to duplicate (default: -1 for current process)
+     * @param options - Options object (default: { is_detachable: true })
+     * @param options.is_detachable - Whether the new process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if duplication failed
+     * @example
+     * const duplicate = await Process.duplicate(); // Duplicate current window
+     * const copy = await Process.duplicate(1234); // Duplicate process 1234
+     */
+    static async duplicate(pid = -1, options = { is_detachable: false, share_stdio: false }) {
+        const is_detachable = options?.is_detachable ?? true;
+        const share_stdio = options?.share_stdio ?? false;
         if (pid < 0) {
-            return Process.createWindow([], [], { is_detachable: is_detachable, include_orig_args: true });
+            return Process.createWindow([], [], { is_detachable: is_detachable, include_orig_args: true, share_stdio: share_stdio });
         }
         else {
             const process = await Process.dumpProcess(pid);
             if (process != null) {
-                return Process.createProcess(process.args, { is_detachable: is_detachable });
+                return Process.createProcess(process.args, { is_detachable: is_detachable, share_stdio: share_stdio });
             }
             else {
                 return null;
             }
         }
     }
+    /**
+     * Gets messages for a specific process or all messages.
+     * @param pid - Process ID to get messages for (-1 for all messages)
+     * @returns Array of messages
+     * @example
+     * const allMessages = await Process.getMessages();
+     * const procMessages = await Process.getMessages(1234);
+     */
     static async getMessages(pid = -1) {
         const messages = decode(await BIND_get_messages());
         return (pid < 0) ? messages : messages.filter(msg => {
             return Object.hasOwnProperty.call(msg, "pid") && msg.pid == pid;
         });
     }
+    /**
+     * Gets detailed information about a specific process.
+     * @param pid - Process ID to query
+     * @returns Process instance with current information or null if not found
+     * @example
+     * const proc = await Process.dumpProcess(1234);
+     * if (proc) console.log(proc.name, proc.memory_kb);
+     */
     static async dumpProcess(pid) {
         const process = decode(await BIND_dump_process(pid));
         if (typeof process === "object" && process?.pid != null) {
@@ -750,6 +884,15 @@ export class Process {
         }
         return null;
     }
+    /**
+     * Gets a list of processes with optional filtering.
+     * @param filter - Filter type: '' (all), 'system' (system processes), 'renweb' (RenWeb processes), 'child' (child processes)
+     * @returns Array of Process instances
+     * @example
+     * const allProcs = await Process.dumpProcesses();
+     * const renwebProcs = await Process.dumpProcesses('renweb');
+     * const children = await Process.dumpProcesses('child');
+     */
     static async dumpProcesses(filter = '') {
         const processes = decode(await BIND_dump_processes(encode(filter)));
         if (!Array.isArray(processes)) {
@@ -757,6 +900,13 @@ export class Process {
         }
         return processes.filter(proc => typeof proc === "object" && proc?.pid != null).map(proc => new Process(proc.pid, proc.ppid, proc.name, proc.path, proc.args, proc.is_background_process, proc.is_running, proc.is_child, proc.exit_code, new Date(proc.started_at), proc.memory_kb, proc.threads, proc.url, proc.page, proc.renweb));
     }
+    /**
+     * Gets information about the current process.
+     * @returns Process instance representing the current process or null
+     * @example
+     * const current = await Process.dumpCurrentProcess();
+     * console.log("Current PID:", current?.pid);
+     */
     static async dumpCurrentProcess() {
         const process = decode(await BIND_dump_current_process(null));
         if (typeof process === "object" && process?.pid != null) {
@@ -764,6 +914,15 @@ export class Process {
         }
         return null;
     }
+    /**
+     * Waits for all child processes to complete execution.
+     * This will block until all child processes have exited.
+     * @returns Promise that resolves when all child processes complete
+     * @example
+     * await Process.createWindow("page1");
+     * await Process.createWindow("page2");
+     * await Process.waitAll(); // Wait for both to finish
+     */
     static async waitAll() {
         await BIND_wait_all(null);
     }

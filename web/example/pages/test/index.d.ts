@@ -23,7 +23,7 @@ declare function decode(dec: any): any;
  * Arrays and objects are processed recursively.
  *
  * @param enc - The value to encode (can be any type)
- * @param options - Encoding options
+ * @param options - Encoding options (default: { string: "base64" })
  * @param options.string - The encoding type for strings (default: "base64")
  * @returns The encoded value with all nested strings converted to encoded format
  *
@@ -37,7 +37,7 @@ declare function decode(dec: any): any;
  * encode({ name: "John", age: 30 })
  * // Returns: { name: { __encoding_type__: "base64", __val__: [...] }, age: 30 }
  */
-declare function encode(enc: any, { string }?: {
+declare function encode(enc: any, options?: {
     string: "base64";
 }): any;
 /**
@@ -59,6 +59,29 @@ export declare const Utils: {
     encode: typeof encode;
     serialize: typeof serialize;
 };
+declare global {
+    interface Window {
+        /**
+         * Callback invoked when a message is received from another RenWeb process.
+         * @param msg - The message object received. \
+         * The `msg` param will already be decoded when it's passed. \
+         * Messages should automatically be encoded as an object with `sender` and `message` properties, \
+         * but this is not guaranteed.
+         * @example
+         * window.onServerMessage = async (msg) => {
+         *     if (msg?.sender != null) {
+         *        await Log.info(`Received message from PID ${msg.sender?.pid}:`, msg?.message);
+         *    } else {
+         *        await Log.info(`Received unformatted message:`, msg?.message);
+         *    }
+         * };
+         */
+        onServerMessage: (msg: ({
+            sender: Process;
+            message: any;
+        }) | any) => Promise<void>;
+    }
+}
 /**
  * Window property getters and setters.
  */
@@ -360,7 +383,8 @@ export declare namespace FS {
      * Writes contents to a file.
      * @param path - Path to the file to write
      * @param contents - Content to write to the file
-     * @param settings - Write settings (append mode)
+     * @param settings - Write settings (default: { append: false })
+     * @param settings.append - Whether to append to file instead of overwriting (default: false)
      * @returns Promise that resolves to true if successful
      */
     function writeFile(path: string, contents: string, settings?: WriteSettings): Promise<boolean>;
@@ -385,7 +409,8 @@ export declare namespace FS {
     /**
      * Removes a file or directory.
      * @param path - Path to remove
-     * @param settings - Remove settings (recursive mode for directories)
+     * @param settings - Remove settings (default: { recursive: false })
+     * @param settings.recursive - Whether to recursively remove directories (default: false)
      * @returns Promise that resolves to true if successful
      */
     function rm(path: string, settings?: RmSettings): Promise<boolean>;
@@ -399,7 +424,8 @@ export declare namespace FS {
      * Renames or moves a file or directory.
      * @param orig_path - Original path
      * @param new_path - New path
-     * @param settings - Rename settings (overwrite mode)
+     * @param settings - Rename settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
     function rename(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise<boolean>;
@@ -407,7 +433,8 @@ export declare namespace FS {
      * Copies a file or directory.
      * @param orig_path - Source path
      * @param new_path - Destination path
-     * @param settings - Copy settings (overwrite mode)
+     * @param settings - Copy settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
     function copy(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise<boolean>;
@@ -434,7 +461,7 @@ export declare namespace Config {
      */
     function getConfig(): Promise<any>;
     /**
-     * Gets the config set for __defaults__.
+     * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object
      */
     function getDefaults(): Promise<any>;
@@ -483,7 +510,21 @@ export declare namespace System {
     function getOS(): Promise<string>;
 }
 /**
- * Process class.
+ * Represents a system or RenWeb process with methods for process management and communication.
+ * Process instances can only be created through static factory methods like createProcess() or createWindow().
+ *
+ * @example
+ * // Create a new RenWeb window
+ * const proc = await Process.createWindow("home");
+ *
+ * @example
+ * // Create a system process
+ * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+ *
+ * @example
+ * // Get current process info
+ * const current = await Process.dumpCurrentProcess();
+ * console.log(current?.pid);
  */
 export declare class Process {
     private _pid;
@@ -502,6 +543,10 @@ export declare class Process {
     private _page;
     private _renweb;
     private constructor();
+    /**
+     * Gets all process information as an object.
+     * @returns Object containing all process properties
+     */
     get info(): {
         pid: number;
         ppid: number;
@@ -519,48 +564,208 @@ export declare class Process {
         page: string;
         renweb: boolean;
     };
+    /** Gets the process ID */
     get pid(): number;
+    /** Gets the parent process ID */
     get ppid(): number;
+    /** Gets the process name */
     get name(): string;
+    /** Gets the process executable path */
     get path(): string;
+    /** Gets the process command-line arguments */
     get args(): string[];
+    /** Gets whether this is a background process */
     get is_background_process(): boolean;
+    /** Gets whether the process is currently running */
     get is_running(): boolean;
+    /** Gets whether this is a child process of the current process */
     get is_child(): boolean;
+    /** Gets the process exit code (0 if still running) */
     get exit_code(): number;
+    /** Gets the process start time */
     get started_at(): Date;
+    /** Gets the process memory usage in kilobytes */
     get memory_kb(): number;
+    /** Gets the number of threads in the process */
     get threads(): number;
+    /** Gets the URL (for RenWeb processes) */
     get url(): string;
+    /** Gets the page name (for RenWeb processes) */
     get page(): string;
+    /** Gets whether this is a RenWeb process */
     get renweb(): boolean;
+    /**
+     * Refreshes the process information from the system.
+     * Updates all properties with current values.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.refresh();
+     * console.log(proc.memory_kb); // Updated memory usage
+     */
     refresh(): Promise<Process>;
+    /**
+     * Sends a signal to terminate or interrupt the process.
+     * @param signal - Signal number to send (default: 0x2 = SIGINT)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.kill(); // Send SIGINT
+     * await proc.kill(0x9); // Send SIGKILL
+     */
     kill(signal?: number): Promise<Process>;
+    /**
+     * Detaches the process, allowing it to run independently.
+     * After detaching, the process will continue running even if the parent terminates.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.detach();
+     */
     detach(): Promise<Process>;
+    /**
+     * Sends a message to this process.
+     * The message will be automatically encoded before sending.
+     * @param msg - Message to send (can be any serializable value)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.send({ type: "command", data: "hello" });
+     */
     send(msg: any): Promise<Process>;
-    listenToOutput(lines: number | undefined, { truncate }: {
-        truncate?: boolean | undefined;
+    /**
+     * Listens to and retrieves output from the process.
+     * @param lines - Number of lines to retrieve (default: -1 for all)
+     * @param options - Options object (default: { truncate: false })
+     * @param options.truncate - Whether to truncate the output buffer after reading (default: false)
+     * @returns Array of output lines
+     * @example
+     * const output = await proc.listenToOutput(10); // Last 10 lines
+     * const allOutput = await proc.listenToOutput(); // All lines
+     */
+    listenToOutput(lines?: number, options?: {
+        truncate: boolean;
     }): Promise<string[]>;
+    /**
+     * Gets messages sent to this process.
+     * @returns Array of messages received by this process
+     * @example
+     * const messages = await proc.getMessages();
+     */
     getMessages(): Promise<any[]>;
+    /**
+     * Waits for the process to complete execution.
+     * This will block until the process exits.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.wait();
+     * console.log("Process finished with code:", proc.exit_code);
+     */
     wait(): Promise<Process>;
-    static createProcess(args: string[], { is_detachable }: {
-        is_detachable?: boolean | undefined;
+    /**
+     * Creates a new system process.
+     * @param args - Array of command and arguments (first element is the executable)
+     * @param options - Options object (default: { is_detachable: false })
+     * @param options.is_detachable - Whether the process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if creation failed
+     * @example
+     * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+     * await proc.wait();
+     */
+    static createProcess(args: string[], options?: {
+        is_detachable: boolean;
+        share_stdio: boolean;
     }): Promise<Process | null>;
+    /**
+     * Creates a new RenWeb window process.
+     * @param page - Page name to load
+     * @param args - Additional command-line arguments (default: [])
+     * @param options - Options object (default: { is_detachable: false, include_orig_args: true })
+     * @param options.is_detachable - Whether the process can be detached (default: false)
+     * @param options.include_orig_args - Whether to include original non-page process arguments (default: true)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if creation failed
+     */
     static createWindow(page: string, args?: string[], options?: {
         is_detachable?: boolean;
         include_orig_args?: boolean;
+        share_stdio?: boolean;
     }): Promise<Process | null>;
+    /**
+     * Creates a new RenWeb window process with multiple pages.
+     * @param pages - Array of page names to load
+     * @param args - Additional command-line arguments (default: [])
+     * @param options - Options object (default: { is_detachable: false, include_orig_args: true })
+     * @param options.is_detachable - Whether the process can be detached (default: false)
+     * @param options.include_orig_args - Whether to include original non-page process arguments (default: true)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if creation failed
+     * @example
+     * const proc = await Process.createWindow("home");
+     * const multiProc = await Process.createWindow(["home", "settings"]);
+     */
     static createWindow(pages: string[], args?: string[], options?: {
         is_detachable?: boolean;
         include_orig_args?: boolean;
+        share_stdio?: boolean;
     }): Promise<Process | null>;
-    static duplicate(pid?: number, { is_detachable }?: {
-        is_detachable?: true;
+    /**
+     * Duplicates a process or creates a duplicate of the current window.
+     * @param pid - Process ID to duplicate (default: -1 for current process)
+     * @param options - Options object (default: { is_detachable: true })
+     * @param options.is_detachable - Whether the new process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if duplication failed
+     * @example
+     * const duplicate = await Process.duplicate(); // Duplicate current window
+     * const copy = await Process.duplicate(1234); // Duplicate process 1234
+     */
+    static duplicate(pid?: number, options?: {
+        is_detachable?: boolean;
+        share_stdio?: boolean;
     }): Promise<Process | null>;
+    /**
+     * Gets messages for a specific process or all messages.
+     * @param pid - Process ID to get messages for (-1 for all messages)
+     * @returns Array of messages
+     * @example
+     * const allMessages = await Process.getMessages();
+     * const procMessages = await Process.getMessages(1234);
+     */
     static getMessages(pid?: number): Promise<any[]>;
+    /**
+     * Gets detailed information about a specific process.
+     * @param pid - Process ID to query
+     * @returns Process instance with current information or null if not found
+     * @example
+     * const proc = await Process.dumpProcess(1234);
+     * if (proc) console.log(proc.name, proc.memory_kb);
+     */
     static dumpProcess(pid: number): Promise<Process | null>;
+    /**
+     * Gets a list of processes with optional filtering.
+     * @param filter - Filter type: '' (all), 'system' (system processes), 'renweb' (RenWeb processes), 'child' (child processes)
+     * @returns Array of Process instances
+     * @example
+     * const allProcs = await Process.dumpProcesses();
+     * const renwebProcs = await Process.dumpProcesses('renweb');
+     * const children = await Process.dumpProcesses('child');
+     */
     static dumpProcesses(filter?: '' | 'system' | 'renweb' | 'child'): Promise<Process[]>;
+    /**
+     * Gets information about the current process.
+     * @returns Process instance representing the current process or null
+     * @example
+     * const current = await Process.dumpCurrentProcess();
+     * console.log("Current PID:", current?.pid);
+     */
     static dumpCurrentProcess(): Promise<Process | null>;
+    /**
+     * Waits for all child processes to complete execution.
+     * This will block until all child processes have exited.
+     * @returns Promise that resolves when all child processes complete
+     * @example
+     * await Process.createWindow("page1");
+     * await Process.createWindow("page2");
+     * await Process.waitAll(); // Wait for both to finish
+     */
     static waitAll(): Promise<void>;
 }
 /**

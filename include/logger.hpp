@@ -22,6 +22,7 @@ namespace RenWeb {
         bool log_silent = false;
         spdlog::level::level_enum log_level = spdlog::level::trace;
         bool log_clear = false;
+        bool log_boring = false;
     };
     class FakeLogger : public RenWeb::ILogger {
         public:
@@ -98,7 +99,11 @@ namespace RenWeb {
                             << msg_str;
                 auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
                 console_sink->set_level(this->flags->log_level);
-                console_sink->set_pattern(colored_log_str.str());
+                if (this->flags->log_boring) {
+                    console_sink->set_pattern(boring_log_str.str());
+                } else {
+                    console_sink->set_pattern(colored_log_str.str());
+                }
 
                 auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
                 file_sink->set_level(spdlog::level::trace);

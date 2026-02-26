@@ -1725,8 +1725,9 @@ WF* WF::setProcessCallbacks() {
                 args.push_back(page.as_string().c_str());
             }
             bool is_detachable = params[2].as_object().at("is_detachable").as_bool();
+            bool share_stdio = params[2].as_object().at("share_stdio").as_bool();
             bool include_orig_args = params[2].as_object().at("include_orig_args").as_bool();
-            return this->app->procm->createRenWebProcess(pages, args, is_detachable, include_orig_args);
+            return this->app->procm->createRenWebProcess(pages, args, is_detachable, include_orig_args, share_stdio);
     }))->add("create_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
@@ -1734,9 +1735,9 @@ WF* WF::setProcessCallbacks() {
             for (const auto& page : params[0].as_array()) {
                 args.push_back(page.as_string().c_str());
             }
-            this->logger->debug(json::serialize(params[1]));
             bool is_detachable = params[1].as_object().at("is_detachable").as_bool();
-            return this->app->procm->createSystemProcess(args, is_detachable);
+            bool share_stdio = params[1].as_object().at("share_stdio").as_bool();
+            return this->app->procm->createSystemProcess(args, is_detachable, share_stdio);
     }))->add("dump_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();

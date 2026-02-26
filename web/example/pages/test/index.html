@@ -369,6 +369,7 @@
                         <input type="text" class="process_command" placeholder="Command...">
                         <input type="text" class="process_args" placeholder="Args...">
                         <label class="checkbox-label"><input type="checkbox" class="process_detachable"><span>Detachable</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="process_stdio"><span>Share STDIO</span></label>
                     </div>
                 </div>
                 <div class="subsection">
@@ -381,7 +382,8 @@
                         <input type="text" class="renweb_page" placeholder="Page...">
                         <input type="text" class="renweb_args" placeholder="Args...">
                         <label class="checkbox-label"><input type="checkbox" class="renweb_detachable"><span>Detachable</span></label>
-                        <label class="checkbox-label"><input type="checkbox" class="renweb_orig"><span>Add Original Args</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="renweb_orig"><span>Include Original Args</span></label>
+                        <label class="checkbox-label"><input type="checkbox" class="renweb_stdio"><span>Share STDIO</span></label>
                     </div>
                 </div>
                 <div class="subsection">
@@ -389,6 +391,7 @@
                     <div class="input-group">
                         <input type="number" class="control_pid" placeholder="PID">
                         <button class="btn get_process">Info</button>
+                        <button class="btn listen_process">Listen</button>
                         <button class="btn kill_process">Kill</button>
                         <button class="btn wait_process">Wait</button>
                         <button class="btn detach_process">Detach</button>

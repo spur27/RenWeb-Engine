@@ -73,7 +73,8 @@ std::unique_ptr<App> AppBuilder::build() {
         this->withLogger(std::make_unique<Logger>(std::make_unique<LogFlags>(LogFlags{
             .log_silent = opts.at("log_silent") == "true",
             .log_level = static_cast<spdlog::level::level_enum>(std::atoi(opts.at("log_level").c_str())),
-            .log_clear = opts.at("log_clear") == "true"
+            .log_clear = opts.at("log_clear") == "true",
+            .log_boring = opts.at("log_boring") == "true"
         })));
         this->validateOpt("page");
         this->logger->refresh({

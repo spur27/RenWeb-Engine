@@ -84,6 +84,14 @@ Args* Args::addDefaults() {
             this->opts["log_silent"] = boost::any_cast<bool>(log_silent) ? "true" : "false";
         })
     ->add(
+        "log-boring,b",
+        boost::program_options::bool_switch()->default_value(false),
+        "Sets whether log prints with color or not",
+        [this](boost::any log_boring)
+        {
+            this->opts["log_boring"] = boost::any_cast<bool>(log_boring) ? "true" : "false";
+        })
+    ->add(
         "log-level,l",
         boost::program_options::value<unsigned int>()->default_value(2, "2 (info)"),
         "Sets log level (n>=0)",
