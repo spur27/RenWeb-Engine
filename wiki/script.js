@@ -1,0 +1,2422 @@
+// URL Redirect Logic (for old wiki/ paths)
+(function redirectOldUrls() {
+    // Only run in parent window, not in iframes
+    if (window.RENWEB_IFRAME_MODE || window.parent !== window) {
+        return;
+    }
+    
+    const path = window.location.pathname;
+    const match = path.match(/\/wiki\/([^.]+)\.html$/);
+    if (match) {
+        const page = match[1];
+        window.location.href = `/?page=${page}`;
+    }
+})();
+
+// Starfield Background Animation
+(function initStarfield() {
+    const canvas = document.getElementById('starfield');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    let stars = [];
+    let animationId;
+    
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    
+    function createStars(count) {
+        stars = [];
+        for (let i = 0; i < count; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 1.5,
+                speed: Math.random() * 0.5 + 0.1,
+                opacity: Math.random() * 0.5 + 0.3
+            });
+        }
+    }
+    
+    function drawStars() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        stars.forEach(star => {
+            ctx.beginPath();
+            ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${star.opacity})`;
+            ctx.fill();
+            
+            // Move star
+            star.y += star.speed;
+            
+            // Reset star if it goes off screen
+            if (star.y > canvas.height) {
+                star.y = 0;
+                star.x = Math.random() * canvas.width;
+            }
+        });
+        
+        animationId = requestAnimationFrame(drawStars);
+    }
+    
+    resizeCanvas();
+    createStars(150);
+    drawStars();
+    
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        createStars(150);
+    });
+})();
+
+// API Data for Search (populated from methodDetails)
+// NOTE: The actual apiData is now loaded from data/api_data.js (single source of truth)
+// These helper functions can be used to auto-generate or validate data/api_data.js
+
+let apiData = undefined;
+
+// This will be populated after the API tree initializes
+// We'll build it from the methodDetails in the API tree function
+function buildApiDataFromMethodDetails(methodDetails) {
+    const data = {};
+    
+    for (const [category, methods] of Object.entries(methodDetails)) {
+        if (category === 'Process') {
+            // Handle Process class specially - it has factory constructors, static and instance methods
+            data[category] = [];
+            // Add factory constructors
+            if (methodDetails.Process.createProcess) {
+                data[category].push({
+                    name: 'createProcess',
+                    signature: formatSignature('createProcess', methodDetails.Process.createProcess),
+                    description: `Create a new process - Returns: ${methodDetails.Process.createProcess.returns}`
+                });
+            }
+            if (methodDetails.Process.createWindow) {
+                data[category].push({
+                    name: 'createWindow',
+                    signature: formatSignature('createWindow', methodDetails.Process.createWindow),
+                    description: `Create a new window process - Returns: ${methodDetails.Process.createWindow.returns}`
+                });
+            }
+            if (methodDetails.Process.duplicate) {
+                data[category].push({
+                    name: 'duplicate',
+                    signature: formatSignature('duplicate', methodDetails.Process.duplicate),
+                    description: `Duplicate the current process - Returns: ${methodDetails.Process.duplicate.returns}`
+                });
+            }
+            // Add other Process methods
+            const processMethodNames = ['dumpProcess', 'dumpProcesses', 'dumpCurrentProcess', 'listenToOutput', 'getMessages', 'waitAll', 'refresh', 'kill', 'detach', 'send', 'wait'];
+            processMethodNames.forEach(methodName => {
+                if (methodDetails.Process[methodName]) {
+                    data[category].push({
+                        name: methodName,
+                        signature: formatSignature(methodName, methodDetails.Process[methodName]),
+                        description: `Process method - Returns: ${methodDetails.Process[methodName].returns}`
+                    });
+                }
+            });
+        } else {
+            // Regular namespace
+            data[category] = [];
+            for (const [methodName, details] of Object.entries(methods)) {
+                data[category].push({
+                    name: methodName,
+                    signature: formatSignature(methodName, details),
+                    description: `Returns: ${details.returns}`
+                });
+            }
+        }
+    }
+    
+    return data;
+}
+
+function formatSignature(name, details) {
+    if (!details.params || details.params.length === 0) {
+        return `${name}()`;
+    }
+    const paramStr = details.params.map(p => {
+        if (p.defaultValue !== undefined) {
+            return `${p.name} = ${p.defaultValue}`;
+        }
+        return p.name;
+    }).join(', ');
+    return `${name}(${paramStr})`;
+}
+
+// Global Search Functionality with Fuzzy Search
+(function initGlobalSearch() {
+    const globalSearch = document.getElementById('global-search');
+    const searchDropdown = document.getElementById('search-dropdown');
+    const mobileSearch = document.getElementById('mobile-search');
+    const mobileSearchDropdown = document.getElementById('mobile-search-dropdown');
+    
+    if (!globalSearch || !searchDropdown) return;
+    
+    let searchIndex = [];
+    let selectedIndex = -1;
+    let activeInput = null;
+    let activeDropdown = null;
+    
+    // Build search index from API data (if available)
+    function buildSearchIndex() {
+        // Check window.apiData first (for index.html), then fall back to global apiData (for api.html)
+        const data = window.apiData || (typeof apiData !== 'undefined' ? apiData : null);
+        if (data) {
+            const index = [];
+            for (const [category, functions] of Object.entries(data)) {
+                functions.forEach(func => {
+                    index.push({
+                        category,
+                        name: func.name,
+                        signature: func.signature,
+                        description: func.description || '',
+                        searchText: `${category}.${func.name} ${func.signature} ${func.description || ''}`.toLowerCase()
+                    });
+                });
+            }
+            return index;
+        }
+        return [];
+    }
+    
+    // Fuzzy search algorithm
+    function fuzzyMatch(pattern, text) {
+        pattern = pattern.toLowerCase();
+        text = text.toLowerCase();
+        
+        let patternIdx = 0;
+        let textIdx = 0;
+        let score = 0;
+        let matches = [];
+        
+        while (patternIdx < pattern.length && textIdx < text.length) {
+            const patternChar = pattern[patternIdx];
+            const textChar = text[textIdx];
+            
+            if (patternChar === textChar) {
+                score += 10;
+                matches.push(textIdx);
+                patternIdx++;
+                
+                // Bonus for consecutive matches
+                if (matches.length > 1 && matches[matches.length - 1] === matches[matches.length - 2] + 1) {
+                    score += 5;
+                }
+                
+                // Bonus for matching at word start
+                if (textIdx === 0 || text[textIdx - 1] === ' ') {
+                    score += 8;
+                }
+            } else {
+                score -= 1;
+            }
+            textIdx++;
+        }
+        
+        // If we didn't match all pattern characters, it's not a match
+        if (patternIdx < pattern.length) {
+            return null;
+        }
+        
+        return { score, matches };
+    }
+    
+    // Search through the index
+    function performSearch(query) {
+        if (!query || query.length < 1) return [];
+        
+        const results = [];
+        
+        for (const item of searchIndex) {
+            const match = fuzzyMatch(query, item.searchText);
+            if (match) {
+                results.push({
+                    ...item,
+                    score: match.score
+                });
+            }
+        }
+        
+        // Sort by score (highest first)
+        results.sort((a, b) => b.score - a.score);
+        
+        // Limit to top 10 results
+        return results.slice(0, 10);
+    }
+    
+    // Highlight matched characters in text
+    function highlightMatches(text, query) {
+        if (!query) return text;
+        
+        const pattern = query.toLowerCase();
+        const lowerText = text.toLowerCase();
+        let patternIdx = 0;
+        let result = '';
+        
+        for (let i = 0; i < text.length; i++) {
+            if (patternIdx < pattern.length && lowerText[i] === pattern[patternIdx]) {
+                result += `<span class="search-result-match">${text[i]}</span>`;
+                patternIdx++;
+            } else {
+                result += text[i];
+            }
+        }
+        
+        return result;
+    }
+    
+    // Render search results
+    function renderResults(results, query) {
+        const dropdown = activeDropdown || searchDropdown;
+        
+        if (results.length === 0) {
+            dropdown.innerHTML = '<div class="search-no-results">No results found</div>';
+            dropdown.classList.add('active');
+            return;
+        }
+        
+        const html = results.map((result, index) => `
+            <div class="search-result-item" data-index="${index}" data-category="${result.category}" data-name="${result.name}">
+                <div class="search-result-category">${result.category}</div>
+                <div class="search-result-name">${highlightMatches(result.name, query)}</div>
+                <div class="search-result-signature">${highlightMatches(result.signature, query)}</div>
+                <div class="search-result-description">${result.description}</div>
+            </div>
+        `).join('');
+        
+        dropdown.innerHTML = html;
+        dropdown.classList.add('active');
+        selectedIndex = -1;
+    }
+    
+    // Hide dropdown
+    function hideDropdown() {
+        if (activeDropdown) {
+            activeDropdown.classList.remove('active');
+        }
+        searchDropdown.classList.remove('active');
+        if (mobileSearchDropdown) {
+            mobileSearchDropdown.classList.remove('active');
+        }
+        selectedIndex = -1;
+    }
+    
+    // Navigate to result
+    function navigateToResult(category, name) {
+        const targetId = `${category.toLowerCase()}-${name.toLowerCase()}`;
+        
+        // Determine which page based on category
+        const page = category === 'Plugin' ? 'plugins' : 'api';
+        
+        // If in parent iframe mode, update parent URL and load page
+        if (window.RENWEB_IFRAME_MODE && window === window.parent) {
+            const newUrl = `?page=${page}#${targetId}`;
+            history.pushState({}, '', newUrl);
+            
+            // Call loadPage to update navbar highlight and load iframe
+            if (typeof loadPage === 'function') {
+                loadPage();
+            }
+            
+            // Add additional scroll logic for more robust targeting
+            const iframe = document.getElementById('content-frame');
+            if (iframe) {
+                iframe.addEventListener('load', function scrollToTarget() {
+                    try {
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const target = iframeDoc.getElementById(targetId) || iframeDoc.querySelector(`[id="${targetId}"]`);
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    } catch (e) {
+                        // Cross-origin or other error
+                    }
+                    iframe.removeEventListener('load', scrollToTarget);
+                }, { once: true });
+            }
+        } else if (window.parent !== window) {
+            // If running in iframe, communicate with parent
+            window.parent.postMessage({
+                type: 'navigate',
+                page: page,
+                hash: targetId
+            }, '*');
+        } else {
+            // Fallback for standalone mode
+            window.location.href = `${page}.html#${targetId}`;
+        }
+    }
+    
+    // Update selected item
+    function updateSelection(index) {
+        const dropdown = activeDropdown || searchDropdown;
+        const items = dropdown.querySelectorAll('.search-result-item');
+        items.forEach((item, i) => {
+            item.classList.toggle('selected', i === index);
+        });
+        
+        // Scroll selected item into view
+        if (index >= 0 && index < items.length) {
+            items[index].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+    
+    // Shared input handler
+    function handleSearchInput(e) {
+        const input = e.target;
+        const query = input.value.trim();
+        
+        // Set active input and dropdown based on which input triggered the event
+        if (input === mobileSearch) {
+            activeInput = mobileSearch;
+            activeDropdown = mobileSearchDropdown;
+        } else {
+            activeInput = globalSearch;
+            activeDropdown = searchDropdown;
+        }
+        
+        if (!query) {
+            hideDropdown();
+            return;
+        }
+        
+        if (searchIndex.length === 0) {
+            searchIndex = buildSearchIndex();
+        }
+        
+        const results = performSearch(query);
+        renderResults(results, query);
+    }
+    
+    // Handle input
+    globalSearch.addEventListener('input', handleSearchInput);
+    
+    // Add mobile search handler
+    if (mobileSearch) {
+        mobileSearch.addEventListener('input', handleSearchInput);
+    }
+    
+    // Shared keyboard handler
+    function handleKeyDown(e) {
+        const input = e.target;
+        const dropdown = input === mobileSearch ? mobileSearchDropdown : searchDropdown;
+        const items = dropdown ? dropdown.querySelectorAll('.search-result-item') : [];
+        const isDropdownVisible = dropdown ? dropdown.classList.contains('active') : false;
+        
+        if (!isDropdownVisible || items.length === 0) {
+            // Original Enter key behavior when dropdown is not visible
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const searchTerm = input.value.trim();
+                if (searchTerm) {
+                    // If in parent iframe mode, navigate iframe
+                    if (window.RENWEB_IFRAME_MODE && window === window.parent) {
+                        const newUrl = `?page=api&search=${encodeURIComponent(searchTerm)}`;
+                        history.pushState({}, '', newUrl);
+                        const iframe = document.getElementById('content-frame');
+                        if (iframe) {
+                            iframe.src = `wiki/api.html?search=${encodeURIComponent(searchTerm)}`;
+                        }
+                    } else if (window.parent !== window) {
+                        // If in iframe, communicate with parent
+                        window.parent.postMessage({
+                            type: 'navigate',
+                            page: 'api',
+                            search: searchTerm
+                        }, '*');
+                    } else {
+                        // Fallback for standalone mode
+                        window.location.href = `api.html?search=${encodeURIComponent(searchTerm)}`;
+                    }
+                }
+            }
+            return;
+        }
+        
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+                updateSelection(selectedIndex);
+                break;
+                
+            case 'ArrowUp':
+                e.preventDefault();
+                selectedIndex = Math.max(selectedIndex - 1, -1);
+                updateSelection(selectedIndex);
+                break;
+                
+            case 'Enter':
+                e.preventDefault();
+                if (selectedIndex >= 0 && selectedIndex < items.length) {
+                    const selected = items[selectedIndex];
+                    const category = selected.dataset.category;
+                    const name = selected.dataset.name;
+                    navigateToResult(category, name);
+                } else {
+                    // Navigate to first result if none selected
+                    if (items.length > 0) {
+                        const first = items[0];
+                        navigateToResult(first.dataset.category, first.dataset.name);
+                    }
+                }
+                hideDropdown();
+                break;
+                
+            case 'Escape':
+                e.preventDefault();
+                hideDropdown();
+                // Fix reference to work with any input
+                if (input) input.blur();
+                break;
+        }
+    }
+    
+    // Handle keyboard navigation
+    globalSearch.addEventListener('keydown', handleKeyDown);
+    
+    if (mobileSearch) {
+        mobileSearch.addEventListener('keydown', handleKeyDown);
+    }
+    
+    // Handle click on results - both dropdowns
+    function handleResultClick(e) {
+        const item = e.target.closest('.search-result-item');
+        if (item) {
+            const category = item.dataset.category;
+            const name = item.dataset.name;
+            navigateToResult(category, name);
+            hideDropdown();
+        }
+    }
+    
+    searchDropdown.addEventListener('click', handleResultClick);
+    if (mobileSearchDropdown) {
+        mobileSearchDropdown.addEventListener('click', handleResultClick);
+    }
+    
+    // Handle click outside to close dropdown
+    document.addEventListener('click', function(e) {
+        const isGlobalSearch = globalSearch.contains(e.target) || searchDropdown.contains(e.target);
+        const isMobileSearch = mobileSearch && (mobileSearch.contains(e.target) || (mobileSearchDropdown && mobileSearchDropdown.contains(e.target)));
+        
+        if (!isGlobalSearch && !isMobileSearch) {
+            hideDropdown();
+        }
+    });
+    
+    // Build index on page load if apiData exists
+    if (window.apiData || (typeof apiData !== 'undefined')) {
+        searchIndex = buildSearchIndex();
+    }
+    
+    // Handle search from URL parameter (existing functionality)
+    const urlParams = new URLSearchParams(window.location.search);
+    const searchParam = urlParams.get('search');
+    
+    // Only process search param if in standalone mode or inside iframe
+    if (searchParam && window.location.pathname.includes('api.html') && window.parent === window) {
+        // Set the search input value
+        const apiSearch = document.getElementById('api-search');
+        if (apiSearch) {
+            apiSearch.value = searchParam;
+            // Trigger search
+            apiSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        
+        // Scroll to API documentation
+        setTimeout(() => {
+            const apiSection = document.querySelector('#api-documentation');
+            if (apiSection) {
+                apiSection.scrollIntoView({ behavior: 'smooth' });
+            }
+        }, 300);
+    }
+})();
+
+// Code Block Language Hints
+(function initCodeBlockLanguages() {
+    const codeBlocks = document.querySelectorAll('pre code');
+    
+    codeBlocks.forEach(codeBlock => {
+        const pre = codeBlock.parentElement;
+        const codeText = codeBlock.textContent.trim();
+        
+        // Detect language if not already set
+        if (!pre.className.includes('language-')) {
+            let language = '';
+            
+            if (codeText.includes('import') && codeText.includes('from')) {
+                language = 'javascript';
+            } else if (codeText.includes('sudo apt') || codeText.includes('#!/bin/bash')) {
+                language = 'bash';
+            } else if (codeText.includes('#include') || codeText.includes('namespace')) {
+                language = 'cpp';
+            } else if (codeText.includes('<!DOCTYPE html>') || codeText.includes('<html')) {
+                language = 'html';
+            } else if (codeText.includes('{') && (codeText.includes('background:') || codeText.includes('color:'))) {
+                language = 'css';
+            } else if (codeText.includes('await') || codeText.includes('const') || codeText.includes('async')) {
+                language = 'javascript';
+            }
+            
+            if (language) {
+                pre.classList.add(`language-${language}`);
+            }
+        }
+    });
+})();
+
+// Dropdown Menu Navigation
+(function initDropdownMenus() {
+    // Skip if in iframe mode (parent is handling navigation)
+    if (window.RENWEB_IFRAME_MODE || window.parent !== window) {
+        return;
+    }
+    
+    const navItemWrappers = document.querySelectorAll('.nav-item-wrapper');
+    
+    navItemWrappers.forEach(wrapper => {
+        const navBtn = wrapper.querySelector('.nav-btn');
+        const dropdown = wrapper.querySelector('.nav-dropdown');
+        
+        if (dropdown) {
+            navBtn.addEventListener('click', function(e) {
+                if (window.innerWidth <= 1280) {
+                    e.preventDefault();
+                    wrapper.classList.toggle('dropdown-open');
+                }
+            });
+        }
+    });
+})();
+
+// Mobile Menu Toggle
+(function initMobileMenu() {
+    const mobileToggle = document.querySelector('.mobile-menu-toggle');
+    const mobileDropdown = document.querySelector('.mobile-nav-dropdown');
+    
+    if (mobileToggle && mobileDropdown) {
+        mobileToggle.addEventListener('click', function(e) {
+            e.stopPropagation();
+            mobileDropdown.classList.toggle('active');
+            this.textContent = mobileDropdown.classList.contains('active') ? '✕' : '≣';
+        });
+        
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth <= 1510) {
+                if (!mobileDropdown.contains(e.target) && !mobileToggle.contains(e.target)) {
+                    mobileDropdown.classList.remove('active');
+                    mobileToggle.textContent = '≣';
+                }
+            }
+        });
+        
+        // Close dropdown when clicking iframe
+        const iframe = document.getElementById('content-frame');
+        if (iframe) {
+            iframe.addEventListener('load', function() {
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    iframeDoc.addEventListener('click', function() {
+                        if (mobileDropdown.classList.contains('active')) {
+                            mobileDropdown.classList.remove('active');
+                            mobileToggle.textContent = '≣';
+                        }
+                    });
+                } catch (e) {
+                    // Cross-origin iframe, can't access
+                }
+            });
+        }
+        
+        const mobileHeaders = document.querySelectorAll('.mobile-nav-header');
+        mobileHeaders.forEach(header => {
+            header.addEventListener('click', function(e) {
+                const section = this.parentElement;
+                const items = section.querySelector('.mobile-nav-items');
+                
+                // On mobile (<= 768px), toggle accordion
+                if (window.innerWidth <= 768 && items && items.children.length > 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    section.classList.toggle('collapsed');
+                } else {
+                    // On tablet/desktop (> 768px) or no subitems, close dropdown and navigate
+                    mobileDropdown.classList.remove('active');
+                    mobileToggle.textContent = '≣';
+                }
+            });
+        });
+        
+        // Initialize collapsed state - only remove collapsed class on larger screens
+        function initializeCollapsedState() {
+            if (window.innerWidth > 768) {
+                // Remove collapsed class on larger screens
+                const sections = document.querySelectorAll('.mobile-nav-section');
+                sections.forEach(section => {
+                    section.classList.remove('collapsed');
+                });
+            }
+            // On mobile, leave sections expanded by default (no collapsed class)
+            // User can manually collapse them
+        }
+        
+        // Initialize on load
+        initializeCollapsedState();
+        
+        // Re-initialize on resize (with debounce)
+        let resizeTimer;
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(function() {
+                initializeCollapsedState();
+                // Also close dropdown when resizing past breakpoint
+                if (window.innerWidth > 1510) {
+                    mobileDropdown.classList.remove('active');
+                    mobileToggle.textContent = '≣';
+                }
+            }, 250);
+        });
+    }
+})();
+
+// Section Navigation (Smooth Scroll)
+(function initSectionNav() {
+    // Skip if in iframe mode (parent is handling navigation)
+    if (window.RENWEB_IFRAME_MODE || window.parent !== window) {
+        return;
+    }
+    
+    const navItems = document.querySelectorAll('.nav-item[data-target]');
+    
+    navItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const target = this.dataset.target;
+            const section = document.getElementById(target);
+            
+            if (section) {
+                // Update active state
+                navItems.forEach(ni => ni.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Close mobile menu if open
+                const sidenav = document.querySelector('.sidenav');
+                if (sidenav) {
+                    sidenav.classList.remove('mobile-open');
+                }
+                
+                // Smooth scroll
+                section.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+                
+                // Add offset for fixed header
+                setTimeout(() => {
+                    window.scrollBy(0, -80);
+                }, 300);
+            }
+        });
+    });
+    
+    // Highlight active section on scroll
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.id;
+                navItems.forEach(item => {
+                    if (item.dataset.target === id) {
+                        navItems.forEach(ni => ni.classList.remove('active'));
+                        item.classList.add('active');
+                    }
+                });
+            }
+        });
+    }, {
+        threshold: 0.3,
+        rootMargin: '-80px 0px 0px 0px'
+    });
+    
+    document.querySelectorAll('section[id]').forEach(section => {
+        observer.observe(section);
+    });
+})();
+
+// Tab Switching (OS-specific content)
+(function initTabs() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const codeButtons = document.querySelectorAll('.code-tabs .tab-btn');
+    
+    // Detect user's OS and auto-select the appropriate tab
+    function detectAndSelectOS() {
+        const osTabsContainer = document.querySelector('.os-tabs');
+        if (!osTabsContainer) return;
+        
+        const userAgent = navigator.userAgent.toLowerCase();
+        const platform = navigator.platform.toLowerCase();
+        
+        let targetOS = 'linux-compile'; // default
+        
+        if (userAgent.includes('win') || platform.includes('win')) {
+            targetOS = 'windows-compile';
+        } else if (userAgent.includes('mac') || platform.includes('mac')) {
+            targetOS = 'macos-compile';
+        }
+        
+        // Find and click the appropriate tab button
+        const targetButton = osTabsContainer.querySelector(`[data-target="${targetOS}"]`);
+        if (targetButton && !targetButton.classList.contains('active')) {
+            targetButton.click();
+        }
+    }
+    
+    // Main content tabs (OS tabs)
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const target = this.dataset.target;
+            const container = this.closest('.os-tabs, .code-tabs').parentElement;
+            
+            // Update button states
+            this.parentElement.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            this.classList.add('active');
+            
+            // Update content visibility - only direct children, not nested code-content
+            const isOSTab = this.closest('.os-tabs');
+            if (isOSTab) {
+                // For OS tabs, only hide/show direct .tab-content children
+                container.querySelectorAll(':scope > .tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+            } else {
+                // For other tabs, use the original logic
+                container.querySelectorAll('.tab-content, .code-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+            }
+            
+            const targetContent = document.getElementById(target);
+            if (targetContent) {
+                targetContent.classList.add('active');
+                
+                // If switching to Linux tab, ensure nested tabs are in consistent state
+                if (target === 'linux-compile') {
+                    // Find all code tabs and content within Linux section
+                    const codeTabs = targetContent.querySelectorAll('.code-tabs .tab-btn');
+                    const codeContents = targetContent.querySelectorAll('.code-content');
+                    
+                    // Check how many are active
+                    const activeButtons = Array.from(codeTabs).filter(btn => btn.classList.contains('active'));
+                    const activeContents = Array.from(codeContents).filter(content => content.classList.contains('active'));
+                    
+                    // If none or multiple are active, reset to first one
+                    if (activeButtons.length !== 1 || activeContents.length !== 1) {
+                        // Clear all
+                        codeTabs.forEach(btn => btn.classList.remove('active'));
+                        codeContents.forEach(content => content.classList.remove('active'));
+                        
+                        // Activate first
+                        if (codeTabs.length > 0) codeTabs[0].classList.add('active');
+                        if (codeContents.length > 0) codeContents[0].classList.add('active');
+                    }
+                }
+            }
+        });
+    });
+    
+    // Code snippet tabs (package manager tabs)
+    codeButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const target = this.dataset.target;
+            const container = this.closest('.subsection, .card, .tab-content');
+            
+            // Update button states
+            this.parentElement.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            this.classList.add('active');
+            
+            // Update content visibility
+            container.querySelectorAll('.code-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            const targetContent = container.querySelector(`#${target}`);
+            if (targetContent) {
+                targetContent.classList.add('active');
+            }
+        });
+    });
+    
+    // Auto-detect and select OS on page load
+    detectAndSelectOS();
+})();
+
+// Code Block Copy Functionality
+(function initCodeCopy() {
+    document.querySelectorAll('pre code').forEach(block => {
+        const wrapper = block.parentElement;
+        if (wrapper.tagName === 'PRE') {
+            // Determine language and add class to pre element for CSS badge
+            let language = 'Code';
+            let languageClass = '';
+            if (block.className.includes('language-cpp')) {
+                language = 'C++';
+                languageClass = 'language-cpp';
+            } else if (block.className.includes('language-javascript')) {
+                language = 'JavaScript';
+                languageClass = 'language-javascript';
+            } else if (block.className.includes('language-json')) {
+                language = 'JSON';
+                languageClass = 'language-json';
+            } else if (block.className.includes('language-bash') || block.className.includes('language-sh')) {
+                language = 'Shell';
+                languageClass = 'language-bash';
+            }
+            
+            // Add language class to pre element for CSS badge
+            if (languageClass) {
+                wrapper.classList.add(languageClass);
+            }
+            
+            // Create copy button
+            const button = document.createElement('button');
+            button.className = 'copy-btn';
+            button.innerHTML = '📋 COPY';
+            button.title = 'Copy to clipboard';
+            button.dataset.language = language;
+            
+            button.addEventListener('click', async () => {
+                const originalText = button.innerHTML;
+                try {
+                    await navigator.clipboard.writeText(block.textContent);
+                    button.innerHTML = '✓ Copied!';
+                    button.classList.add('copied');
+                    
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                        button.classList.remove('copied');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy:', err);
+                    button.innerHTML = '✗ Failed';
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                    }, 2000);
+                }
+            });
+            
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(button);
+        }
+    });
+})();
+
+// Smooth Page Transitions
+(function initPageTransitions() {
+    // Skip if in iframe mode (parent is handling navigation)
+    if (window.RENWEB_IFRAME_MODE || window.parent !== window) {
+        return;
+    }
+    
+    document.querySelectorAll('a.nav-btn').forEach(link => {
+        link.addEventListener('click', function(e) {
+            const href = this.getAttribute('href');
+            
+            // Only handle internal links
+            if (href && !href.startsWith('http') && !href.startsWith('#')) {
+                e.preventDefault();
+                
+                document.body.style.opacity = '0';
+                
+                setTimeout(() => {
+                    window.location.href = href;
+                }, 300);
+            }
+        });
+    });
+    
+    // Fade in on load
+    window.addEventListener('load', () => {
+        document.body.style.opacity = '1';
+    });
+})();
+
+// Category Filtering (API Page)
+(function initCategoryFiltering() {
+    const categories = document.querySelectorAll('.api-category');
+    
+    categories.forEach(category => {
+        category.addEventListener('click', function() {
+            categories.forEach(cat => cat.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+})();
+
+// Hover Effects & Animations
+(function initHoverEffects() {
+    // Add hover pulse effect to cards
+    document.querySelectorAll('.feature-card, .info-card, .download-card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-5px) scale(1.02)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0) scale(1)';
+        });
+    });
+})();
+
+// Search Highlighting (API Page)
+(function initSearchHighlight() {
+    const searchInput = document.getElementById('api-search');
+    if (!searchInput) return;
+    
+    searchInput.addEventListener('focus', function() {
+        this.parentElement.style.boxShadow = '0 0 20px rgba(138, 43, 226, 0.5)';
+    });
+    
+    searchInput.addEventListener('blur', function() {
+        this.parentElement.style.boxShadow = 'none';
+    });
+})();
+
+// Download Button Interactions
+(function initDownloadButtons() {
+    document.querySelectorAll('.download-btn, .download-btn-large').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            if (this.getAttribute('href') === '#') {
+                e.preventDefault();
+                
+                // Create notification
+                const notification = document.createElement('div');
+                notification.className = 'download-notification';
+                notification.textContent = 'Download links will be available soon!';
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 20px 40px;
+                    border-radius: 10px;
+                    font-size: 18px;
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+                    z-index: 10000;
+                    animation: fadeInOut 3s ease-in-out;
+                `;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            }
+        });
+    });
+    
+    // Add fadeInOut animation
+    if (!document.getElementById('download-animation-style')) {
+        const style = document.createElement('style');
+        style.id = 'download-animation-style';
+        style.textContent = `
+            @keyframes fadeInOut {
+                0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+                10%, 90% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+})();
+
+// Performance Optimization: Lazy Loading
+(function initLazyLoading() {
+    const lazyElements = document.querySelectorAll('.api-function, .feature-card');
+    
+    const lazyObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('loaded');
+                lazyObserver.unobserve(entry.target);
+            }
+        });
+    }, {
+        rootMargin: '50px'
+    });
+    
+    lazyElements.forEach(el => {
+        lazyObserver.observe(el);
+    });
+})();
+
+// Keyboard Shortcuts
+(function initKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd + K: Focus search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            const searchInput = document.getElementById('api-search');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }
+        
+        // Escape: Clear search or close mobile menu
+        if (e.key === 'Escape') {
+            const searchInput = document.getElementById('api-search');
+            if (searchInput && searchInput === document.activeElement) {
+                searchInput.value = '';
+                searchInput.blur();
+            }
+            
+            const sidenav = document.querySelector('.sidenav');
+            if (sidenav && sidenav.classList.contains('mobile-open')) {
+                sidenav.classList.remove('mobile-open');
+            }
+        }
+    });
+})();
+
+// API Tree Generation
+(function initAPITree() {
+    // Only run on api.html (not on plugins.html)
+    if (window.location.pathname.includes('plugins.html')) return;
+    
+    // Helper function to escape HTML characters
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Helper function to format parameters for display
+    function formatParams(params) {
+        if (!params || params.length === 0) return '';
+        return params.map(p => `<span class="tree-param-name">${p.name}</span>`).join(', ');
+    }
+
+    // Helper function to generate expandable method node with Returns/Parameters
+    function generateExpandableMethod(namespace, method, methodIndex, isLastMethod, prefix) {
+        const details = methodDetails[namespace][method];
+        if (!details) return '';
+        
+        const methodConnector = isLastMethod ? '└──' : '├──';
+        const methodNodeId = `method-${namespace}-${method}`;
+        const params = details.params ? formatParams(details.params) : '';
+        
+        let html = '';
+        
+        // Method node (expandable)
+        html += `    <div class="api-tree-node">`;
+        html += `      <div class="api-tree-line tree-indent-1">`;
+        html += `        <span class="tree-icon" data-node="${methodNodeId}">▶</span>`;
+        html += `        <span class="tree-connector">${prefix}${methodConnector}</span>`;
+        html += `        <span class="tree-label method" data-node="${methodNodeId}" data-scroll="${namespace.toLowerCase()}-${method.toLowerCase()}">${method}(${params})</span>`;
+        html += `        <span class="tree-tag function">function</span>`;
+        // Only add async tag if namespace functions are actually async (Utils is not)
+        if (namespace !== 'Utils') {
+            html += `        <span class="tree-tag async">async</span>`;
+        }
+        html += `      </div>`;
+        
+        // Method children (Returns and Parameters)
+        html += `      <div class="tree-children" id="tree-${methodNodeId}">`;
+        
+        const hasParams = details.params && details.params.length > 0;
+        
+        // Returns section
+        html += `        <div class="api-tree-node">`;
+        html += `          <div class="api-tree-line tree-indent-2">`;
+        html += `            <span class="tree-icon-placeholder"></span>`;
+        html += `            <span class="tree-connector">${prefix}${hasParams ? '├──' : '└──'}</span>`;
+        html += `            <span class="tree-label-returns">Returns:</span>`;
+        html += `            <span class="tree-tag return-type">${escapeHtml(details.returns)}</span>`;
+        html += `          </div>`;
+        html += `        </div>`;
+        
+        // Parameters section (only show if there are parameters)
+        if (hasParams) {
+            html += `        <div class="api-tree-node">`;
+            html += `          <div class="api-tree-line tree-indent-2">`;
+            html += `            <span class="tree-icon-placeholder"></span>`;
+            html += `            <span class="tree-connector">${prefix}└──</span>`;
+            html += `            <span class="tree-label-section">Parameters:</span>`;
+            html += `          </div>`;
+            
+            // Parameter list
+            const paramPrefix = prefix + '    ';
+            details.params.forEach((param, paramIdx) => {
+                const isLastParam = paramIdx === details.params.length - 1;
+                const paramConnector = isLastParam ? '└──' : '├──';
+                html += `          <div class="api-tree-line tree-indent-3-5">`;
+                html += `            <span class="tree-connector">${paramPrefix}${paramConnector}</span>`;
+                html += `            <span class="tree-param-name">${param.name}</span>`;
+                if (param.defaultValue !== undefined) {
+                    html += `            <span class="tree-param-default"> = <code class="language-javascript">${escapeHtml(param.defaultValue)}</code></span>`;
+                }
+                if (!isLastParam) {
+                    html += `            <span class="tree-param-separator">,</span>`;
+                }
+                html += `            <span class="tree-tag type">${escapeHtml(param.type)}</span>`;
+                html += `          </div>`;
+            });
+            html += `        </div>`;
+        }
+        
+        html += `      </div>`;
+        html += `    </div>`;
+        
+        return html;
+    }
+
+    // Helper function for Process class methods with custom tags
+    function generateExpandableProcessMethod(method, methodIndex, isLastMethod, prefix, tags) {
+        const details = methodDetails['Process'][method];
+        if (!details) return '';
+        
+        const methodConnector = isLastMethod ? '└──' : '├──';
+        const methodNodeId = `method-Process-${method}`;
+        const params = details.params ? formatParams(details.params) : '';
+        
+        let html = '';
+        
+        // Method node (expandable)
+        html += `    <div class="api-tree-node">`;
+        html += `      <div class="api-tree-line tree-indent-1">`;
+        html += `        <span class="tree-icon" data-node="${methodNodeId}">▶</span>`;
+        html += `        <span class="tree-connector">${prefix}${methodConnector}</span>`;
+        html += `        <span class="tree-label method" data-node="${methodNodeId}" data-scroll="process-${method.toLowerCase()}">${method}(${params})</span>`;
+        
+        // Add tags
+        tags.forEach(tag => {
+            html += `        <span class="tree-tag ${tag.replace(' ', '-')}">${tag}</span>`;
+        });
+        html += `        <span class="tree-tag async">async</span>`;
+        html += `      </div>`;
+        
+        // Method children (Returns and Parameters)
+        html += `      <div class="tree-children" id="tree-${methodNodeId}">`;
+        
+        const hasParams = details.params && details.params.length > 0;
+        
+        // Returns section
+        html += `        <div class="api-tree-node">`;
+        html += `          <div class="api-tree-line tree-indent-2">`;
+        html += `            <span class="tree-icon-placeholder"></span>`;
+        html += `            <span class="tree-connector">${prefix}${hasParams ? '├──' : '└──'}</span>`;
+        html += `            <span class="tree-label-returns">Returns:</span>`;
+        html += `            <span class="tree-tag return-type">${escapeHtml(details.returns)}</span>`;
+        html += `          </div>`;
+        html += `        </div>`;
+        
+        // Parameters section (only show if there are parameters)
+        if (hasParams) {
+            html += `        <div class="api-tree-node">`;
+            html += `          <div class="api-tree-line tree-indent-2">`;
+            html += `            <span class="tree-icon-placeholder"></span>`;
+            html += `            <span class="tree-connector">${prefix}└──</span>`;
+            html += `            <span class="tree-label-section">Parameters:</span>`;
+            html += `          </div>`;
+            
+            // Parameter list
+            const paramPrefix = prefix + '    ';
+            details.params.forEach((param, paramIdx) => {
+                const isLastParam = paramIdx === details.params.length - 1;
+                const paramConnector = isLastParam ? '└──' : '├──';
+                html += `          <div class="api-tree-line tree-indent-3-5">`;
+                html += `            <span class="tree-connector">${paramPrefix}${paramConnector}</span>`;
+                html += `            <span class="tree-param-name">${param.name}</span>`;
+                if (param.defaultValue !== undefined) {
+                    html += `            <span class="tree-param-default"> = <code class="language-javascript">${escapeHtml(param.defaultValue)}</code></span>`;
+                }
+                if (!isLastParam) {
+                    html += `            <span class="tree-param-separator">,</span>`;
+                }
+                html += `            <span class="tree-tag type">${escapeHtml(param.type)}</span>`;
+                html += `          </div>`;
+            });
+            html += `        </div>`;
+        }
+        
+        html += `      </div>`;
+        html += `    </div>`;
+        
+        return html;
+    }
+
+    // API Tree Data Structure with detailed method information
+    const methodDetails = {
+        'Properties': {
+            'getSize': { params: [], returns: 'Promise<{width: number, height: number}>' },
+            'setSize': { params: [{name: 'width', type: 'number'}, {name: 'height', type: 'number'}], returns: 'Promise<void>' },
+            'getPosition': { params: [], returns: 'Promise<{x: number, y: number}>' },
+            'setPosition': { params: [{name: 'x', type: 'number'}, {name: 'y', type: 'number'}], returns: 'Promise<void>' },
+            'getTitleBar': { params: [], returns: 'Promise<boolean>' },
+            'setTitleBar': { params: [{name: 'has_title_bar', type: 'boolean'}], returns: 'Promise<void>' },
+            'getResizable': { params: [], returns: 'Promise<boolean>' },
+            'setResizable': { params: [{name: 'is_resizable', type: 'boolean'}], returns: 'Promise<void>' },
+            'getKeepAbove': { params: [], returns: 'Promise<boolean>' },
+            'setKeepAbove': { params: [{name: 'is_keepabove', type: 'boolean'}], returns: 'Promise<void>' },
+            'getMinimize': { params: [], returns: 'Promise<boolean>' },
+            'setMinimize': { params: [{name: 'is_minimize', type: 'boolean'}], returns: 'Promise<void>' },
+            'getMaximize': { params: [], returns: 'Promise<boolean>' },
+            'setMaximize': { params: [{name: 'is_maximize', type: 'boolean'}], returns: 'Promise<void>' },
+            'getFullscreen': { params: [], returns: 'Promise<boolean>' },
+            'setFullscreen': { params: [{name: 'is_fullscreen', type: 'boolean'}], returns: 'Promise<void>' },
+            'getTaskbarShow': { params: [], returns: 'Promise<boolean>' },
+            'setTaskbarShow': { params: [{name: 'is_taskbar_show', type: 'boolean'}], returns: 'Promise<void>' },
+            'getOpacity': { params: [], returns: 'Promise<number>' },
+            'setOpacity': { params: [{name: 'opacity', type: 'number'}], returns: 'Promise<void>' }
+        },
+        'Window': {
+            'isFocus': { params: [], returns: 'Promise<boolean>' },
+            'show': { params: [{name: 'is_window_shown', type: 'boolean?'}], returns: 'Promise<void>' },
+            'changeTitle': { params: [{name: 'title', type: 'string'}], returns: 'Promise<string>' },
+            'resetTitle': { params: [], returns: 'Promise<string>' },
+            'currentTitle': { params: [], returns: 'Promise<string>' },
+            'resetPage': { params: [], returns: 'Promise<void>' },
+            'currentPage': { params: [], returns: 'Promise<string>' },
+            'initialPage': { params: [], returns: 'Promise<string>' },
+            'reloadPage': { params: [], returns: 'Promise<void>' },
+            'navigatePage': { params: [{name: 'uri', type: 'string'}], returns: 'Promise<void>' },
+            'terminate': { params: [], returns: 'Promise<void>' },
+            'startWindowDrag': { params: [], returns: 'Promise<void>' },
+            'printPage': { params: [], returns: 'Promise<void>' },
+            'zoomIn': { params: [], returns: 'Promise<void>' },
+            'zoomOut': { params: [], returns: 'Promise<void>' },
+            'zoomReset': { params: [], returns: 'Promise<void>' },
+            'getZoomLevel': { params: [], returns: 'Promise<number>' },
+            'setZoomLevel': { params: [{name: 'level', type: 'number'}], returns: 'Promise<void>' },
+            'findInPage': { params: [{name: 'text', type: 'string'}], returns: 'Promise<void>' },
+            'findNext': { params: [], returns: 'Promise<void>' },
+            'findPrevious': { params: [], returns: 'Promise<void>' },
+            'clearFind': { params: [], returns: 'Promise<void>' }
+        },
+        'Log': {
+            'trace': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' },
+            'debug': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' },
+            'info': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' },
+            'warn': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' },
+            'error': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' },
+            'critical': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' }
+        },
+        'FS': {
+            'readFile': { params: [{name: 'path', type: 'string'}], returns: 'Promise<string | null>' },
+            'writeFile': { params: [{name: 'path', type: 'string'}, {name: 'contents', type: 'string'}, {name: 'settings?', type: 'WriteSettings', defaultValue: '{ append: false }'}], returns: 'Promise<boolean>' },
+            'exists': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
+            'isDir': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
+            'mkDir': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
+            'rm': { params: [{name: 'path', type: 'string'}, {name: 'settings?', type: 'RmSettings', defaultValue: '{ recursive: false }'}], returns: 'Promise<boolean>' },
+            'ls': { params: [{name: 'path', type: 'string'}], returns: 'Promise<string[] | null>' },
+            'rename': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: 'RenameCopySettings', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
+            'copy': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: 'RenameCopySettings', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
+            'getApplicationDirPath': { params: [], returns: 'Promise<string>' },
+            'downloadUri': { params: [{name: 'uri', type: 'string'}, {name: 'path', type: 'string'}], returns: 'Promise<void>' }
+        },
+        'Config': {
+            'getConfig': { params: [], returns: 'Promise<any>' },
+            'getDefaults': { params: [], returns: 'Promise<any>' },
+            'getState': { params: [], returns: 'Promise<any>' },
+            'loadState': { params: [{name: 'state', type: 'any'}], returns: 'Promise<void>' },
+            'saveConfig': { params: [{name: 'config?', type: 'any'}], returns: 'Promise<void>' },
+            'setConfigProperty': { params: [{name: 'key', type: 'string'}, {name: 'value', type: 'any'}], returns: 'Promise<void>' },
+            'resetToDefaults': { params: [], returns: 'Promise<void>' }
+        },
+        'System': {
+            'getPID': { params: [], returns: 'Promise<number>' },
+            'getOS': { params: [], returns: 'Promise<string>' }
+        },
+        'Process': {
+            'createProcess': { params: [{name: 'args', type: 'string[]'}, {name: 'options?', type: 'object', defaultValue: '{ is_detachable: false, share_stdio: false }'}], returns: 'Promise<Process | null>' },
+            'createWindow': { params: [{name: 'page', type: 'string | string[]'}, {name: 'args?', type: 'string[]', defaultValue: '[]'}, {name: 'options?', type: 'object', defaultValue: '{ is_detachable: false, include_orig_args: true, share_stdio: false }'}], returns: 'Promise<Process | null>' },
+            'duplicate': { params: [{name: 'pid?', type: 'number', defaultValue: '-1'}, {name: 'options?', type: 'object', defaultValue: '{ is_detachable: false, share_stdio: false }'}], returns: 'Promise<Process | null>' },
+            'dumpProcess': { params: [{name: 'pid', type: 'number'}], returns: 'Promise<Process | null>' },
+            'dumpProcesses': { params: [{name: 'filter?', type: 'string'}], returns: 'Promise<Process[]>' },
+            'dumpCurrentProcess': { params: [], returns: 'Promise<Process | null>' },
+            'listenToOutput': { params: [{name: 'lines?', type: 'number', defaultValue: '-1'}, {name: 'options?', type: 'object', defaultValue: '{ tail: false }'}], returns: 'Promise<string[]>' },
+            'getMessages': { params: [{name: 'pid?', type: 'number', defaultValue: '-1'}], returns: 'Promise<any[]>' },
+            'waitAll': { params: [], returns: 'Promise<void>' },
+            'refresh': { params: [], returns: 'Promise<Process>' },
+            'kill': { params: [{name: 'signal?', type: 'number', defaultValue: '0x2'}], returns: 'Promise<Process>' },
+            'detach': { params: [], returns: 'Promise<Process>' },
+            'send': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<Process>' },
+            'wait': { params: [], returns: 'Promise<Process>' }
+        },
+        'Debug': {
+            'clearConsole': { params: [], returns: 'Promise<void>' },
+            'openDevtools': { params: [], returns: 'Promise<void>' },
+            'closeDevtools': { params: [], returns: 'Promise<void>' }
+        },
+        'Network': {
+            'getLoadProgress': { params: [], returns: 'Promise<number>' },
+            'isLoading': { params: [], returns: 'Promise<boolean>' }
+        },
+        'Navigate': {
+            'back': { params: [], returns: 'Promise<void>' },
+            'forward': { params: [], returns: 'Promise<void>' },
+            'stopLoading': { params: [], returns: 'Promise<void>' },
+            'canGoBack': { params: [], returns: 'Promise<boolean>' },
+            'canGoForward': { params: [], returns: 'Promise<boolean>' },
+            'openURI': { params: [{name: 'uri', type: 'string'}], returns: 'Promise<void>' }
+        },
+        'Plugins': {
+            'getPluginsList': { params: [], returns: 'Promise<any[]>' }
+        },
+        'Utils': {
+            'decode': { params: [{name: 'str', type: 'any'}], returns: 'any' },
+            'encode': { params: [{name: 'str', type: 'any'}, {name: 'options?', type: 'object', defaultValue: '{ string: "base64" }'}], returns: 'any' },
+            'serialize': { params: [{name: 'obj', type: 'any'}], returns: 'string' }
+        }
+    };
+    
+    const apiTreeData = {
+        'Properties': ['getSize', 'setSize', 'getPosition', 'setPosition', 'getTitleBar', 'setTitleBar', 'getResizable', 'setResizable', 'getKeepAbove', 'setKeepAbove', 'getMinimize', 'setMinimize', 'getMaximize', 'setMaximize', 'getFullscreen', 'setFullscreen', 'getTaskbarShow', 'setTaskbarShow', 'getOpacity', 'setOpacity'],
+        'Window': ['isFocus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
+        'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
+        'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'downloadUri'],
+        'Config': ['getConfig', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
+        'System': ['getPID', 'getOS'],
+        'Process': {
+            factoryConstructors: ['createProcess', 'createWindow', 'duplicate'],
+            staticMethods: ['listenToOutput', 'getMessages', 'dumpProcess', 'dumpProcesses', 'dumpCurrentProcess', 'waitAll'],
+            instanceMethods: ['refresh', 'kill', 'detach', 'send', 'listenToOutput', 'getMessages', 'wait'],
+            attributes: {
+                'info': [
+                    {name: 'pid', type: 'number'},
+                    {name: 'ppid', type: 'number'},
+                    {name: 'name', type: 'string'},
+                    {name: 'path', type: 'string'},
+                    {name: 'args', type: 'string[]'},
+                    {name: 'is_background_process', type: 'boolean'},
+                    {name: 'is_running', type: 'boolean'},
+                    {name: 'is_child', type: 'boolean'},
+                    {name: 'exit_code', type: 'number'},
+                    {name: 'started_at', type: 'Date'},
+                    {name: 'memory_kb', type: 'number'},
+                    {name: 'threads', type: 'number'},
+                    {name: 'url', type: 'string'},
+                    {name: 'page', type: 'string'},
+                    {name: 'renweb', type: 'boolean'}
+                ]
+            }
+        },
+        'Debug': ['clearConsole', 'openDevtools', 'closeDevtools'],
+        'Network': ['getLoadProgress', 'isLoading'],
+        'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
+        'Plugins': ['getPluginsList'],
+        'Utils': ['decode', 'encode', 'serialize']
+    };
+    
+    // Generate tree HTML with CSS-based indentation
+    function generateTreeHTML() {
+        let html = '';
+        const namespaces = Object.keys(apiTreeData);
+        
+        namespaces.forEach((namespace, nsIndex) => {
+            const isLast = nsIndex === namespaces.length - 1;
+            const connector = isLast ? '└──' : '├──';
+            const data = apiTreeData[namespace];
+            
+            html += `<div class="api-tree-node">`;
+            html += `  <div class="api-tree-line tree-indent-0">`;
+            html += `    <span class="tree-icon" data-node="${namespace}">▶</span>`;
+            html += `    <span class="tree-connector">${connector}</span>`;
+            
+            // Label namespace or class
+            if (namespace === 'Process') {
+                html += `    <span class="tree-label class" data-node="${namespace}">${namespace}</span>`;
+                html += `    <span class="tree-tag class">class</span>`;
+            } else {
+                html += `    <span class="tree-label namespace" data-node="${namespace}">${namespace}</span>`;
+                html += `    <span class="tree-tag namespace">namespace</span>`;
+            }
+            
+            html += `  </div>`;
+            html += `  <div class="tree-children" id="tree-${namespace}">`;
+            
+            // Handle Process class (has factory constructors, static methods, instance methods, and attributes)
+            if (namespace === 'Process') {
+                const factoryConstructors = data.factoryConstructors;
+                const staticMethods = data.staticMethods;
+                const instanceMethods = data.instanceMethods;
+                const attributes = data.attributes;
+                const prefix = '    ';
+                
+                // Factory constructors - expandable
+                factoryConstructors.forEach((method, idx) => {
+                    const isLastMethod = false; // Never last because we have more sections
+                    html += generateExpandableProcessMethod(method, idx, isLastMethod, prefix, ['factory constructor', 'static']);
+                });
+                
+                // Static methods - expandable
+                staticMethods.forEach((method, idx) => {
+                    const isLastMethod = false; // Never last because we have more sections
+                    html += generateExpandableProcessMethod(method, idx, isLastMethod, prefix, ['method', 'static']);
+                });
+                
+                // Instance methods - expandable
+                instanceMethods.forEach((method, idx) => {
+                    const isLastMethod = false; // Never last because we have attributes
+                    html += generateExpandableProcessMethod(method, idx, isLastMethod, prefix, ['method']);
+                });
+                
+                // Attributes (info is expandable)
+                Object.keys(attributes).forEach((attrName, attrIdx) => {
+                    const isLastAttr = attrIdx === Object.keys(attributes).length - 1;
+                    const attrConnector = isLastAttr ? '└──' : '├──';
+                    const attrProps = attributes[attrName];
+                    const attrNodeId = `${namespace}-${attrName}`;
+                    
+                    html += `    <div class="api-tree-node">`;
+                    html += `      <div class="api-tree-line tree-indent-1">`;
+                    html += `        <span class="tree-icon" data-node="${attrNodeId}">▶</span>`;
+                    html += `        <span class="tree-connector">${prefix}${attrConnector}</span>`;
+                    html += `        <span class="tree-label attribute" data-node="${attrNodeId}" data-scroll="process-${attrName}">${attrName}</span>`;
+                    html += `        <span class="tree-tag attribute">attribute</span>`;
+                    html += `      </div>`;
+                    html += `      <div class="tree-children" id="tree-${attrNodeId}">`;
+                    
+                    // Properties of the attribute
+                    const attrPrefix = isLastAttr ? '    ' : '│   ';
+                    attrProps.forEach((prop, propIdx) => {
+                        const isLastProp = propIdx === attrProps.length - 1;
+                        const propConnector = isLastProp ? '└──' : '├──';
+                        html += `        <div class="api-tree-line tree-indent-2-5">`;
+                        html += `          <span class="tree-connector">${prefix}${attrPrefix}${propConnector}</span>`;
+                        if (typeof prop === 'object' && prop.name && prop.type) {
+                            html += `          <span class="tree-label">${prop.name}</span>`;
+                            html += `          <span class="tree-param-separator">:</span>`;
+                            html += `          <span class="tree-tag type">${escapeHtml(prop.type)}</span>`;
+                        } else {
+                            html += `          <span class="tree-label">${prop}</span>`;
+                        }
+                        html += `        </div>`;
+                    });
+                    
+                    html += `      </div>`;
+                    html += `    </div>`;
+                });
+            } else {
+                // Regular namespace functions - use expandable approach for all
+                const prefix = '    ';
+                const methods = data;
+                
+                // Use expandable method nodes for all namespaces with method details
+                if (methodDetails[namespace]) {
+                    methods.forEach((method, methodIndex) => {
+                        const isLastMethod = methodIndex === methods.length - 1;
+                        html += generateExpandableMethod(namespace, method, methodIndex, isLastMethod, prefix);
+                    });
+                }
+            }
+            
+            html += `  </div>`;
+            html += `</div>`;
+        });
+        
+        return html;
+    }
+    
+    // Initialize tree
+    function initTree() {
+        const treeContainer = document.getElementById('api-tree');
+        if (!treeContainer) return;
+        
+        treeContainer.innerHTML = generateTreeHTML();
+        
+        // Build apiData for search functionality
+        if (typeof buildApiDataFromMethodDetails !== 'undefined') {
+            apiData = buildApiDataFromMethodDetails(methodDetails);
+        }
+        
+        // Apply syntax highlighting to default values
+        document.querySelectorAll('#api-tree code.language-javascript').forEach(block => {
+            hljs.highlightElement(block);
+        });
+        
+        // Add click handlers for expand/collapse
+        document.querySelectorAll('.tree-icon, .tree-label.namespace, .tree-label.class, .tree-label.attribute').forEach(el => {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const node = this.dataset.node;
+                const icon = document.querySelector(`.tree-icon[data-node="${node}"]`);
+                const children = document.getElementById(`tree-${node}`);
+                
+                if (children) {
+                    children.classList.toggle('expanded');
+                    icon.textContent = children.classList.contains('expanded') ? '▼' : '▶';
+                }
+            });
+        });
+        
+        // Add click handlers for methods and attributes (scroll to docs)
+        document.querySelectorAll('.tree-label.method, .tree-label.attribute').forEach(el => {
+            el.addEventListener('click', function(e) {
+                const targetId = this.dataset.scroll;
+                if (!targetId) return;
+                
+                e.stopPropagation();
+                const target = document.getElementById(targetId);
+                
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    }
+    
+    // Run immediately if DOM is already loaded (for iframes), otherwise wait
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTree);
+    } else {
+        initTree();
+    }
+})();
+
+// Plugin API Tree Generation
+(function initPluginAPITree() {
+    // Only run on plugins.html
+    if (!window.location.pathname.includes('plugins.html')) return;
+    
+    const apiTreeContainer = document.getElementById('api-tree');
+    if (!apiTreeContainer) return;
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Root node - RenWeb::Plugin
+    let html = '<div class="api-tree-node">';
+    html += '  <div class="api-tree-line">';
+    html += '    <span class="tree-icon" data-node="plugin-root">▶</span>';
+    html += '    <span class="tree-label namespace" data-node="plugin-root">RenWeb::Plugin</span>';
+    html += '    <span class="tree-tag namespace">CLASS</span>';
+    html += '  </div>';
+    html += '  <div class="tree-children" id="tree-plugin-root">';
+
+    // Constructor
+    html += '    <div class="api-tree-node">';
+    html += '      <div class="api-tree-line tree-indent-1">';
+    html += '        <span class="tree-icon" data-node="constructor-node">▶</span>';
+    html += '        <span class="tree-connector">├──</span>';
+    html += '        <span class="tree-label method" data-node="constructor-node" data-scroll="plugin-constructor">Plugin(name, internal_name, version, description, repository_url, logger)</span>';
+    html += '        <span class="tree-tag public">public</span>';
+    html += '        <span class="tree-tag method">METHOD</span>';
+    html += '        <span class="tree-tag static">constructor</span>';
+    html += '      </div>';
+    html += '      <div class="tree-children" id="tree-constructor-node">';
+    html += '        <div class="api-tree-line tree-indent-2">';
+    html += '          <span class="tree-icon-placeholder"></span>';
+    html += '          <span class="tree-connector">├──</span>';
+    html += '          <span class="tree-label-section">Parameters:</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    ├──</span>';
+    html += '          <span class="tree-param-name">name</span>';
+    html += '          <span class="tree-param-separator">,</span>';
+    html += '          <span class="tree-tag type">const std::string&</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    ├──</span>';
+    html += '          <span class="tree-param-name">internal_name</span>';
+    html += '          <span class="tree-param-separator">,</span>';
+    html += '          <span class="tree-tag type">const std::string&</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    ├──</span>';
+    html += '          <span class="tree-param-name">version</span>';
+    html += '          <span class="tree-param-separator">,</span>';
+    html += '          <span class="tree-tag type">const std::string&</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    ├──</span>';
+    html += '          <span class="tree-param-name">description</span>';
+    html += '          <span class="tree-param-separator">,</span>';
+    html += '          <span class="tree-tag type">const std::string&</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    ├──</span>';
+    html += '          <span class="tree-param-name">repository_url</span>';
+    html += '          <span class="tree-param-separator">,</span>';
+    html += '          <span class="tree-tag type">const std::string&</span>';
+    html += '        </div>';
+    html += '        <div class="api-tree-line tree-indent-3-5">';
+    html += '          <span class="tree-connector">    └──</span>';
+    html += '          <span class="tree-param-name">logger</span>';
+    html += '          <span class="tree-tag type">std::shared_ptr&lt;ILogger&gt;</span>';
+    html += '        </div>';
+    html += '      </div>';
+    html += '    </div>';
+
+    // Protected Attributes (flattened)
+    const protectedAttributes = [
+        { name: 'name', type: 'const std::string', scroll: 'plugin-name', tag: 'attribute' },
+        { name: 'internal_name', type: 'const std::string', scroll: 'plugin-internal-name', tag: 'attribute' },
+        { name: 'version', type: 'const std::string', scroll: 'plugin-version', tag: 'attribute' },
+        { name: 'description', type: 'const std::string', scroll: 'plugin-description', tag: 'attribute' },
+        { name: 'repository_url', type: 'const std::string', scroll: 'plugin-repository-url', tag: 'attribute' },
+        { name: 'logger', type: 'std::shared_ptr&lt;ILogger&gt;', scroll: 'plugin-logger', tag: 'attribute' },
+        { name: 'functions', type: 'std::map&lt;...&gt;', scroll: 'plugin-functions', tag: 'attribute' }
+    ];
+    
+    protectedAttributes.forEach((attr) => {
+        html += '    <div class="api-tree-node">';
+        html += '      <div class="api-tree-line tree-indent-1">';
+        html += '        <span class="tree-icon-placeholder"></span>';
+        html += '        <span class="tree-connector">├──</span>';
+        html += `        <span class="tree-label attribute" data-scroll="${attr.scroll}">${attr.name}</span>`;
+        html += '        <span class="tree-tag protected">protected</span>';
+        html += `        <span class="tree-tag ${attr.tag}">${attr.tag}</span>`;
+        html += `        <span class="tree-tag type">${attr.type}</span>`;
+        html += '      </div>';
+        html += '    </div>';
+    });
+
+    // Protected Methods (expandable groups)
+    // processInput overloads
+    html += '    <div class="api-tree-node">';
+    html += '      <div class="api-tree-line tree-indent-1">';
+    html += '        <span class="tree-icon" data-node="processinput-overloads">▶</span>';
+    html += '        <span class="tree-connector">├──</span>';
+    html += '        <span class="tree-label method" data-node="processinput-overloads">processInput(....)</span>';
+    html += '        <span class="tree-tag protected">protected</span>';
+    html += '        <span class="tree-tag method">METHOD</span>';
+    html += '      </div>';
+    html += '      <div class="tree-children" id="tree-processinput-overloads">';
+    
+    const processInputOverloads = [
+        { name: 'processInput(string)', scroll: 'plugin-processinput-string', returns: 'json::value' },
+        { name: 'processInput(value)', scroll: 'plugin-processinput-value', returns: 'json::value' },
+        { name: 'processInput(object)', scroll: 'plugin-processinput-object', returns: 'json::value' },
+        { name: 'processInput(array)', scroll: 'plugin-processinput-array', returns: 'json::value' }
+    ];
+    
+    processInputOverloads.forEach((method, idx) => {
+        const isLast = idx === processInputOverloads.length - 1;
+        const nodeId = `method-${method.scroll}`;
+        html += '        <div class="api-tree-node">';
+        html += '          <div class="api-tree-line tree-indent-2">';
+        html += `            <span class="tree-icon" data-node="${nodeId}">▶</span>`;
+        html += `            <span class="tree-connector">${isLast ? '└──' : '├──'}</span>`;
+        html += `            <span class="tree-label method" data-node="${nodeId}" data-scroll="${method.scroll}">${method.name}</span>`;
+        html += '          </div>';
+        html += `          <div class="tree-children" id="tree-${nodeId}">`;
+        html += '            <div class="api-tree-line tree-indent-3">';
+        html += '              <span class="tree-icon-placeholder"></span>';
+        html += '              <span class="tree-connector">└──</span>';
+        html += '              <span class="tree-label-returns">Returns:</span>';
+        html += `              <span class="tree-tag return-type">${method.returns}</span>`;
+        html += '            </div>';
+        html += '          </div>';
+        html += '        </div>';
+    });
+    
+    html += '      </div>';
+    html += '    </div>';
+
+    // formatOutput overloads
+    html += '    <div class="api-tree-node">';
+    html += '      <div class="api-tree-line tree-indent-1">';
+    html += '        <span class="tree-icon" data-node="formatoutput-overloads">▶</span>';
+    html += '        <span class="tree-connector">├──</span>';
+    html += '        <span class="tree-label method" data-node="formatoutput-overloads">formatOutput(....)</span>';
+    html += '        <span class="tree-tag protected">protected</span>';
+    html += '        <span class="tree-tag method">METHOD</span>';
+    html += '      </div>';
+    html += '      <div class="tree-children" id="tree-formatoutput-overloads">';
+    
+    const formatOutputOverloads = [
+        { name: 'formatOutput(value)', scroll: 'plugin-formatoutput-value', returns: 'json::value' },
+        { name: 'formatOutput(string)', scroll: 'plugin-formatoutput-string', returns: 'json::value' },
+        { name: 'formatOutput(template)', scroll: 'plugin-formatoutput-template', returns: 'json::value' }
+    ];
+    
+    formatOutputOverloads.forEach((method, idx) => {
+        const isLast = idx === formatOutputOverloads.length - 1;
+        const nodeId = `method-${method.scroll}`;
+        html += '        <div class="api-tree-node">';
+        html += '          <div class="api-tree-line tree-indent-2">';
+        html += `            <span class="tree-icon" data-node="${nodeId}">▶</span>`;
+        html += `            <span class="tree-connector">${isLast ? '└──' : '├──'}</span>`;
+        html += `            <span class="tree-label method" data-node="${nodeId}" data-scroll="${method.scroll}">${method.name}</span>`;
+        html += '          </div>';
+        html += `          <div class="tree-children" id="tree-${nodeId}">`;
+        html += '            <div class="api-tree-line tree-indent-3">';
+        html += '              <span class="tree-icon-placeholder"></span>';
+        html += '              <span class="tree-connector">└──</span>';
+        html += '              <span class="tree-label-returns">Returns:</span>';
+        html += `              <span class="tree-tag return-type">${method.returns}</span>`;
+        html += '            </div>';
+        html += '          </div>';
+        html += '        </div>';
+    });
+    
+    html += '      </div>';
+    html += '    </div>';
+
+    // Public Methods (flattened, last one gets └──)
+    const publicMethods = [
+        { name: 'getName()', scroll: 'plugin-getname', returns: 'std::string' },
+        { name: 'getInternalName()', scroll: 'plugin-getinternalname', returns: 'std::string' },
+        { name: 'getVersion()', scroll: 'plugin-getversion', returns: 'std::string' },
+        { name: 'getDescription()', scroll: 'plugin-getdescription', returns: 'std::string' },
+        { name: 'getRepositoryUrl()', scroll: 'plugin-getrepositoryurl', returns: 'std::string' },
+        { name: 'getFunctions()', scroll: 'plugin-getfunctions', returns: 'const std::map&lt;...&gt;&' },
+        { name: 'getMetadata()', scroll: 'plugin-getmetadata', returns: 'json::object' }
+    ];
+    
+    publicMethods.forEach((method, idx) => {
+        const isLast = idx === publicMethods.length - 1;
+        const nodeId = `method-${method.scroll}`;
+        html += '    <div class="api-tree-node">';
+        html += '      <div class="api-tree-line tree-indent-1">';
+        html += `        <span class="tree-icon" data-node="${nodeId}">▶</span>`;
+        html += `        <span class="tree-connector">${isLast ? '└──' : '├──'}</span>`;
+        html += `        <span class="tree-label method" data-node="${nodeId}" data-scroll="${method.scroll}">${method.name}</span>`;
+        html += '        <span class="tree-tag public">public</span>';
+        html += '        <span class="tree-tag method">METHOD</span>';
+        html += '      </div>';
+        html += `      <div class="tree-children" id="tree-${nodeId}">`;
+        html += '        <div class="api-tree-line tree-indent-2">';
+        html += '          <span class="tree-icon-placeholder"></span>';
+        html += '          <span class="tree-connector">└──</span>';
+        html += '          <span class="tree-label-returns">Returns:</span>';
+        html += `          <span class="tree-tag return-type">${method.returns}</span>`;
+        html += '        </div>';
+        html += '      </div>';
+        html += '    </div>';
+    });
+
+    html += '  </div>'; // Close tree-children for plugin-root
+    html += '</div>'; // Close RenWeb::Plugin node
+
+    // Example node
+    html += '<div class="api-tree-node">';
+    html += '  <div class="api-tree-line">';
+    html += '    <span class="tree-icon-placeholder"></span>';
+    html += '    <span class="tree-connector">├──</span>';
+    html += '    <span class="tree-label namespace" data-scroll="complete-example">Example</span>';
+    html += '    <span class="tree-tag example">EXAMPLE</span>';
+    html += '  </div>';
+    html += '</div>';
+
+    // Template node
+    html += '<div class="api-tree-node">';
+    html += '  <div class="api-tree-line">';
+    html += '    <span class="tree-icon-placeholder"></span>';
+    html += '    <span class="tree-connector">└──</span>';
+    html += '    <span class="tree-label namespace" data-scroll="plugin-template">Template</span>';
+    html += '    <span class="tree-tag template">TEMPLATE</span>';
+    html += '  </div>';
+    html += '</div>';
+
+
+    apiTreeContainer.innerHTML = html;
+
+    // Add click handlers for expandable nodes
+    function initTree() {
+        document.querySelectorAll('.tree-icon').forEach(icon => {
+            icon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const nodeId = this.dataset.node;
+                const children = document.getElementById(`tree-${nodeId}`);
+                if (children) {
+                    children.classList.toggle('expanded');
+                    this.textContent = children.classList.contains('expanded') ? '▼' : '▶';
+                }
+            });
+        });
+
+        // Add click handlers for labels with data-node attribute (expandable)
+        document.querySelectorAll('.tree-label[data-node]').forEach(label => {
+            label.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const nodeId = this.dataset.node;
+                const icon = document.querySelector(`.tree-icon[data-node="${nodeId}"]`);
+                if (icon) {
+                    icon.click();
+                }
+            });
+        });
+
+        // Add click handlers for scrolling to documentation
+        document.querySelectorAll('[data-scroll]').forEach(element => {
+            element.addEventListener('click', function(e) {
+                const targetId = this.dataset.scroll;
+                if (!targetId) return;
+                
+                e.stopPropagation();
+                const target = document.getElementById(targetId);
+                
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Don't auto-expand root - user can expand as needed
+    }
+
+    // Run immediately if DOM is already loaded (for iframes), otherwise wait
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTree);
+    } else {
+        initTree();
+    }
+})();
+
+// GitHub Releases Management (for downloads page)
+
+// GitHub API configuration
+const GITHUB_REPO = 'spur27/RenWeb-Engine';
+const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+const RELEASES_CACHE_TIME = 5 * 60 * 1000; // 5 minutes
+
+let allReleases = [];
+let currentRelease = null;
+let releasesPromiseResolve = null;
+const releasesPromise = new Promise(resolve => {
+    releasesPromiseResolve = resolve;
+});
+
+// Listen for releases data from parent window
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'RENWEB_RELEASES' && event.data.data) {
+        console.log('Received releases from parent via postMessage');
+        if (releasesPromiseResolve) {
+            releasesPromiseResolve(event.data.data);
+        }
+    }
+});
+
+/**
+ * Fetch releases from localStorage, postMessage, or GitHub API
+ * @returns {Promise<Array>} Array of release objects
+ */
+async function fetchReleases() {
+    try {
+        console.log('fetchReleases: Starting...');
+        
+        // Try localStorage first (works with file:// protocol)
+        const cachedReleases = localStorage.getItem('renweb_releases');
+        const cachedTimestamp = localStorage.getItem('renweb_releases_timestamp');
+        
+        // Use cache if less than 5 minutes old
+        if (cachedReleases && cachedTimestamp) {
+            const age = Date.now() - parseInt(cachedTimestamp);
+            console.log(`fetchReleases: Found localStorage cache (age: ${Math.floor(age/1000)}s)`);
+            if (age < RELEASES_CACHE_TIME) {
+                console.log('fetchReleases: Using cached releases from localStorage');
+                const data = JSON.parse(cachedReleases);
+                if (releasesPromiseResolve) releasesPromiseResolve(data);
+                return data;
+            } else {
+                console.log('fetchReleases: Cache expired, fetching fresh data');
+            }
+        } else {
+            console.log('fetchReleases: No localStorage cache found');
+        }
+        
+        // Wait briefly for postMessage from parent
+        console.log('fetchReleases: Waiting for postMessage from parent...');
+        const timeoutPromise = new Promise(resolve => setTimeout(() => {
+            console.log('fetchReleases: postMessage timeout reached');
+            resolve(null);
+        }, 500));
+        const data = await Promise.race([releasesPromise, timeoutPromise]);
+        
+        if (data) {
+            console.log('fetchReleases: Received data via postMessage');
+            return data;
+        }
+        
+        // Fallback: fetch directly from GitHub API
+        console.log('fetchReleases: Fetching directly from GitHub API:', GITHUB_RELEASES_API);
+        const response = await fetch(GITHUB_RELEASES_API);
+        if (!response.ok) {
+            console.error(`fetchReleases: GitHub API error: ${response.status} ${response.statusText}`);
+            throw new Error(`GitHub API error: ${response.status}`);
+        }
+        const fetchedData = await response.json();
+        console.log(`fetchReleases: Successfully fetched ${fetchedData.length} releases from GitHub`);
+        
+        // Cache in localStorage
+        localStorage.setItem('renweb_releases', JSON.stringify(fetchedData));
+        localStorage.setItem('renweb_releases_timestamp', Date.now().toString());
+        console.log('fetchReleases: Cached in localStorage');
+        
+        return fetchedData;
+    } catch (error) {
+        console.error('fetchReleases: Failed to fetch releases:', error);
+        return null;
+    }
+}
+
+/**
+ * Populate version dropdown with releases
+ * @param {Array} releases - Array of release objects
+ * @param {string} selectId - ID of select element
+ */
+function populateVersionDropdown(releases, selectId = 'version-select') {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    
+    select.innerHTML = '';
+    
+    releases.forEach((release, index) => {
+        const option = document.createElement('option');
+        option.value = release.tag_name;
+        option.textContent = `${release.tag_name}${index === 0 ? ' (latest)' : ''}`;
+        select.appendChild(option);
+    });
+    
+    // Set latest as selected
+    if (releases.length > 0) {
+        select.value = releases[0].tag_name;
+        if (selectId === 'version-select') {
+            currentRelease = releases[0];
+        }
+    }
+}
+
+/**
+ * Create download button HTML
+ * @param {string} url - Download URL
+ * @param {string} filename - File name
+ * @returns {string} HTML string for download button
+ */
+function createDownloadButton(url, filename) {
+    return `<a href="${url}" class="download-btn" download="${filename}">Download</a>`;
+}
+
+/**
+ * Determine OS from filename
+ * @param {string} name - Filename
+ * @returns {string|null} OS identifier (linux/windows/macos) or null
+ */
+function getOSFromFilename(name) {
+    const nameLower = name.toLowerCase();
+    if (nameLower.includes('linux')) return 'linux';
+    if (nameLower.includes('windows') || nameLower.includes('win32') || nameLower.includes('win64')) return 'windows';
+    if (nameLower.includes('macos') || nameLower.includes('apple') || nameLower.includes('darwin')) return 'macos';
+    return null;
+}
+
+/**
+ * Categorize assets by OS and type
+ * @param {Array} assets - Array of asset objects
+ * @returns {Object} Categorized assets
+ */
+function categorizeAssets(assets) {
+    const categories = {
+        linux: { executables: [], bundles: [] },
+        windows: { executables: [], bundles: [] },
+        macos: { executables: [], bundles: [] },
+        other: []
+    };
+    
+    assets.forEach(asset => {
+        const name = asset.name.toLowerCase();
+        const os = getOSFromFilename(name);
+        
+        if (!os) {
+            categories.other.push(asset);
+            return;
+        }
+        
+        // Determine type
+        if (name.includes('bundle') || name.includes('portable')) {
+            categories[os].bundles.push(asset);
+        } else if (name.match(/\.(exe|app|appimage)$/) || name.includes('renweb')) {
+            categories[os].executables.push(asset);
+        } else {
+            categories.other.push(asset);
+        }
+    });
+    
+    return categories;
+}
+
+/**
+ * Categorize bundles by OS
+ * @param {Array} assets - Array of asset objects
+ * @param {string} archiveExt - Archive extension to filter by
+ * @returns {Object} Categorized bundles
+ */
+function categorizeBundles(assets, archiveExt) {
+    const categories = {
+        linux: [],
+        windows: [],
+        macos: []
+    };
+    
+    assets.forEach(asset => {
+        const name = asset.name.toLowerCase();
+        
+        // Only include assets starting with 'bundle'
+        if (!name.startsWith('bundle')) return;
+        
+        // Filter by archive extension
+        if (!name.endsWith(`.${archiveExt}`)) return;
+        
+        const os = getOSFromFilename(name);
+        if (os) {
+            categories[os].push(asset);
+        }
+    });
+    
+    return categories;
+}
+
+/**
+ * Extract architecture from filename
+ * @param {string} filename - Filename to parse
+ * @returns {string} Architecture identifier
+ */
+function getArchitecture(filename) {
+    const name = filename.toLowerCase();
+    
+    // Common architecture patterns
+    const archPatterns = [
+        { pattern: /(x86[-_]?64|x64|amd64)/, arch: 'x86_64' },
+        { pattern: /(x86[-_]?32|x86|i[3-6]86)/, arch: 'x86_32' },
+        { pattern: /(aarch64|arm64)/, arch: 'arm64' },
+        { pattern: /(armhf|arm32|armv7)/, arch: 'arm32' },
+        { pattern: /universal/, arch: 'universal' },
+        { pattern: /(mips64el)/, arch: 'mips64el' },
+        { pattern: /(mips64)/, arch: 'mips64' },
+        { pattern: /(mipsel)/, arch: 'mipsel' },
+        { pattern: /(mips)/, arch: 'mips' },
+        { pattern: /(powerpc64|ppc64)/, arch: 'powerpc64' },
+        { pattern: /(powerpc|ppc)/, arch: 'powerpc' },
+        { pattern: /(riscv64)/, arch: 'riscv64' },
+        { pattern: /(s390x)/, arch: 's390x' },
+        { pattern: /(sparc64)/, arch: 'sparc64' }
+    ];
+    
+    for (const { pattern, arch } of archPatterns) {
+        if (pattern.test(name)) {
+            return arch;
+        }
+    }
+    
+    return 'unknown';
+}
+
+/**
+ * Get architecture priority for sorting (lower = more common)
+ * @param {string} arch - Architecture identifier
+ * @returns {number} Priority number
+ */
+function getArchPriority(arch) {
+    const priorities = {
+        'x86_64': 1,
+        'x86_32': 2,
+        'arm64': 3,
+        'universal': 4,
+        'arm32': 5,
+        'mips': 6,
+        'mipsel': 7,
+        'mips64': 8,
+        'mips64el': 9,
+        'powerpc': 10,
+        'powerpc64': 11,
+        'riscv64': 12,
+        's390x': 13,
+        'sparc64': 14,
+        'unknown': 99
+    };
+    return priorities[arch] || 99;
+}
+
+/**
+ * Sort assets by architecture commonness
+ * @param {Array} assets - Array of asset objects
+ * @returns {Array} Sorted assets
+ */
+function sortByArchitecture(assets) {
+    return assets.sort((a, b) => {
+        const archA = getArchitecture(a.name);
+        const archB = getArchitecture(b.name);
+        return getArchPriority(archA) - getArchPriority(archB);
+    });
+}
+
+/**
+ * Create "no items available" message
+ * @param {string} itemType - Type of items (executables, bundles, examples)
+ * @returns {string} HTML string
+ */
+function createNoItemsMessage(itemType) {
+    return `<p style="color: rgba(255,255,255,0.5);">No ${itemType} available for this release.</p>`;
+}
+
+/**
+ * Re-apply syntax highlighting to code blocks
+ */
+function reHighlightCode() {
+    if (typeof hljs !== 'undefined') {
+        hljs.highlightAll();
+    }
+}
+
+/**
+ * Update downloads display for selected version
+ * @param {Object} release - Release object
+ */
+function updateDownloads(release) {
+    if (!release) {
+        console.error('No release provided to updateDownloads');
+        return;
+    }
+    
+    const assets = release.assets;
+    const version = release.tag_name;
+    
+    console.log(`Updating downloads for version: ${version}`);
+    console.log(`Total assets: ${assets.length}`);
+    
+    const categories = categorizeAssets(assets);
+    
+    // Update each OS section
+    ['linux', 'windows', 'macos'].forEach(os => {
+        const element = document.getElementById(`${os}-downloads`);
+        if (!element) return;
+        
+        if (categories[os].executables.length > 0) {
+            const sorted = sortByArchitecture(categories[os].executables);
+            const html = sorted.map(asset => `
+                <div class="arch-item">
+                    <strong>${getArchitecture(asset.name)}</strong>
+                    <small>${(asset.size / 1024 / 1024).toFixed(1)} MB</small>
+                    ${createDownloadButton(asset.browser_download_url, asset.name)}
+                </div>
+            `).join('');
+            element.innerHTML = `<div class="arch-grid">${html}</div>`;
+        } else {
+            element.innerHTML = createNoItemsMessage('executables');
+        }
+    });
+    
+    reHighlightCode();
+}
+
+/**
+ * Update bundles display for selected version and archive extension
+ * @param {Object} release - Release object
+ * @param {string} archiveExt - Archive extension
+ */
+function updateBundles(release, archiveExt) {
+    if (!release) {
+        console.error('No release provided to updateBundles');
+        return;
+    }
+    
+    const assets = release.assets;
+    const version = release.tag_name;
+    
+    console.log(`Updating bundles for version: ${version}, archive: ${archiveExt}`);
+    
+    const categories = categorizeBundles(assets, archiveExt);
+    
+    // Update each OS section
+    ['linux', 'windows', 'macos'].forEach(os => {
+        const element = document.getElementById(`${os}-bundles`);
+        if (!element) return;
+        
+        if (categories[os].length > 0) {
+            const sorted = sortByArchitecture(categories[os]);
+            const html = sorted.map(asset => 
+                `<a href="${asset.browser_download_url}" class="download-btn" download="${asset.name}" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block;">${getArchitecture(asset.name)}</a>`
+            ).join('');
+            element.innerHTML = html;
+        } else {
+            element.innerHTML = createNoItemsMessage('bundles');
+        }
+    });
+    
+    reHighlightCode();
+}
+
+/**
+ * Update examples display for selected version and archive extension
+ * @param {Object} release - Release object
+ * @param {string} archiveExt - Archive extension
+ */
+function updateExamples(release, archiveExt) {
+    if (!release) {
+        console.error('No release provided to updateExamples');
+        return;
+    }
+    
+    const assets = release.assets;
+    const version = release.tag_name;
+    
+    console.log(`Updating examples for version: ${version}, archive: ${archiveExt}`);
+    console.log(`Total assets in release: ${assets.length}`);
+    
+    // Filter for example assets
+    const exampleAssets = assets.filter(asset => {
+        const name = asset.name.toLowerCase();
+        const matches = name.startsWith('example-') && name.endsWith(`.${archiveExt}`);
+        if (matches) {
+            console.log(`Found example asset: ${asset.name}`);
+        }
+        return matches;
+    });
+    
+    console.log(`Found ${exampleAssets.length} example assets`);
+    
+    const element = document.getElementById('all-examples');
+    if (!element) return;
+    
+    if (exampleAssets.length > 0) {
+        const html = exampleAssets.map(asset => `
+            <div class="arch-item">
+                <strong>Example Pages</strong>
+                <small>${(asset.size / 1024 / 1024).toFixed(1)} MB</small>
+                ${createDownloadButton(asset.browser_download_url, asset.name)}
+            </div>
+        `).join('');
+        element.innerHTML = `<div class="arch-grid">${html}</div>`;
+    } else {
+        element.innerHTML = createNoItemsMessage('examples');
+    }
+    
+    reHighlightCode();
+}
+
+/**
+ * Create error HTML message with GitHub link
+ * @returns {string} Error HTML
+ */
+function createErrorHTML() {
+    return `
+        <div class="error">
+            Unable to load downloads. Visit 
+            <a href="https://github.com/${GITHUB_REPO}/releases" target="_blank">GitHub Releases</a>.
+        </div>
+    `;
+}
+
+/**
+ * Display error state on downloads page
+ */
+function showDownloadsError() {
+    // Update all select elements
+    ['version-select', 'bundle-version-select', 'example-version-select'].forEach(id => {
+        const select = document.getElementById(id);
+        if (select) select.innerHTML = '<option value="">No releases available</option>';
+    });
+    
+    // Show error messages
+    const errorHTML = createErrorHTML();
+    
+    ['linux', 'windows', 'macos'].forEach(os => {
+        const downloads = document.getElementById(`${os}-downloads`);
+        const bundles = document.getElementById(`${os}-bundles`);
+        if (downloads) downloads.innerHTML = errorHTML;
+        if (bundles) bundles.innerHTML = errorHTML;
+    });
+    
+    const examples = document.getElementById('all-examples');
+    if (examples) examples.innerHTML = errorHTML;
+}
+
+/**
+ * Initialize downloads page
+ */
+async function initDownloadsPage() {
+    console.log('Starting initDownloadsPage...');
+    const releases = await fetchReleases();
+    
+    console.log('Fetched releases:', releases);
+    
+    if (!releases || releases.length === 0) {
+        console.error('No releases found or fetch failed');
+        showDownloadsError();
+        return;
+    }
+    
+    console.log(`Found ${releases.length} releases`);
+    allReleases = releases;
+    
+    // Populate dropdowns
+    populateVersionDropdown(releases, 'version-select');
+    populateVersionDropdown(releases, 'bundle-version-select');
+    populateVersionDropdown(releases, 'example-version-select');
+    
+    // Update displays with latest release
+    updateDownloads(releases[0]);
+    updateBundles(releases[0], 'zip');
+    updateExamples(releases[0], 'zip');
+    
+    // Set up event listeners
+    setupDownloadsEventListeners();
+}
+
+/**
+ * Generic handler for version/archive selection changes
+ * @param {string} versionSelectId - ID of version select element
+ * @param {string} archiveSelectId - ID of archive select element (optional)
+ * @param {Function} updateFn - Update function to call
+ */
+function createSelectionHandler(versionSelectId, archiveSelectId, updateFn) {
+    const versionSelect = document.getElementById(versionSelectId);
+    const archiveSelect = archiveSelectId ? document.getElementById(archiveSelectId) : null;
+    
+    const handleChange = () => {
+        const selectedVersion = versionSelect?.value;
+        const release = allReleases.find(r => r.tag_name === selectedVersion);
+        if (release) {
+            if (archiveSelect) {
+                updateFn(release, archiveSelect.value);
+            } else {
+                updateFn(release);
+            }
+        }
+    };
+    
+    if (versionSelect) {
+        versionSelect.addEventListener('change', handleChange);
+    }
+    
+    if (archiveSelect) {
+        archiveSelect.addEventListener('change', handleChange);
+    }
+}
+
+/**
+ * Set up event listeners for downloads page
+ */
+function setupDownloadsEventListeners() {
+    // Executables: version only
+    createSelectionHandler('version-select', null, (release) => {
+        currentRelease = release;
+        updateDownloads(release);
+    });
+    
+    // Bundles: version + archive extension
+    createSelectionHandler('bundle-version-select', 'archive-ext-select', updateBundles);
+    
+    // Examples: version + archive extension
+    createSelectionHandler('example-version-select', 'example-archive-ext-select', updateExamples);
+}
+
+// Initialize Everything
+console.log('🌐 RenWeb Engine Wiki - Interactive features loaded');

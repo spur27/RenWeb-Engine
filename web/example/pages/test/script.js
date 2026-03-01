@@ -64,7 +64,6 @@ window.onload = async () => {
     try {
         await Window.resetTitle();
         const path = await FS.getApplicationDirPath();
-        Log.critical(`Application Directory Path: ${path}`);
         document.querySelector(".file_msg").value = path;
         document.querySelector(".new_file_msg").value = path;
         document.querySelector(".title_input").value = await Window.currentTitle();
@@ -1101,10 +1100,10 @@ function setProcessControlButtonState(activeButton, isError = false) {
     });
 }
 
-async function handleProcessControl(buttonName, operationFn) {
+async function handleProcessControl(buttonName, operationFn, requiresProcess = true) {
     const container = document.querySelector('.control_output');
     try {
-        const pid = parseInt(document.querySelector('.control_pid').value);
+        let pid = parseInt(document.querySelector('.control_pid').value);
         
         if (isNaN(pid)) {
             await Log.error('Please enter a valid PID');
@@ -1112,22 +1111,42 @@ async function handleProcessControl(buttonName, operationFn) {
             container.textContent = `Please enter a valid PID`;
             setProcessControlButtonState(buttonName, true);
             return;
+        } else if (pid < 0) {
+            const proc = await Process.dumpCurrentProcess();
+            if (proc == null) {
+                throw  new Error('Could not retrieve current process');
+            }
+            pid = proc.pid;
         }
         
-        const process = await Process.dumpProcess(pid);
-        if (process == null) {
-            await Log.error(`Couldn't find process at pid ${pid}`);
-            container.innerHTML = '';
-            container.textContent = `Couldn't find process at pid ${pid}`;
-            setProcessControlButtonState(buttonName, true);
-            return;
+        let process = null;
+        if (requiresProcess) {
+            process = await Process.dumpProcess(pid);
+            if (process == null) {
+                await Log.error(`Couldn't find process at pid ${pid}`);
+                container.innerHTML = '';
+                container.textContent = `Couldn't find process at pid ${pid}`;
+                setProcessControlButtonState(buttonName, true);
+                return;
+            }
+        } else {
+            // Try to get process info but don't fail if it doesn't exist (e.g., killed process)
+            process = await Process.dumpProcess(pid);
         }
         
-        const result = await operationFn(process);
+        const result = await operationFn(pid, process);
         
         container.innerHTML = '';
-        const proc_card = createProcessCard(process.info);
-        container.appendChild(proc_card);
+        if (process != null) {
+            const proc_card = createProcessCard(process.info);
+            container.appendChild(proc_card);
+        } else {
+            // Show PID info when process object is not available
+            const pidInfo = document.createElement('div');
+            pidInfo.style.cssText = 'border: 1px solid #444; padding: 12px; margin: 8px; border-radius: 4px; background: #2a2a2a; color: #e0e0e0;';
+            pidInfo.innerHTML = `<strong>Operating on PID:</strong> ${pid} <span style="color: #aaa;">(process may be terminated)</span>`;
+            container.appendChild(pidInfo);
+        }
         
         if (result && result.output !== undefined) {
             const outputPre = document.createElement('pre');
@@ -1140,41 +1159,43 @@ async function handleProcessControl(buttonName, operationFn) {
         
         setProcessControlButtonState(buttonName, false);
     } catch (error) {
-        await Log.error(`Error getting process: ${error.message}`);
+        await Log.error(`Error in process control: ${error.message}`);
         container.innerHTML = '';
-        container.textContent = `Error getting process: ${error.message}`;
+        container.textContent = `Error: ${error.message}`;
         setProcessControlButtonState(buttonName, true);
     }
 }
 
 // Process Control Handlers
 document.querySelector('.get_process').onclick = async () => {
-    await handleProcessControl('get_process', async (process) => { });
+    await handleProcessControl('get_process', async (pid, process) => {
+        // Just display the process info
+    }, true);
 };
 
 document.querySelector('.listen_process').onclick = async () => {
-    await handleProcessControl('listen_process', async (process) => {
-        const output = await process.listenToOutput();
+    await handleProcessControl('listen_process', async (pid, process) => {
+        const output = await Process.listenToOutput(pid, 10, { tail: true });
         return { output: output.join('\n') };
-    });
+    }, false); // Don't require process object - can listen to killed processes
 };
 
 document.querySelector('.kill_process').onclick = async () => {
-    await handleProcessControl('kill_process', async (process) => {
+    await handleProcessControl('kill_process', async (pid, process) => {
         await process.kill();
-    });
+    }, true);
 };
 
 document.querySelector('.wait_process').onclick = async () => {
-    await handleProcessControl('wait_process', async (process) => {
+    await handleProcessControl('wait_process', async (pid, process) => {
         await process.wait();
-    });
+    }, true);
 };
 
 document.querySelector('.detach_process').onclick = async () => {
-    await handleProcessControl('detach_process', async (process) => {
+    await handleProcessControl('detach_process', async (pid, process) => {
         await process.detach();
-    });
+    }, true);
 };
 
 

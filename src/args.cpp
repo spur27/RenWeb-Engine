@@ -108,7 +108,7 @@ Args* Args::addDefaults() {
             this->opts["log_clear"] = boost::any_cast<bool>(bool_switch) ? "true" : "false";
         })
     ->add(
-        "pages,p",
+        "page,p",
         boost::program_options::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>{}, "Starting Page(s)"),
         "List of pages to open",
         [this](boost::any pages)

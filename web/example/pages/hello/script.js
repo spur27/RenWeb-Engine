@@ -18,3 +18,12 @@ window.onload = async () => {
     await Window.show(true);
     await Log.info("Hello World!");
 };
+
+// Back button
+document.querySelector('.back-button')?.addEventListener('click', async () => {
+    try {
+        await Window.navigatePage('test');
+    } catch (e) {
+        await Log.error(e.message);
+    }
+});

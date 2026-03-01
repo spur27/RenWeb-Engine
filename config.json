@@ -1,0 +1,37 @@
+{
+  "__defaults__": {
+    "title_bar": true,
+    "fullscreen": false,
+    "keepabove": false,
+    "maximize": false,
+    "minimize": false,
+    "opacity": 1,
+    "position": {
+      "x": 0,
+      "y": 0
+    },
+    "resizable": true,
+    "size": {
+      "width": 1280,
+      "height": 840
+    },
+    "taskbar_show": true,
+    "initially_shown": false
+  },
+  "hello": {
+    "title": "Hello World",
+    "merge_defaults": true
+  },
+  "media": {
+    "title": "Media",
+    "merge_defaults": true
+  },
+  "security": {
+    "title": "Security",
+    "merge_defaults": true
+  },
+  "test": {
+    "title": "Test",
+    "merge_defaults": true
+  }
+}

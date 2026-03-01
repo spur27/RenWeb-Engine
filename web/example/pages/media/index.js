@@ -765,16 +765,16 @@ export class Process {
     /**
      * Listens to and retrieves output from the process.
      * @param lines - Number of lines to retrieve (default: -1 for all)
-     * @param options - Options object (default: { truncate: false })
-     * @param options.truncate - Whether to truncate the output buffer after reading (default: false)
+     * @param options - Options object (default: { tail: false })
+     * @param options.tail - Whether to retrieve lines from the end of the file. (default: false)
      * @returns Array of output lines
      * @example
      * const output = await proc.listenToOutput(10); // Last 10 lines
      * const allOutput = await proc.listenToOutput(); // All lines
      */
-    async listenToOutput(lines = -1, options = { truncate: false }) {
-        const truncate = options?.truncate ?? false;
-        return decode(await BIND_listen_to_output(this._pid, lines, { truncate: truncate }));
+    async listenToOutput(lines = -1, options = { tail: false }) {
+        const tail = options?.tail ?? false;
+        return Process.listenToOutput(this._pid, lines, { tail: tail });
     }
     /**
      * Gets messages sent to this process.
@@ -796,6 +796,28 @@ export class Process {
     async wait() {
         await BIND_wait(this._pid);
         return this;
+    }
+    /**
+ * Listens to and retrieves output from the process of the specified pid.
+ * @param pid - Process ID to listen to (default: -1 for current process)
+ * @param lines - Number of lines to retrieve (default: -1 for all)
+ * @param options - Options object (default: { tail: false })
+ * @param options.tail - Whether to retrieve lines from the end of the file. (default: false)
+ * @returns Array of output lines
+ * @example
+ * const output = await Process.listenToOutput(1234, 10); // Last 10 lines of process with PID 1234
+ * const allOutput = await Process.listenToOutput(1234); // All lines of process with PID 1234
+ */
+    static async listenToOutput(pid = -1, lines = -1, options = { tail: false }) {
+        if (pid == -1) {
+            const proc = await Process.dumpCurrentProcess();
+            if (proc == null) {
+                throw new Error("Failed to get current process information");
+            }
+            pid = proc?.pid;
+        }
+        const tail = options?.tail ?? false;
+        return decode(await BIND_listen_to_output(pid, lines, { tail: tail }));
     }
     /**
      * Creates a new system process.

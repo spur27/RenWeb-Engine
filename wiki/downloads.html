@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Downloads - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+</head>
+
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+
+    <div class="container">
+        <main class="main-content">
+
+            <!-- Executables Section -->
+            <section id="executables" class="card">
+                <h2>Executables</h2>
+                <p class="intro-text">
+                    To use these executables, place them in a RenWeb application directory with <a
+                        href="../?page=usage#file-structure">this structure</a>.
+                    Please make sure you have the required dependencies specified <a
+                        href="../?page=usage#dependencies">here</a> before running a RenWeb application.
+
+                <div class="version-selector-container">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="version-select">Version:</label>
+                        <select id="version-select" class="version-select-input">
+                            <option value="">Loading versions...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="os-tabs-wrapper">
+                    <div class="os-tabs">
+                        <button class="tab-btn active" data-target="exec-linux"><span
+                                class="os-linux">Linux</span></button>
+                        <button class="tab-btn" data-target="exec-windows"><span
+                                class="os-windows">Windows</span></button>
+                        <button class="tab-btn" data-target="exec-macos"><span class="os-macos">macOS</span></button>
+                    </div>
+
+                    <!-- Linux Executables -->
+                    <div id="exec-linux" class="tab-content active">
+
+                        <div id="linux-downloads" class="loading">Loading downloads...</div>
+
+                        <div class="highlight-box" style="margin-top: 1.5rem;">
+                            <strong>NOTE:</strong> After downloading, make the file executable:
+                            <pre><code class="language-bash">chmod +x renweb-linux-*
+./renweb-linux-*</code></pre>
+                        </div>
+                    </div>
+
+                    <!-- Windows Executables -->
+                    <div id="exec-windows" class="tab-content">
+
+                        <div id="windows-downloads" class="loading">Loading downloads...</div>
+
+                    </div>
+
+                    <!-- macOS Executables -->
+                    <div id="exec-macos" class="tab-content">
+                        <div id="macos-downloads" class="loading">Loading downloads...</div>
+
+                        <div class="highlight-box" style="margin-top: 1.5rem;">
+                            <strong>NOTE:</strong> macOS may block unsigned binaries. To run:
+                            <pre><code class="language-bash">chmod +x renweb-macos-*
+xattr -d com.apple.quarantine renweb-macos-*
+./renweb-macos-*</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Bundles Section -->
+            <section id="bundles" class="card">
+                <h2>Bundles</h2>
+                <p class="intro-text">
+                    Bundles include the RenWeb executable as well as all runtime libraries and dependencies.
+                    To use them, simply merge the bundle directory with a RenWeb directory to produce a directory with
+                    <a href="../?page=usage#file-structure">this structure</a>.
+                </p>
+
+                <div class="version-selector-container">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="bundle-version-select">Version:</label>
+                        <select id="bundle-version-select" class="version-select-input">
+                            <option value="">Loading versions...</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="archive-ext-select">Archive:</label>
+                        <select id="archive-ext-select" class="version-select-input">
+                            <option value="zip">zip</option>
+                            <option value="tar.gz">tar.gz</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="os-tabs">
+                    <button class="tab-btn active" data-target="bundle-linux"><span
+                            class="os-linux">Linux</span></button>
+                    <button class="tab-btn" data-target="bundle-windows"><span
+                            class="os-windows">Windows</span></button>
+                    <button class="tab-btn" data-target="bundle-macos"><span class="os-macos">macOS</span></button>
+                </div>
+
+                <!-- Linux Bundles -->
+                <div id="bundle-linux" class="tab-content active">
+                    <div class="subsection">
+                        <div id="linux-bundles" class="loading">Loading bundles...</div>
+                    </div>
+                    <div class="highlight-box" style="margin-top: 1.5rem;">
+                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
+                        <code>bundle-exec.sh</code> script:
+                        <pre><code class="language-bash">chmod +x bundle-exec.sh
+./bundle-exec.sh</code></pre>
+                    </div>
+                </div>
+
+                <!-- Windows Bundles -->
+                <div id="bundle-windows" class="tab-content">
+                    <div class="subsection">
+                        <div id="windows-bundles" class="loading">Loading bundles...</div>
+                    </div>
+                    <div class="highlight-box" style="margin-top: 1.5rem;">
+                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
+                        <code>bundle-exec.bat</code> script:
+                        <pre><code class="language-bash">bundle-exec.bat</code></pre>
+                    </div>
+                </div>
+
+                <!-- macOS Bundles -->
+                <div id="bundle-macos" class="tab-content">
+                    <div class="subsection">
+                        <div class="loading">MacOS has no dependencies and doesn't need bundles. You can run it with
+                            just the executable!</div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- Examples Section -->
+            <section id="examples" class="card">
+                <h2>Examples</h2>
+                <p class="intro-text">
+                    These examples contain the test pages for RenWeb. All you need to do is download an example, extract
+                    it, download an executable,
+                    place it in the example directory, and run it. You can fill the <code>lib</code> directory with the
+                    libs from a bundle if you
+                    are running dependencyless (run the <code>bundle-exec</code> script instead of the RenWeb executable
+                    when doing this).
+                </p>
+
+                <div class="version-selector-container">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="example-version-select">Version:</label>
+                        <select id="example-version-select" class="version-select-input">
+                            <option value="">Loading versions...</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label for="example-archive-ext-select">Archive:</label>
+                        <select id="example-archive-ext-select" class="version-select-input">
+                            <option value="zip">zip</option>
+                            <option value="tar.gz">tar.gz</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="example-all" class="tab-content active">
+                    <div class="subsection">
+                        <div id="all-examples" class="loading">Loading examples...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- JSONs Section -->
+            <section id="jsons" class="card">
+                <h2>Configuration Templates</h2>
+                <p class="intro-text">
+                    Download template configuration files to quickly set up your RenWeb application.
+                </p>
+
+                <div class="subsection">
+                    <h3>info.json</h3>
+                    <p>Main application configuration file. <strong>Required</strong> for all RenWeb applications.</p>
+
+                    <pre><code id="info-json-example" class="language-json">Loading...</code></pre>
+
+                    <button onclick="downloadInfoJson()" class="download-btn">Download Template</button>
+                    <a href="../?page=usage#configuration" class="download-btn secondary">View Documentation</a>
+                </div>
+
+                <div class="subsection">
+                    <h3>info.json (minimum)</h3>
+                    <p>Main application configuration file with the minimum amount of required entries.
+                        <strong>Required</strong> for all RenWeb applications.
+                    </p>
+
+                    <pre><code id="info-json-min-example" class="language-json">Loading...</code></pre>
+
+                    <button onclick="downloadInfoMinimumJson()" class="download-btn">Download Template</button>
+                    <a href="../?page=usage#configuration" class="download-btn secondary">View Documentation</a>
+                </div>
+
+                <div class="subsection">
+                    <h3>config.json</h3>
+                    <p>Window configuration file. <strong>Optional</strong> - automatically generated if not present.
+                    </p>
+
+                    <pre><code id="config-json-example" class="language-json">Loading...</code></pre>
+
+                    <button onclick="downloadConfigJson()" class="download-btn">Download Template</button>
+                    <a href="../?page=usage#configuration" class="download-btn secondary">View Documentation</a>
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <script src="template_jsons.js"></script>
+    <script src="script.js"></script>
+    <script>
+        hljs.highlightAll();
+
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('a[href^="../?page="]');
+            if (link && window.parent !== window) {
+                e.preventDefault();
+                const href = link.getAttribute('href');
+                const url = new URL(href, window.location.href);
+                const params = new URLSearchParams(url.search);
+                const page = params.get('page');
+                const hash = url.hash.substring(1); // Remove the # symbol
+
+                window.parent.postMessage({
+                    type: 'navigate',
+                    page: page,
+                    hash: hash
+                }, '*');
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initDownloadsPage();
+            loadConfigExamples();
+        });
+
+        if (window.location.hash) {
+            setTimeout(() => {
+                const target = document.querySelector(window.location.hash);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 100);
+        }
+
+        async function loadConfigExamples() {
+            try {
+                const infoData = await fetchInfoJson();
+                const infoElement = document.getElementById('info-json-example');
+                if (infoElement) {
+                    infoElement.textContent = JSON.stringify(infoData, null, 2);
+                    infoElement.removeAttribute('data-highlighted');
+                    infoElement.className = 'language-json';
+                }
+
+                const infoMinData = await fetchInfoMinJson();
+                const infoMinElement = document.getElementById('info-json-min-example');
+                if (infoMinElement) {
+                    infoMinElement.textContent = JSON.stringify(infoMinData, null, 2);
+                    infoMinElement.removeAttribute('data-highlighted');
+                    infoMinElement.className = 'language-json';
+                }
+
+                const configData = await fetchConfigJson();
+                const configElement = document.getElementById('config-json-example');
+                if (configElement) {
+                    configElement.textContent = JSON.stringify(configData, null, 2);
+                    configElement.removeAttribute('data-highlighted');
+                    configElement.className = 'language-json';
+                }
+
+                if (typeof hljs !== 'undefined') {
+                    hljs.highlightElement(infoElement);
+                    hljs.highlightElement(infoMinElement);
+                    hljs.highlightElement(configElement);
+                }
+            } catch (error) {
+                console.error('Failed to load config examples:', error);
+            }
+        }
+    </script>
+</body>
+
+</html>

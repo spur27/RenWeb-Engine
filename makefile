@@ -183,7 +183,7 @@ else
 			endif
 		endif
     else ifeq ($(UNAME_S),Darwin)
-        OS_NAME := apple
+        OS_NAME := macos
 		CXX := clang++
 		CXXFLAGS := -std=c++17 -MMD -MP -mmacosx-version-min=10.15
 		LDFLAGS += -mmacosx-version-min=10.15
@@ -241,6 +241,8 @@ BUILD_PATH :=  ./build
 COPY_PATH :=   ./build
 LIC_PATH :=    ./licenses
 INFO_PATH :=   ./info.json
+CONFIG_PATH := ./config.json
+ASSETS_PATH := ./web/example/assets
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
@@ -325,7 +327,7 @@ ifeq ($(OS_NAME), windows)
 		$(BOOST_LIB_PATH)/boost_filesystem$(BOOST_LIB_SUFFIX) \
 		$(BOOST_SYSTEM_LIB)
 endif
-ifeq ($(OS_NAME), apple)
+ifeq ($(OS_NAME), macos)
 	LIBS := -L./external/boost/stage/lib -lboost_program_options -lboost_json -framework Cocoa -framework WebKit -ldl 
 endif
 ifeq ($(OS_NAME), linux)
@@ -407,7 +409,7 @@ endif
 # -----------------------------------------------------------------------------
 # RULE: Special compilation for window_functions.cpp and app.cpp on macOS (Objective-C++)
 # -----------------------------------------------------------------------------
-ifeq ($(OS_NAME), apple)
+ifeq ($(OS_NAME), macos)
 $(OBJ_PATH)/window_functions$(OBJ_EXT): $(SRC_PATH)/window_functions.cpp | $(OBJ_PATH)
 	$(call step,Compiling (Objective-C++),$<)
 	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
@@ -486,7 +488,7 @@ test: $(BUILD_PATH)/$(EXE)
 	$(call step,Testing)
 ifeq ($(OS_NAME),linux)
 	ulimit -n 20000 && valgrind --leak-check=full --show-leak-kinds=all ./$(BUILD_PATH)/$(EXE) -l0
-else ifeq ($(OS_NAME),apple)
+else ifeq ($(OS_NAME),macos)
 	MallocStackLogging=1 leaks --atExit -- ./$(BUILD_PATH)/$(EXE) -l0
 else ifeq ($(OS_NAME),windows)
 	@echo "Running Dr. Memory for 10 seconds (GUI app will be terminated)..."
@@ -535,6 +537,31 @@ copy-files: $(BUILD_PATH)/$(EXE) bundle-libs
 	mkdir -p $(COPY_PATH)
 	cp -R $(LIC_PATH) $(COPY_PATH)
 	cp $(INFO_PATH) $(COPY_PATH)/info.json
+	cp $(CONFIG_PATH) $(COPY_PATH)/config.json
+	cp -r $(ASSETS_PATH) $(COPY_PATH)/assets
+	$(call step,Copy Files, Copying example pages)
+	rm -rf $(COPY_PATH)/content
+	@mkdir -p $(COPY_PATH)/content
+	@if [ -d "./web/example/pages" ]; then \
+		for page_dir in ./web/example/pages/*; do \
+			if [ -d "$$page_dir" ]; then \
+				page_name=$$(basename "$$page_dir"); \
+				cp -r "$$page_dir" "$(COPY_PATH)/content/$$page_name"; \
+			fi; \
+		done; \
+	fi
+	$(call step,Copy Files, Copying API files to pages)
+	@if [ -d "./web/api" ]; then \
+		for page_dir in $(COPY_PATH)/content/*; do \
+			if [ -d "$$page_dir" ]; then \
+				for file in index.js index.js.map index.d.ts; do \
+					if [ -f "./web/api/$$file" ]; then \
+						cp "./web/api/$$file" "$$page_dir/"; \
+					fi; \
+				done; \
+			fi; \
+		done; \
+	fi
 	$(call step,Copy Files [DONE] Copying Files at $@)
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Bundle runtime libraries for portable deployment
@@ -654,7 +681,7 @@ else ifeq ($(OS_NAME),windows)
 	     -e 's/@OS_NAME@/$(OS_NAME)/g' \
 	     script_templates/bundle_exec.template.bat > $(BUILD_PATH)/bundle_exec.bat
 	$(call step,Bundle Complete,Run with: $(BUILD_PATH)/bundle_exec.bat)
-else ifeq ($(OS_NAME),apple)
+else ifeq ($(OS_NAME),macos)
 	@echo "macOS does not require library bundling - WebKit is a system framework"
 else
 	@echo "Bundling not supported for $(OS_NAME)"
@@ -704,7 +731,7 @@ else ifeq ($(OS_NAME),windows)
 		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Runtime not bundled - requires system installation"; \
 	fi
 	$(call step,Verification Complete,Bundle ready for deployment)
-else ifeq ($(OS_NAME),apple)
+else ifeq ($(OS_NAME),macos)
 	$(call step,No Bundling Needed,macOS uses system WebKit framework)
 else
 	$(call warn,Not Supported,Bundle verification unavailable for $(OS_NAME))

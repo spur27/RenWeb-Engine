@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compilation Guide - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dos.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+    <style>
+        .os-linux { color: #90ee90; font-weight: 500; }
+        .os-windows { color: #ffb6c1; font-weight: 500; }
+        .os-macos { color: #add8e6; font-weight: 500; }
+    </style>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container">
+        <main class="main-content">
+            <section id="compilation" class="card">
+                <h2>Building from Source</h2>
+                
+                <p class="intro-text">
+                    Build RenWeb for your platform using the included makefile. Supports 18 architectures across Linux, Windows, and macOS.
+                </p>
+
+                <div class="os-tabs">
+                    <button class="tab-btn active" data-target="linux-compile"><span class="os-linux">Linux</span></button>
+                    <button class="tab-btn" data-target="windows-compile"><span class="os-windows">Windows</span></button>
+                    <button class="tab-btn" data-target="macos-compile"><span class="os-macos">macOS</span></button>
+                </div>
+
+                <div id="linux-compile" class="tab-content active">
+                    <h3><span class="os-linux">Linux</span></h3>
+
+                    <div class="code-tabs">
+                        <button class="tab-btn active" data-target="debian-compile">Debian/Ubuntu</button>
+                        <button class="tab-btn" data-target="fedora-compile">Fedora/RHEL</button>
+                        <button class="tab-btn" data-target="arch-compile">Arch</button>
+                    </div>
+
+                    <div id="debian-compile" class="code-content active">
+                        <pre><code class="language-bash"># Install dependencies
+sudo apt install build-essential make pkg-config git libgtk-3-dev libwebkit2gtk-4.1-dev
+
+# Optional: Install Boost libraries (if not using submodule)
+sudo apt install libboost-all-dev
+
+# Clone and build
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+cd RenWeb-Engine
+make TARGET=release</code></pre>
+                    </div>
+
+                    <div id="fedora-compile" class="code-content">
+                        <pre><code class="language-bash"># Install dependencies
+sudo dnf install gcc gcc-c++ make pkgconf-pkg-config git gtk3-devel webkit2gtk4.1-devel
+
+# Optional: Install Boost libraries (if not using submodule)
+sudo dnf install boost-devel
+
+# Clone and build
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+cd RenWeb-Engine
+make TARGET=release</code></pre>
+                    </div>
+
+                    <div id="arch-compile" class="code-content">
+                        <pre><code class="language-bash"># Install dependencies
+sudo pacman -S base-devel make pkg-config git gtk3 webkit2gtk
+
+# Optional: Install Boost libraries (if not using submodule)
+sudo pacman -S boost
+
+# Clone and build
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+cd RenWeb-Engine
+make TARGET=release</code></pre>
+                    </div>
+
+
+                </div>
+
+                <div id="windows-compile" class="tab-content">
+                    <h3><span class="os-windows">Windows</span></h3>
+                    
+                    <div class="highlight-box" style="background: rgba(255, 183, 77, 0.1); border-left: 4px solid #ffb74d;">
+                        <p><strong>Important:</strong> The makefile requires <a href="https://git-scm.com/download/win" target="_blank">Git Bash</a> or a Unix-compatible shell on Windows.</p>
+                        <p><strong>Important:</strong> MSVC's <strong>cl.exe compiler</strong> (from <a href="https://visualstudio.microsoft.com/downloads/" target="_blank">Visual Studio</a>) is required - MinGW will not work.</p>
+                    </div>
+
+                    <pre><code class="language-bash"># Install Visual Studio 2019+ with C++ workload and Windows SDK 10.0+
+
+# Download WebView2 Runtime (Evergreen Standalone Installer)
+curl -L -o MicrosoftEdgeWebview2Setup.exe "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+# Run the installer: ./MicrosoftEdgeWebview2Setup.exe
+
+# Optional: Download Boost installer (if not using submodule)
+# https://sourceforge.net/projects/boost/files/boost-binaries/
+
+# Clone repository (in Git Bash)
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+cd RenWeb-Engine
+
+# Build from Git Bash (using Developer Command Prompt environment)
+make TARGET=release</code></pre>
+                </div>
+
+                <div id="macos-compile" class="tab-content">
+                    <h3><span class="os-macos">macOS</span></h3>
+
+                    <pre><code class="language-bash"># Install Xcode Command Line Tools
+xcode-select --install
+
+# Optional: Install Boost via Homebrew (if not using submodule)
+brew install boost
+
+# Clone and build
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+cd RenWeb-Engine
+make TARGET=release</code></pre>
+                </div>
+            </section>
+
+            <section id="makefile-commands" class="card">
+                <h2>Makefile Commands</h2>
+                
+                <p class="intro-text">
+                    The makefile supports various build targets and parameters for different architectures and configurations.
+                </p>
+
+                <h3>Build Commands</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Command</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>make</code></td>
+                            <td>Build with default settings (debug mode)</td>
+                        </tr>
+                        <tr>
+                            <td><code>make TARGET=debug</code></td>
+                            <td>Build in debug mode with debugging symbols</td>
+                        </tr>
+                        <tr>
+                            <td><code>make TARGET=release</code></td>
+                            <td>Build in release mode with optimizations</td>
+                        </tr>
+                        <tr>
+                            <td><code>make BUNDLE=true</code></td>
+                            <td>Bundle runtime libraries for portable deployment (<span class="os-linux">Linux</span>/<span class="os-macos">macOS</span>)</td>
+                        </tr>
+                        <tr>
+                            <td><code>make verify-bundle</code></td>
+                            <td>Verify bundled libraries are complete</td>
+                        </tr>
+                        <tr>
+                            <td><code>make sub_modules</code></td>
+                            <td>Build the external submodules</td>
+                        </tr>
+                        <tr>
+                            <td><code>make clean</code></td>
+                            <td>Clean up the build directory</td>
+                        </tr>
+                        <tr>
+                            <td><code>make run</code></td>
+                            <td>Build and run the application</td>
+                        </tr>
+                        <tr>
+                            <td><code>make test</code></td>
+                            <td>Build and test the application</td>
+                        </tr>
+                        <tr>
+                            <td><code>make info</code></td>
+                            <td>Display build configuration information</td>
+                        </tr>
+                        <tr>
+                            <td><code>make help</code></td>
+                            <td>Display help message with all commands</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Cross-Compilation Parameters</h3>
+                
+                <h4><span class="os-linux">Linux</span> Cross-Compilation</h4>
+                <p>Use the <code>TOOLCHAIN</code> parameter to cross-compile for different architectures:</p>
+                <pre><code class="language-bash"># Example: Build for ARM64 on Linux
+make TOOLCHAIN=aarch64-linux-gnu TARGET=release
+
+# Example: Build for Raspberry Pi (ARM32)
+make TOOLCHAIN=arm-linux-gnueabihf TARGET=release</code></pre>
+
+                <h4><span class="os-windows">Windows</span> and <span class="os-macos">macOS</span></h4>
+                <p>Use the <code>ARCH</code> parameter to specify the target architecture:</p>
+                <pre><code class="language-bash"># Windows: Build for ARM64
+make ARCH=arm64 TARGET=release
+
+# macOS: Build for x86_64
+make ARCH=x86_64 TARGET=release</code></pre>
+
+                <h3>Multi-Architecture Builds</h3>
+                <p>The <code>build_all_archs.sh</code> script automates building for all supported architectures:</p>
+                <pre><code class="language-bash"># Build all architectures
+./build_all_archs.sh
+
+# Build with bundled libraries (Linux only)
+./build_all_archs.sh --bundle</code></pre>
+            </section>
+
+            <section id="architectures" class="card">
+                <h2>Architectures</h2>
+                
+                <p class="intro-text">
+                    18 supported architectures across <span class="os-linux">Linux</span> (13), <span class="os-windows">Windows</span> (3), and <span class="os-macos">macOS</span> (2).
+                </p>
+
+                <table class="arch-table">
+                    <thead>
+                        <tr>
+                            <th>Architecture</th>
+                            <th>Toolchain (Linux)</th>
+                            <th>Operating Systems</th>
+                            <th>Use Case</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>x86_64</code></td>
+                            <td><code>x86_64-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span>, <span class="os-windows">Windows</span>, <span class="os-macos">macOS</span></td>
+                            <td>Desktop, laptop, server</td>
+                        </tr>
+                        <tr>
+                            <td><code>x86_32</code></td>
+                            <td><code>i686-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span>, <span class="os-windows">Windows</span></td>
+                            <td>Legacy 32-bit systems</td>
+                        </tr>
+                        <tr>
+                            <td><code>arm64</code></td>
+                            <td><code>aarch64-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span>, <span class="os-windows">Windows</span>, <span class="os-macos">macOS</span></td>
+                            <td>Raspberry Pi 3/4/5, ARM servers, Apple Silicon</td>
+                        </tr>
+                        <tr>
+                            <td><code>arm32</code></td>
+                            <td><code>arm-linux-gnueabihf</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>Raspberry Pi 2, ARMv7 devices</td>
+                        </tr>
+                        <tr>
+                            <td><code>mips32</code></td>
+                            <td><code>mips-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>Routers, embedded (big-endian)</td>
+                        </tr>
+                        <tr>
+                            <td><code>mips32el</code></td>
+                            <td><code>mipsel-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>MIPS little-endian</td>
+                        </tr>
+                        <tr>
+                            <td><code>mips64</code></td>
+                            <td><code>mips64-linux-gnuabi64</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>64-bit MIPS (big-endian)</td>
+                        </tr>
+                        <tr>
+                            <td><code>mips64el</code></td>
+                            <td><code>mips64el-linux-gnuabi64</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>64-bit MIPS (little-endian)</td>
+                        </tr>
+                        <tr>
+                            <td><code>powerpc32</code></td>
+                            <td><code>powerpc-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>PowerPC systems</td>
+                        </tr>
+                        <tr>
+                            <td><code>powerpc64</code></td>
+                            <td><code>powerpc64-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>IBM POWER servers</td>
+                        </tr>
+                        <tr>
+                            <td><code>riscv64</code></td>
+                            <td><code>riscv64-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>RISC-V development boards</td>
+                        </tr>
+                        <tr>
+                            <td><code>s390x</code></td>
+                            <td><code>s390x-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>IBM Z mainframes</td>
+                        </tr>
+                        <tr>
+                            <td><code>sparc64</code></td>
+                            <td><code>sparc64-linux-gnu</code></td>
+                            <td><span class="os-linux">Linux</span></td>
+                            <td>SPARC systems</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+            </section>
+
+            <section id="dependencies" class="card">
+                <h2>Dependencies</h2>
+                
+                <p class="intro-text">
+                    RenWeb uses four external libraries as Git submodules. System WebView libraries are required at runtime.
+                </p>
+
+                <div class="subsection">
+                    <h3>Included Dependencies (Submodules)</h3>
+                    
+                    <table class="dep-table">
+                        <thead>
+                            <tr>
+                                <th>Library</th>
+                                <th>Purpose</th>
+                                <th>License</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><a href="https://github.com/webview/webview" target="_blank">webview</a></td>
+                                <td>Cross-platform WebView abstraction</td>
+                                <td>MIT</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/yhirose/cpp-httplib" target="_blank">cpp-httplib</a></td>
+                                <td>HTTP/HTTPS server and client</td>
+                                <td>MIT</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://github.com/gabime/spdlog" target="_blank">spdlog</a></td>
+                                <td>Fast logging library</td>
+                                <td>MIT</td>
+                            </tr>
+                            <tr>
+                                <td><a href="https://www.boost.org/" target="_blank">Boost</a></td>
+                                <td>JSON, filesystem, program options</td>
+                                <td>Boost 1.0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="subsection">
+                    <h3>System Dependencies</h3>
+                    
+                    <table class="dep-table">
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th><span class="os-linux">Linux</span></th>
+                                <th><span class="os-windows">Windows</span></th>
+                                <th><span class="os-macos">macOS</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>WebView</strong></td>
+                                <td>WebKit2GTK 4.1</td>
+                                <td>WebView2</td>
+                                <td>WKWebView (built-in)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>UI Toolkit</strong></td>
+                                <td>GTK 3.0+</td>
+                                <td>Win32 API (built-in)</td>
+                                <td>Cocoa (built-in)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="highlight-box">
+                    <h3>Initialize Submodules</h3>
+                    <pre><code class="language-bash"># Clone with submodules
+git clone --recurse-submodules https://github.com/spur27/RenWeb-Engine.git
+
+# Or initialize after cloning
+git submodule update --init --recursive</code></pre>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <footer class="footer">
+        <p>&copy; 2025 RenWeb Engine | <a href="https://github.com/spur27/RenWeb-Engine/blob/main/LICENSE" target="_blank">Boost Software License 1.0</a> | <a href="https://github.com/spur27/RenWeb-Engine" target="_blank">GitHub</a></p>
+    </footer>
+    
+    <script src="script.js"></script>
+    <script>
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+    </script>
+</body>
+</html>

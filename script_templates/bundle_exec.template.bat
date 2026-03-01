@@ -24,9 +24,8 @@ if !COUNT! gtr 1 (
     for %%F in ("%SCRIPT_DIR%!PATTERN!") do set "EXE=%%F"
 )
 for %%F in ("!EXE!") do set "FNAME=%%~nF"
-for /f "tokens=4 delims=-" %%A in ("!FNAME!") do set "ARCH=%%A"
-set "LIB_DIR=%SCRIPT_DIR%lib-!ARCH!"
-if not exist "!LIB_DIR!" (echo Error: Library directory not found: lib-!ARCH! & exit /b 1)
+set "LIB_DIR=%SCRIPT_DIR%lib"
+if not exist "!LIB_DIR!" (echo Error: Library directory not found: lib & exit /b 1)
 if exist "!LIB_DIR!\WebView2Runtime" set "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=!LIB_DIR!\WebView2Runtime"
 set "PATH=!LIB_DIR!;%PATH%"
 "!EXE!" %*

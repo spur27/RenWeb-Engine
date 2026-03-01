@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container">
+        <main class="main-content">
+            <!-- Hero Section -->
+            <div class="hero-section">
+                <div class="hero-imagry">
+                    <img src="../docs/assets/icon/icon-2.png" alt="RenWeb Icon" class="hero-icon">
+                    <img src="../docs/assets/renweb.png" alt="RenWeb Engine" class="hero-logo">
+                    <img src="../docs/assets/icon/icon-2.png" alt="RenWeb Icon" class="hero-icon">
+                </div>
+            </div>
+
+            <!-- Quick Links -->
+            <div class="quick-links">
+                <a href="../?page=downloads" class="quick-link">Downloads</a>
+                <a href="../?page=usage" class="quick-link">Usage Guide</a>
+                <a href="../?page=api" class="quick-link">JavaScript API</a>
+                <a href="../?page=compilation" class="quick-link">Compilation</a>
+                <a href="https://github.com/spur27/RenWeb-Engine" target="_blank" class="quick-link">GitHub</a>
+            </div>
+
+            <!-- What Is RenWeb -->
+            <section id="what-is-renweb" class="what-is-section card">
+                <div class="what-is-content">
+                    <div class="what-is-text">
+                        <h2>What is RenWeb?</h2>
+                        <p>
+                            RenWeb is a lightweight framework for building native desktop applications 
+                            using HTML, CSS, and JavaScript. The engine itself is written in C++,
+                            but using the capabilities of the engine is done solely through the JS API.
+                            RenWeb is similar to Electron and Tauri but with a focus on native performance,
+                            simplicity, and desktop applications rather than explicit web apps.
+                        </p>
+                        <p>
+                            I made this engine because I didn't like the current options. It's common for frameworks like these to be bloated,
+                            overcomplicated, and unintuitive. So, I created my own in a way that seemed the most intuitive to me. 
+                            The engine relies on native technologies to avoid bloat but still offers dependencyless builds for those who want it.
+                            You don't have to know a lick of C++ to use this engine. All you need to do is look at the engine file structure,
+                            copy and paste the JS API files, and code your frontend in HTML, CSS, and JavaScript. And for those that want to extend
+                            the engine functionality, they can via an extremely simple plugin system that even a C++ beginner could understand and use.
+                        </p>
+                        <p>
+                            This project took over a year to complete, but I'm extremely proud of how it turned out. I hope this engine is as intuitive to you as 
+                            is to me, and I thank you for checking it out and giving it a chance :&#41;
+                        </p>
+                    </div>
+                    
+                    <div class="what-is-visual">
+                        <div class="screenshot-carousel">
+                            <div class="screenshot-container">
+                                <img src="../docs/assets/window_example_linux.png" alt="RenWeb on Linux" class="gallery-screenshot active">
+                                <img src="../docs/assets/window_example_windows.png" alt="RenWeb on Windows" class="gallery-screenshot">
+                                <img src="../docs/assets/window_example_macos.png" alt="RenWeb on macOS" class="gallery-screenshot">
+                            </div>
+                            <button class="carousel-arrow" onclick="nextScreenshot()" aria-label="Next screenshot">›</button>
+                        </div>
+                        <p class="screenshot-caption">RenWeb applications running natively across Linux, Windows, and macOS</p>
+                    </div>
+                </div>
+
+            </section>
+
+
+            <!-- Image Modal -->
+            <div class="image-modal" id="imageModal" onclick="closeImageModal()">
+                <img src="" alt="Full size view" id="modalImage">
+            </div>
+
+            <!-- Getting Started -->
+            <section id="getting-started" class="getting-started-section">
+                <h2>Getting Started</h2>                
+                <div class="code-example-container">
+                    <div class="card">
+                        <h3>1. Install Dependencies</h3>
+                        <p>Click <a href="../?page=usage#requirements" target="_blank">here</a> and install the necessary webview runtime dependencies for your OS (if there are any).</p>
+                    </div>
+                </div>
+                <div class="code-example-container">
+                    <div class="card">
+                        <h3>2. Download the Example</h3>
+                        <p>Download and decompress the example archive from <a href="../?page=downloads#examples" target="_blank">here</a>. When decompressed, it should look something like the image below.</p>
+                        <img src="../docs/assets/2_download.png" alt="Download Example" class="code-example-image" onclick="openImageModal(this.src)">
+                    </div>
+                </div>
+                <div class="code-example-container">
+                    <div class="card">
+                        <h3>3. Download the Engine</h3>
+                        <p>Download the RenWeb Engine executable for your OS and CPU architecture from <a href="../?page=downloads#executables" target="_blank">here</a> and follow the instructions
+                           to give the executable permission to execute. Once downloaded, drag it into the decompressed example
+                           archive. The final file structure should look like the image below. 
+                        </p>
+                        <img src="../docs/assets/3_download_engine.png" alt="Download Engine" class="code-example-image" onclick="openImageModal(this.src)">
+                    </div>
+                </div>
+                <div class="code-example-container">
+                    <div class="card">
+                        <h3>4. Run the Example!</h3>
+                        <p>Double click or run the executable via the command line and test out what the engine can do! 
+                        </p>
+                        <!-- <img src="./assets/4_run_example.png" alt="Run Example" class="code-example-image" onclick="openImageModal(this.src)"> -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Architecture -->
+            <section id="how-it-works" class="architecture-section">
+                <h2>How It Works</h2>
+                <div class="architecture-visual card">
+                    <img src="../docs/assets/renweb-classes-dark.svg" alt="RenWeb Architecture" class="architecture-diagram" onclick="openImageModal(this.src)">
+                    <p class="architecture-caption">
+                        Your web frontend communicates with the C++ backend through an embedded HTTP server. 
+                        The backend handles system operations, file I/O, process management, and desktop integration 
+                        while your UI stays responsive and modern.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Contact & Community -->
+            <section id="contact" class="contact-section">
+                <div class="card">
+                    <h2>Contact</h2>
+                    <p class="contact-intro">
+                        If you'd like to get in contact with me, report a bug, or join the community surrounding this project, here are some ways to do so:
+                    </p>
+                    
+                    <div class="contact-grid">
+                        <div class="contact-card">
+                            <h3>Report Issues</h3>
+                            <p>Submit bug reports or feature requests in the GitHub Issues section.</p>
+                            <a href="https://github.com/spur27/RenWeb-Engine/issues" target="_blank" class="contact-link">GitHub Issues</a>
+                        </div>
+                        
+                        <div class="contact-card">
+                            <h3>Email</h3>
+                            <p>Feel free to reach out about anything or just send me an email saying hi at <code>spur27@pm.me</code>.</p>
+                            <a href="mailto:spur27@pm.me" class="contact-link">Send Email</a>
+                        </div>
+                        
+                        <div class="contact-card">
+                            <h3>Discord</h3>
+                            <p>This doesn't exist yet but will hopefully be made soon!</p>
+                            <!-- <p>Join the discord surrounding this project and connect with Devs here!</p> -->
+                            <!-- <a href="" target="_blank" class="contact-link">Contributing Guide</a> -->
+                        </div>
+                        
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">
+        <p>&copy; 2025 RenWeb Engine | <a href="https://github.com/spur27/RenWeb-Engine/blob/main/LICENSE" target="_blank">Boost Software License 1.0</a> | <a href="https://github.com/spur27/RenWeb-Engine" target="_blank">GitHub</a></p>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+        
+        // Screenshot carousel navigation
+        let currentScreenshot = 0;
+        function nextScreenshot() {
+            const screenshots = document.querySelectorAll('.gallery-screenshot');
+            if (screenshots.length === 0) return;
+            
+            screenshots[currentScreenshot].classList.remove('active');
+            currentScreenshot = (currentScreenshot + 1) % screenshots.length;
+            screenshots[currentScreenshot].classList.add('active');
+        }
+        
+        // Image modal functions
+        function openImageModal(src) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            modalImage.src = src;
+            modal.classList.add('active');
+        }
+        
+        function closeImageModal() {
+            const modal = document.getElementById('imageModal');
+            modal.classList.remove('active');
+        }
+        
+        // Handle navigation links to other pages
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('a[href^="../?page="]');
+            if (link && window.parent !== window) {
+                // If link has target="_blank", allow default behavior to open in new window
+                if (link.getAttribute('target') === '_blank') {
+                    return; // Don't prevent default
+                }
+                
+                e.preventDefault();
+                const href = link.getAttribute('href');
+                const url = new URL(href, window.location.href);
+                const params = new URLSearchParams(url.search);
+                const page = params.get('page');
+                const hash = url.hash.substring(1); // Remove the # symbol
+                
+                window.parent.postMessage({
+                    type: 'navigate',
+                    page: page,
+                    hash: hash
+                }, '*');
+            }
+        });
+        
+        // Handle hash navigation on load
+        if (window.location.hash) {
+            setTimeout(() => {
+                const target = document.querySelector(window.location.hash);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            }, 100);
+        }
+    </script>
+</body>
+</html>

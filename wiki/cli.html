@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLI Tool - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 0;">
+        <main class="main-content" style="width: 100%; max-width: 800px; padding: 2rem;">
+            <section id="overview" class="card" style="text-align: center; padding: 4rem 2rem;">
+                <h2 style="font-size: 3rem; margin-bottom: 1rem;">🚧 Under Development</h2>
+                <p style="font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 2rem;">
+                    The RenWeb CLI tool is currently under development and will be available soon.
+                </p>
+                <p style="color: var(--text-muted);">
+                    This tool will provide command-line utilities for project scaffolding, building, and deployment.
+                </p>
+            </section>
+        </main>
+    </div>
+    
+    <script src="script.js"></script>
+    <script>
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+    </script>
+</body>
+</html>

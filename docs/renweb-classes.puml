@@ -4,6 +4,7 @@
 !define IMPL_COLOR #E3F2FD
 !define MANAGER_COLOR #FFF3E0
 !define CORE_COLOR #FCE4EC
+!define UTILITY_COLOR #F3E5F5
 
 title RenWeb Engine - Class Architecture
 
@@ -13,9 +14,11 @@ skinparam class {
     BackgroundColor<<implementation>> IMPL_COLOR
     BackgroundColor<<manager>> MANAGER_COLOR
     BackgroundColor<<core>> CORE_COLOR
+    BackgroundColor<<utility>> UTILITY_COLOR
     BorderColor #424242
     ArrowColor #616161
 }
+skinparam linetype ortho
 
 /' ========== INTERFACES ========== '/
 
@@ -30,25 +33,16 @@ package "Interfaces" #DDDDDD {
         +critical(msg: string): void
         +refresh(fmt: map): void
     }
-    note right of ILogger
-        Logging abstraction layer.
-        Allows different logging
-        implementations (console,
-        file, fake/silent).
-    end note
     
     interface IWebServer <<interface>> {
         +getURL(): string
+        +getMessages(): vector<json::value>
         +start(): void
         +stop(): void
-        +{static} isURI(uri: string): bool
-        +{static} generateErrorHTML(...): string
+        +isURI(uri: string): bool
+        +sendMessage(ip: string, message: json, timeout): void
+        +whoAreYou(ip: string, timeout): json::object
     }
-    note right of IWebServer
-        HTTP/HTTPS server interface.
-        Serves static files and
-        handles API endpoints.
-    end note
     
     interface IWebview <<interface>> {
         +run(): void
@@ -59,52 +53,35 @@ package "Interfaces" #DDDDDD {
         +dispatch(fn: function): void
         +set_title(title: string): void
         +set_size(width: int, height: int): void
+        +set_html(html: string): void
         +eval(js: string): void
+        +init(js: string): void
         +window(): optional<void*>
         +widget(): optional<void*>
     }
-    note right of IWebview
-        Cross-platform webview wrapper.
-        Supports WebKitGTK (Linux),
-        WebView2 (Windows), and
-        WKWebView (macOS).
-    end note
     
-    interface "IRoutineManager<Key>" as IRoutineManager <<interface>> {
-        +add(key: Key, args: vector<string>): int
-        +hasPID(pid: int): bool
-        +has(key: Key): bool
-        +hasRunning(key: Key): int
-        +kill(key: Key): void
-        +waitPID(pid: int): void
-        +wait(key: Key): void
+    interface IProcessManager <<interface>> {
+        +dumpProcess(pid: Pid): json::object
+        +dumpCurrentProcess(): json::object
+        +dumpSystemProcesses(): json::array
+        +dumpRenWebProcesses(): json::array
+        +dumpChildProcesses(): json::array
+        +createSystemProcess(args, detach, share): json::object
+        +createRenWebProcess(pages, args, ..): json::object
+        +getPid(): Pid
+        +kill(pid: Pid, signal: int): void
+        +detach(pid: Pid): void
+        +send(pid: Pid, message: json): void
+        +listen(pid: Pid, lines, tail): vector<string>
+        +wait(pid: Pid): void
         +waitAll(): void
+        +registerProcess(): void
     }
-    note right of IRoutineManager
-        Generic process lifecycle
-        manager. Specialized for
-        daemons, pipes, and
-        child processes.
-    end note
-    
-    interface ISignalManager <<interface>> {
-        +add(signal: int, callback: function): ISignalManager*
-        +remove(signal: int): ISignalManager*
-        +has(signal: int): bool
-        +clear(): ISignalManager*
-        +count(): size_t
-        +trigger(signal: int): void
-    }
-    note right of ISignalManager
-        Unix signal handler manager.
-        Routes OS signals to
-        user-defined callbacks.
-    end note
 }
 
-/' ========== MANAGERS (Templates) ========== '/
+/' ========== TEMPLATE MANAGERS ========== '/
 
-package "Managers" #DDDDDD {
+package "Template Managers" #DDDDDD {
     
     class "CallbackManager<K,V,P>" as CallbackManager <<manager>> {
         -callbacks: map<K, function<V(P)>>
@@ -112,14 +89,8 @@ package "Managers" #DDDDDD {
         +remove(key: K): CallbackManager*
         +clear(): void
         +run(key: K, args: P...): V
-        +has(key: K): bool
+        +getMap(): map&
     }
-    note right of CallbackManager
-        Generic callback registry.
-        Maps keys to functions.
-        Used throughout the system
-        for extensible event handling.
-    end note
     
     class "InOutManager<K,Out,In>" as InOutManager <<manager>> {
         -inouts: map<K, pair<function<Out()>, function<void(In)>>>
@@ -128,14 +99,8 @@ package "Managers" #DDDDDD {
         +clear(): InOutManager*
         +out(key: K): Out
         +in(key: K, args: In...): void
-        +has(key: K): bool
+        +getMap(): map&
     }
-    note right of InOutManager
-        Bi-directional property manager.
-        Pairs getter/setter functions
-        for dynamic property access
-        from JavaScript.
-    end note
 }
 
 /' ========== IMPLEMENTATIONS ========== '/
@@ -143,30 +108,26 @@ package "Managers" #DDDDDD {
 package "Implementations" #DDDDDD {
     
     class Logger <<implementation>> {
-        -file: shared_ptr<File>
         -logger: unique_ptr<spdlog::logger>
         -flags: unique_ptr<LogFlags>
+        -file: shared_ptr<File>
         +Logger(flags: LogFlags)
         +Logger(file: File, flags: LogFlags)
-        +trace/debug/info/warn/error/critical(msg: string): void
+        +trace/debug/info/warn/error/critical(msg): void
         +refresh(fmt: map): void
     }
     
     class FakeLogger <<implementation>> {
-        +trace/debug/info/warn/error/critical(msg: string): void
+        +trace/debug/info/warn/error/critical(msg): void
         +refresh(fmt: map): void
     }
-    note left of FakeLogger
-        Silent logger for testing
-        or production builds without
-        logging overhead.
-    end note
     
     class WebServer <<implementation>> {
         -app: App*
         -logger: shared_ptr<ILogger>
         -server: unique_ptr<httplib::Server>
         -method_callbacks: unique_ptr<CallbackManager>
+        -messages: vector<json::value>
         -base_path: filesystem::path
         -ip: string
         -port: unsigned short
@@ -175,260 +136,235 @@ package "Implementations" #DDDDDD {
         -ssl_key_path: filesystem::path
         -server_thread: thread
         +WebServer(logger: ILogger, app: App*)
-        +start/stop(): void
-        +getURL(): string
-        +isURIAllowed(uri: string): bool
-        -setHandles(): void
-        -setMethodCallbacks(): void
-        -sendFile(...): void
-        -sendStatus(...): void
+        +start/stop/getURL/isURI(...): ...
+        +getMessages(): vector<json::value>&
+        +sendMessage/whoAreYou(...): ...
+        -setHandles/setMethodCallbacks(): void
+        -sendFile/sendStatus/getMimeType(...): ...
     }
     
     class Webview <<implementation>> {
         -webview_impl: unique_ptr<webview::webview>
         +Webview(debug: bool, window: void*)
-        +run/terminate(): void
-        +navigate(url: string): void
-        +bind/unbind/dispatch/eval/set_title/set_size(...): void
-        +window/widget/get_controller(): optional<void*>
+        +run/terminate/navigate(...): void
+        +bind/unbind/dispatch(...): void
+        +eval/init/set_title/set_size/set_html(...): void
+        +window/widget(): optional<void*>
     }
 }
 
-/' ========== CORE APPLICATION CLASSES ========== '/
+/' ========== CORE APPLICATION ========== '/
 
 package "Core" #DDDDDD {
     
     class App <<core>> {
         -logger: shared_ptr<ILogger>
-        +config: unique_ptr<Config>
-        +info: unique_ptr<JSON>
-        +daem: unique_ptr<IRoutineManager<string>>
-        +pipem: unique_ptr<IRoutineManager<string>>
-        +procm: unique_ptr<IRoutineManager<string>>
-        +signalm: unique_ptr<ISignalManager>
-        +ws: unique_ptr<IWebServer>
-        +w: unique_ptr<IWebview>
-        +fns: unique_ptr<WindowFunctions>
         +orig_args: vector<string>
+        +info: unique_ptr<JSON>
+        +config: unique_ptr<Config>
+        +procm: unique_ptr<IProcessManager>
+        +w: unique_ptr<IWebview>
+        +ws: unique_ptr<IWebServer>
+        +fns: unique_ptr<WindowFunctions>
+        +pm: unique_ptr<PluginManager>
         -App(logger: ILogger)
         +run(): void
     }
-    note bottom of App
-        Main application orchestrator.
-        Owns all major subsystems:
-        - Config management
-        - Process managers (daemon/pipe/process)
-        - Signal handling
-        - Web server
-        - Webview window
-        - Window-to-JS bridge functions
-    end note
     
     class AppBuilder <<core>> {
-        -logger: shared_ptr<ILogger>
-        -config: unique_ptr<Config>
-        -info: unique_ptr<JSON>
-        -daem/pipem/procm: unique_ptr<IRoutineManager>
-        -signalm: unique_ptr<ISignalManager>
-        -ws: unique_ptr<IWebServer>
-        -w: unique_ptr<IWebview>
-        -fns: unique_ptr<WindowFunctions>
         -opts: map<string, string>
         -argc: int
         -argv: char**
-        +AppBuilder(opts: map, argc: int, argv: char**)
-        +withLogger/withConfig/withInfo/...: AppBuilder*
+        -logger: shared_ptr<ILogger>
+        -info: unique_ptr<JSON>
+        -config: unique_ptr<Config>
+        -procm: unique_ptr<IProcessManager>
+        -w: unique_ptr<IWebview>
+        -ws: unique_ptr<IWebServer>
+        -fns: unique_ptr<WindowFunctions>
+        -pm: unique_ptr<PluginManager>
+        +AppBuilder(opts, argc, argv)
+        +withLogger/withInfo/withConfig(...): AppBuilder&
+        +withProcessManager/withWebview(...): AppBuilder&
+        +withWebServer/withWindowFunctions(...): AppBuilder&
+        +withPluginManager(...): AppBuilder&
         +build(): unique_ptr<App>
         -validateOpt(opt: string): void
     }
-    note right of AppBuilder
-        Builder pattern for App.
-        Allows flexible construction
-        with dependency injection
-        for testing.
-    end note
     
     class WindowFunctions <<core>> {
-        -app: App*
         -logger: shared_ptr<ILogger>
+        -app: App*
         -saved_states: map<string, json::value>
-        +config_callbacks: unique_ptr<CallbackManager>
-        +debug_callbacks: unique_ptr<CallbackManager>
-        +filesystem_callbacks: unique_ptr<CallbackManager>
-        -internal_callbacks: unique_ptr<CallbackManager>
-        +log_callbacks: unique_ptr<CallbackManager>
-        +navigate_callbacks: unique_ptr<CallbackManager>
-        +network_callbacks: unique_ptr<CallbackManager>
-        +process_callbacks: unique_ptr<CallbackManager>
-        +signal_callbacks: unique_ptr<CallbackManager>
-        +system_callbacks: unique_ptr<CallbackManager>
-        +window_callbacks: unique_ptr<CallbackManager>
-        +getsets: unique_ptr<InOutManager>
-        +WindowFunctions(logger: ILogger, app: App*)
+        -internal_callbacks: unique_ptr<CM>
+        +getsets: unique_ptr<IOM>
+        +window_callbacks: unique_ptr<CM>
+        +log_callbacks: unique_ptr<CM>
+        +filesystem_callbacks: unique_ptr<CM>
+        +config_callbacks: unique_ptr<CM>
+        +system_callbacks: unique_ptr<CM>
+        +process_callbacks: unique_ptr<CM>
+        +debug_callbacks: unique_ptr<CM>
+        +network_callbacks: unique_ptr<CM>
+        +navigate_callbacks: unique_ptr<CM>
+        +plugin_callbacks: unique_ptr<CM>
+        +WindowFunctions(logger, app)
         +setup/teardown(): WindowFunctions*
         +bindFunction/unbindFunction(...): WindowFunctions*
         +get(property: string): json::value
-        +set(property: string, value: json::value): void
+        +set(property: string, value: json): void
         +getState(): json::object
         +setState(json: json::object): void
         +isFocus(): bool
         -bindDefaults(): WindowFunctions*
-        -setConfigCallbacks/Debug/FileSystem/...: WindowFunctions*
+        -setGetSets/setWindowCallbacks/..(): WindowFunctions*
     }
-    note bottom of WindowFunctions
-        JavaScript bridge API layer.
-        Exposes C++ functionality to webview.
-        Organized into callback categories:
-        - Config: runtime configuration
-        - Debug: devtools, logging
-        - FileSystem: file I/O
-        - Navigate: page navigation
-        - Network: HTTP requests
-        - Process: spawn/manage processes
-        - Signal: OS signal handling
-        - System: OS information
-        - Window: window controls
-        
-        Uses CallbackManager for routing
-        and InOutManager for properties.
-    end note
     
     class Args <<core>> {
-        -desc: boost::program_options::options_description
+        -desc: options_description
         -argc: int
         -argv: char**
         -opts: map<string, string>
         -arg_callbacks: unique_ptr<CallbackManager>
         -arg_callback_order_vec: vector<string>
-        +Args(argc: int, argv: char**)
-        +add(names: string, val: value_semantic*, description: string, callback: function): Args*
+        +Args(argc, argv)
+        +add(names, val, description, callback): Args*
         +run(): void
         -addDefaults(): Args*
     }
-    note right of Args
-        Command-line argument parser.
-        Uses Boost.Program_Options
-        with callback-based handling.
-    end note
+}
+
+/' ========== PLUGINS ========== '/
+
+package "Plugin System" #DDDDDD {
+    
+    class Plugin <<utility>> {
+        #name: string
+        #internal_name: string
+        #version: string
+        #description: string
+        #repository_url: string
+        #logger: shared_ptr<ILogger>
+        #functions: map<string, function>
+        +Plugin(name, internal_name, version...)
+        +getName/getInternalName/getVersion/..(): string
+        +hasFunction(name: string): bool
+        +runFunction(name: string, args: json): json
+        #processInput(input: json): json
+        #formatOutput(output: json): json
+    }
+    
+    class PluginManager <<manager>> {
+        -logger: shared_ptr<ILogger>
+        -plugins: map<string, unique_ptr<Plugin>>
+        +PluginManager(logger)
+        +hasPlugin(name: string): bool
+        +getPlugin(name: string): Plugin*
+        +listPlugins(): vector<string>
+        -loadPlugin(path: filesystem::path): void
+        -unloadPlugin(name: string): bool
+    }
 }
 
 /' ========== UTILITIES ========== '/
 
 package "Utilities" #DDDDDD {
     
-    class JSON {
+    class JSON <<utility>> {
         #logger: shared_ptr<ILogger>
         #json_data: json::value
         +file: shared_ptr<File>
-        +JSON(logger: ILogger, file: File)
+        +JSON(logger, file)
+        +{static} peek(file, key): json::value
+        +{static} merge(old_data, new_data): json::object
+        +getJson(): json::value&
         +getProperty(key: string): json::value
-        +setProperty(key: string, value: json::value): void
+        +setProperty(key, value): void
         +update(new_data: json::object): void
-        +getJson(): json::value&
-        +{static} merge(old_data: json::object, new_data: json::object): json::object
-        +{static} peek(file: File, key: string): json::value
     }
-    note right of JSON
-        JSON file manager.
-        Provides property-based access
-        and merging capabilities.
-    end note
     
-    class Config {
-        -DEFAULTS_KEY: const string
+    class Config <<utility>> {
+        +initial_page: string
         +current_page: string
-        +Config(logger: ILogger, current_page: string)
-        +Config(logger: ILogger, current_page: string, file: File)
-        +getProperty/getDefaultProperty(key: string): json::value
-        +setProperty/setDefaultProperty(key: string, value: json::value): void
-        +update(new_data: json::object): void
-        +getJson(): json::value&
+        +Config(logger, current_page)
+        +Config(logger, current_page, file)
+        +getProperty/setProperty(key, ...): ...
+        +getDefaultProperty(key): json::value
+        +setDefaultProperty(key, value): void
+        +getJson/getDefaultsJson(): json::value&
+        +update(new_data): void
     }
-    note right of Config
-        Runtime configuration manager.
-        Extends JSON with default
-        property handling and
-        current page tracking.
-    end note
     
-    class File {
+    class File <<utility>> {
         -file_path: filesystem::path
-        +File(file_path: path)
+        +File(file_path)
         +exists(): bool
         +read(): shared_ptr<string>
         +write(data: string): void
         +clear(): void
-        +getPath(): path&
-        +getName/getDir/getExtension(): path
+        +getPath/getName/getDir/getExtension(): path
     }
-    note right of File
-        File I/O wrapper.
-        Simplifies filesystem
-        operations.
-    end note
     
-    class LogFlags {
-        +log_clear: bool
+    class LogFlags <<utility>> {
         +log_silent: bool
         +log_level: spdlog::level::level_enum
+        +log_clear: bool
+        +log_boring: bool
     }
 }
 
-/' ========== RELATIONSHIPS ========== '/
+/' ========== RELATIONSHIPS - TREE LAYOUT ========== '/
 
-' Interface implementations
-ILogger <|.. Logger : implements
-ILogger <|.. FakeLogger : implements
-IWebServer <|.. WebServer : implements
-IWebview <|.. Webview : implements
+' Interface implementations (horizontal)
+ILogger <|.. Logger
+ILogger <|.. FakeLogger
+IWebServer <|.. WebServer
+IWebview <|.. Webview
 
 ' Inheritance
-JSON <|-- Config : extends
+JSON <|-- Config
 
-' Composition (App owns these components)
-App *-- "1" Config : owns >
-App *-- "1" JSON : owns (info.json) >
-App *-- "3" IRoutineManager : owns (daem, pipem, procm) >
-App *-- "1" ISignalManager : owns >
-App *-- "1" IWebServer : owns >
-App *-- "1" IWebview : owns >
-App *-- "1" WindowFunctions : owns >
+' App composition (tree from App)
+App *-down- Config
+App *-down- JSON
+App *-down- IProcessManager
+App *-down- IWebServer
+App *-down- IWebview
+App *-down- WindowFunctions
+App *-down- PluginManager
 
-' AppBuilder builds App
-AppBuilder ..> App : builds >
+' AppBuilder
+AppBuilder .right.> App : builds
 AppBuilder o-- Config
 AppBuilder o-- JSON
-AppBuilder o-- IRoutineManager
-AppBuilder o-- ISignalManager
+AppBuilder o-- IProcessManager
 AppBuilder o-- IWebServer
 AppBuilder o-- IWebview
 AppBuilder o-- WindowFunctions
+AppBuilder o-- PluginManager
 
-' WindowFunctions dependencies
-WindowFunctions o-- App : references >
-WindowFunctions *-- "11" CallbackManager : owns (11 categories) >
-WindowFunctions *-- "1" InOutManager : owns (getsets) >
+' WindowFunctions composition (tree from WindowFunctions)
+WindowFunctions o-left- App : references
+WindowFunctions *-down- "11" CallbackManager
+WindowFunctions *-down- InOutManager
 
-' Args dependencies
-Args *-- "1" CallbackManager : owns >
+' PluginManager composition
+PluginManager *-down- "*" Plugin : owns
 
-' Utility dependencies
-JSON o-- "1" File : uses >
-Config o-- "1" File : uses (inherited) >
-Logger o-- "0..1" File : may log to file >
-Logger *-- "1" LogFlags : owns >
+' Args
+Args *-down- CallbackManager
 
-' Logger usage (dependency injection)
-App o-- "1" ILogger : uses >
-WebServer o-- "1" ILogger : uses >
-WindowFunctions o-- "1" ILogger : uses >
-JSON o-- "1" ILogger : uses >
-Config o-- "1" ILogger : uses (inherited) >
-
-' WebServer uses App
-WebServer o-- App : references >
-
-' Manager usage examples
-WebServer *-- "1" CallbackManager : owns (HTTP method routing) >
+' Dependencies
+App o-up- ILogger : uses
+WebServer o-up- ILogger
+WebServer o-right- App : references
+Logger o-down- File
+Logger *-down- LogFlags
+WindowFunctions o-up- ILogger
+JSON o-down- File
+JSON o-up- ILogger
+Config o-up- ILogger
+Plugin o-up- ILogger
+PluginManager o-up- ILogger
 
 @enduml

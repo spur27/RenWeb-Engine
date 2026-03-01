@@ -18,6 +18,7 @@
 #include <sstream>
 #include <algorithm>
 #include <map>
+#include <deque>
 #include <future>
 
 #if defined(_WIN32)
@@ -146,7 +147,7 @@ namespace RenWeb {
             void kill(Pid pid, int32_t signal = SIGTERM) override;
             void detach(Pid pid) override;
             void send(Pid pid, const json::value& message) override;
-            std::vector<std::string> listen(Pid pid, int64_t lines = INT64_MAX, bool truncate = false) const override;
+            std::vector<std::string> listen(Pid pid, int64_t lines = INT64_MAX, bool tail = false) const override;
             void wait(Pid pid) override;
             void waitAll() override;
 
@@ -1148,44 +1149,79 @@ inline void PM::send(Pid pid, const json::value& message) {
 // ----------------------------------------------------------
 // ----------------------------------------------------------
 
-inline std::vector<std::string> PM::listen(Pid pid, int64_t lines, bool truncate) const {
-    std::vector<std::string> lines_v;
-    
+inline std::vector<std::string> PM::listen(Pid pid, int64_t lines, bool tail) const {
     std::filesystem::path file_path = (this->getPid() == pid) 
         ? Locate::currentDirectory() / "log.txt" 
         : getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
+    
+    auto process_head = [](std::istream& stream, size_t max_lines) {
+        std::vector<std::string> result;
+        std::string line;
+        while (std::getline(stream, line) && result.size() < max_lines) {
+            result.push_back(line);
+        }
+        return result;
+    };
+    
+    auto process_tail = [](std::istream& stream, size_t max_lines) {
+        std::deque<std::string> tail_buffer;
+        std::string line;
+        while (std::getline(stream, line)) {
+            tail_buffer.push_back(line);
+            if (tail_buffer.size() > max_lines) tail_buffer.pop_front();
+        }
+        return std::vector<std::string>(tail_buffer.begin(), tail_buffer.end());
+    };
+    
+    auto process_all = [](std::istream& stream) {
+        std::vector<std::string> result;
+        std::string line;
+        while (std::getline(stream, line)) {
+            result.push_back(line);
+        }
+        return result;
+    };
+    
+#if defined(_WIN32)
+    HANDLE hFile = CreateFileW(file_path.wstring().c_str(), GENERIC_READ,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    if (hFile == INVALID_HANDLE_VALUE) {
+        this->logger->error("[proc] listen: Failed to open output file for PID " + std::to_string(pid));
+        return {};
+    }
+    
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx(hFile, &file_size)) {
+        CloseHandle(hFile);
+        return {};
+    }
+    
+    std::vector<char> buffer(static_cast<size_t>(file_size.QuadPart) + 1);
+    DWORD bytes_read;
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(file_size.QuadPart), &bytes_read, NULL)) {
+        CloseHandle(hFile);
+        this->logger->error("[proc] listen: Failed to read output file for PID " + std::to_string(pid));
+        return {};
+    }
+    buffer[bytes_read] = '\0';
+    CloseHandle(hFile);
+    
+    std::istringstream stream(buffer.data());
+#else
     std::ifstream file(file_path, std::ios::binary);
     if (!file.is_open()) {
         this->logger->error("[proc] listen: Failed to open output file for PID " + std::to_string(pid));
-        return lines_v;
+        return {};
     }
+    std::istream& stream = file;
+#endif
     
-    std::string line;
-    int64_t lines_read = 0;
-    for (; lines_read < lines && std::getline(file, line); lines_read++) {
-        // if not whitespace, push
-        if (!std::all_of(line.begin(), line.end(), [](unsigned char c) { return std::isspace(c); })) {
-            lines_v.push_back(line);
-        }
-    }
-    
-    if (truncate && lines_read > 0) {
-        std::string remaining_content((std::istreambuf_iterator<char>(file)),
-                                       std::istreambuf_iterator<char>());
-        file.close();
-        
-        std::ofstream out_file(file_path, std::ios::trunc | std::ios::binary);
-        if (out_file.is_open()) {
-            out_file << remaining_content;
-            out_file.close();
-        } else {
-            this->logger->error("[proc] listen: Failed to truncate output file for PID " + std::to_string(pid));
-        }
-    } else {
-        file.close();
-    }
-    
-    return lines_v;
+    // Determine processing mode and execute
+    if (lines <= 0) return process_all(stream);
+    return tail ? process_tail(stream, static_cast<size_t>(lines)) 
+                : process_head(stream, static_cast<size_t>(lines));
 }
 
 // ----------------------------------------------------------

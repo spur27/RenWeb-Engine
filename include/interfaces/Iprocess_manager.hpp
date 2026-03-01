@@ -32,7 +32,7 @@ namespace RenWeb {
             virtual void kill(Pid pid, int32_t signal = SIGINT) = 0;
             virtual void detach(Pid pid) = 0;
             virtual void send(Pid pid, const json::value& message) = 0;
-            virtual std::vector<std::string> listen(Pid pid, int64_t lines = INT64_MAX, bool truncate = false) const = 0;
+            virtual std::vector<std::string> listen(Pid pid, int64_t lines = INT64_MAX, bool tail = false) const = 0;
             virtual void wait(Pid pid) = 0;
             virtual void waitAll() = 0;
             virtual void registerProcess() const = 0;

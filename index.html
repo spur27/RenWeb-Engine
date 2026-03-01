@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RenWeb Engine - Documentation</title>
+    <link rel="stylesheet" href="wiki/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+</head>
+<body>
+    <canvas id="starfield"></canvas>
+    
+    <div class="header">
+        <div class="nav-wrapper">
+            <h1 onclick="history.pushState({}, '', '?page=home'); loadPage();" style="cursor: pointer;">🌐 RenWeb Engine</h1>
+            <nav class="sidenav">
+                <div class="nav-controls">
+                    <div class="nav-item-wrapper">
+                        <a href="?page=home" class="nav-btn">Home</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="what-is-renweb">What Is RenWeb?</div>
+                            <div class="nav-item" data-target="getting-started">Getting Started</div>
+                            <div class="nav-item" data-target="how-it-works">How It Works</div>
+                            <div class="nav-item" data-target="contact">Contact</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=downloads" class="nav-btn">Downloads</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="executables">Executables</div>
+                            <div class="nav-item" data-target="bundles">Bundles</div>
+                            <div class="nav-item" data-target="examples">Examples</div>
+                            <div class="nav-item" data-target="jsons">JSONs</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=usage" class="nav-btn">Usage</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="requirements">Requirements</div>
+                            <div class="nav-item" data-target="engine">Engine</div>
+                            <div class="nav-item" data-target="file-structure">File Structure</div>
+                            <div class="nav-item" data-target="configuration">Configuration</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=compilation" class="nav-btn">Compilation</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="compilation">Compilation</div>
+                            <div class="nav-item" data-target="makefile-commands">Makefile</div>
+                            <div class="nav-item" data-target="architectures">Architectures</div>
+                            <div class="nav-item" data-target="dependencies">Dependencies</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=cli" class="nav-btn">CLI Tool</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="overview">Overview</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=api" class="nav-btn">JS API</a>
+                        <div class="nav-dropdown" style="min-width: 200px;">
+                            <div class="nav-item" data-target="properties">Properties</div>
+                            <div class="nav-item" data-target="window">Window</div>
+                            <div class="nav-item" data-target="log">Log</div>
+                            <div class="nav-item" data-target="fs">FS</div>
+                            <div class="nav-item" data-target="config">Config</div>
+                            <div class="nav-item" data-target="system">System</div>
+                            <div class="nav-item" data-target="process">Process</div>
+                            <div class="nav-item" data-target="debug">Debug</div>
+                            <div class="nav-item" data-target="network">Network</div>
+                            <div class="nav-item" data-target="navigate">Navigate</div>
+                            <div class="nav-item" data-target="plugins">Plugins</div>
+                            <div class="nav-item" data-target="utils">Utils</div>
+                        </div>
+                    </div>
+                    <div class="nav-item-wrapper">
+                        <a href="?page=plugins" class="nav-btn">Plugin API</a>
+                        <div class="nav-dropdown">
+                            <div class="nav-item" data-target="plugin-overview">RenWeb::Plugin</div>
+                            <div class="nav-item" data-target="complete-example">Example</div>
+                            <div class="nav-item" data-target="plugin-template">Template</div>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+            <div class="global-search-container">
+                <input type="text" id="global-search" class="global-search-input" placeholder="Search API..." autocomplete="off">
+                <div id="search-dropdown" class="search-dropdown"></div>
+            </div>
+            <button class="mobile-menu-toggle">≣</button>
+            <div class="mobile-nav-dropdown">
+                <div class="mobile-search-container">
+                    <input type="text" id="mobile-search" class="mobile-search-input" placeholder="Search API..." autocomplete="off">
+                    <div id="mobile-search-dropdown" class="search-dropdown"></div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=home" class="mobile-nav-header">Home</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="home" data-target="what-is-section">What Is RenWeb?</div>
+                        <div class="nav-item" data-page="home" data-target="getting-started">Getting Started</div>
+                        <div class="nav-item" data-page="home" data-target="how-it-works">How It Works</div>
+                        <div class="nav-item" data-page="home" data-target="contact">Contact</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=downloads" class="mobile-nav-header">Downloads</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="downloads" data-target="executables">Executables</div>
+                        <div class="nav-item" data-page="downloads" data-target="bundles">Bundles</div>
+                        <div class="nav-item" data-page="downloads" data-target="examples">Examples</div>
+                        <div class="nav-item" data-page="downloads" data-target="jsons">JSONs</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=usage" class="mobile-nav-header">Usage</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="usage" data-target="requirements">Requirements</div>
+                        <div class="nav-item" data-page="usage" data-target="engine">Engine</div>
+                        <div class="nav-item" data-page="usage" data-target="file-structure">File Structure</div>
+                        <div class="nav-item" data-page="usage" data-target="configuration">Configuration</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=compilation" class="mobile-nav-header">Compilation</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="compilation" data-target="compilation">Compilation</div>
+                        <div class="nav-item" data-page="compilation" data-target="makefile-commands">Makefile</div>
+                        <div class="nav-item" data-page="compilation" data-target="architectures">Architectures</div>
+                        <div class="nav-item" data-page="compilation" data-target="dependencies">Dependencies</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=cli" class="mobile-nav-header">CLI Tool</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="cli" data-target="overview">Overview</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=api" class="mobile-nav-header">JS API</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="api" data-target="properties">Properties</div>
+                        <div class="nav-item" data-page="api" data-target="window">Window</div>
+                        <div class="nav-item" data-page="api" data-target="log">Log</div>
+                        <div class="nav-item" data-page="api" data-target="fs">FS</div>
+                        <div class="nav-item" data-page="api" data-target="config">Config</div>
+                        <div class="nav-item" data-page="api" data-target="system">System</div>
+                        <div class="nav-item" data-page="api" data-target="process">Process</div>
+                        <div class="nav-item" data-page="api" data-target="debug">Debug</div>
+                        <div class="nav-item" data-page="api" data-target="network">Network</div>
+                        <div class="nav-item" data-page="api" data-target="navigate">Navigate</div>
+                        <div class="nav-item" data-page="api" data-target="plugins">Plugins</div>
+                        <div class="nav-item" data-page="api" data-target="utils">Utils</div>
+                    </div>
+                </div>
+                <div class="mobile-nav-section">
+                    <a href="?page=plugins" class="mobile-nav-header">Plugin API</a>
+                    <div class="mobile-nav-items">
+                        <div class="nav-item" data-page="plugins" data-target="plugin-overview">RenWeb::Plugin</div>
+                        <div class="nav-item" data-page="plugins" data-target="complete-example">Example</div>
+                        <div class="nav-item" data-page="plugins" data-target="plugin-template">Template</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <iframe id="content-frame" src="wiki/home.html"></iframe>
+    </div>
+
+    <script src="wiki/api_data.js"></script>
+
+    <script>
+        window.RENWEB_IFRAME_MODE = true;
+        
+        function updateNavbarHighlight(page) {
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            const activeBtn = document.querySelector(`a.nav-btn[href="?page=${page}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+            }
+        }
+        
+        function loadPage() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const page = urlParams.get('page') || 'home';
+            const hash = window.location.hash;
+            const iframe = document.getElementById('content-frame');
+            
+            updateNavbarHighlight(page);
+            
+            iframe.src = `wiki/${page}.html${hash}`;
+            
+            if (hash) {
+                iframe.addEventListener('load', function() {
+                    try {
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const target = iframeDoc.querySelector(hash);
+                        if (target) {
+                            target.scrollIntoView({ behavior: 'smooth' });
+                        }
+                    } catch (e) {}
+                }, { once: true });
+            }
+        }
+
+        loadPage();
+        window.addEventListener('popstate', loadPage);
+        window.addEventListener('hashchange', loadPage);
+        
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'navigate') {
+                let newUrl = `?page=${e.data.page}`;
+                if (e.data.hash) {
+                    newUrl += `#${e.data.hash}`;
+                } else if (e.data.search) {
+                    newUrl += `?search=${encodeURIComponent(e.data.search)}`;
+                }
+                history.pushState({}, '', newUrl);
+                loadPage();
+            }
+        });
+        
+        const iframe = document.getElementById('content-frame');
+        iframe.addEventListener('load', () => {
+            try {
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                
+                iframeDoc.addEventListener('click', (e) => {
+                    const link = e.target.closest('a[href^="../?page="]');
+                    if (link) {
+                        e.preventDefault();
+                        const href = link.getAttribute('href');
+                        const url = href.replace('../', '');
+                        history.pushState({}, '', url);
+                        loadPage();
+                    }
+                });
+            } catch (err) {}
+        });
+
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('a[href^="?page="]');
+            if (link) {
+                e.preventDefault();
+                e.stopPropagation();
+                const url = link.getAttribute('href');
+                history.pushState({}, '', url);
+                loadPage();
+                return;
+            }
+            
+            const navItem = e.target.closest('.nav-item[data-target]');
+            if (navItem) {
+                e.preventDefault();
+                e.stopPropagation();
+                const target = navItem.getAttribute('data-target');
+                
+                // Check if mobile nav item with data-page attribute
+                let page = navItem.getAttribute('data-page');
+                
+                // If not, look for page from parent wrapper structure (desktop nav)
+                if (!page) {
+                    const wrapper = navItem.closest('.nav-item-wrapper');
+                    const navBtn = wrapper ? wrapper.querySelector('.nav-btn') : null;
+                    page = 'home';
+                    
+                    if (navBtn) {
+                        const href = navBtn.getAttribute('href');
+                        const match = href.match(/\?page=([^#&]+)/);
+                        if (match) {
+                            page = match[1];
+                        }
+                    }
+                }
+                
+                const newUrl = `?page=${page}#${target}`;
+                history.pushState({}, '', newUrl);
+                loadPage();
+                
+                // Close mobile dropdown if open
+                const mobileDropdown = document.querySelector('.mobile-nav-dropdown');
+                const mobileToggle = document.querySelector('.mobile-menu-toggle');
+                if (mobileDropdown && mobileDropdown.classList.contains('active')) {
+                    mobileDropdown.classList.remove('active');
+                    if (mobileToggle) {
+                        mobileToggle.textContent = '≣';
+                    }
+                }
+                
+                return;
+            }
+        }, true);
+        
+        document.querySelectorAll('a.nav-btn[href^="?page="]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const url = btn.getAttribute('href');
+                history.pushState({}, '', url);
+                loadPage();
+            }, true);
+        });
+    </script>
+
+    <script src="wiki/script.js"></script>
+    <script>hljs.highlightAll();</script>
+    
+    <script>
+        (async function() {
+            const GITHUB_REPO = 'spur27/RenWeb-Engine';
+            const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+            
+            try {
+                const response = await fetch(GITHUB_RELEASES_API);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    localStorage.setItem('renweb_releases', JSON.stringify(data));
+                    localStorage.setItem('renweb_releases_timestamp', Date.now().toString());
+                    
+                    const iframe = document.getElementById('content-frame');
+                    if (iframe) {
+                        iframe.addEventListener('load', function() {
+                            try {
+                                iframe.contentWindow.postMessage({
+                                    type: 'RENWEB_RELEASES',
+                                    data: data
+                                }, '*');
+                            } catch (e) {}
+                        });
+                    }
+                }
+            } catch (error) {}
+        })();
+    </script>
+</body>
+</html>

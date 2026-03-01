@@ -1807,8 +1807,8 @@ WF* WF::setProcessCallbacks() {
             json::array params = req.as_array();
             Pid pid = params[0].as_int64();
             int64_t lines = (params[1].as_int64() < 0) ? INT64_MAX : params[1].as_int64();
-            bool truncate = params[2].as_object().at("truncate").as_bool();
-            std::vector<std::string> output = this->app->procm->listen(pid, lines, truncate);
+            bool tail = params[2].as_object().at("tail").as_bool();
+            std::vector<std::string> output = this->app->procm->listen(pid, lines, tail);
             return (output.size() > 0) ? json::array(output.begin(), output.end()) : json::array();
     }))->add("wait",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {

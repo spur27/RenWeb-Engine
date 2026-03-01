@@ -5,6 +5,7 @@
 #include "file.hpp"
 #include "json.hpp"
 #include "locate.hpp"
+#include "spdlog/common.h"
 #include "spdlog/logger.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -47,6 +48,9 @@ namespace RenWeb {
             : flags(std::move(flags))
             { 
                 this->file = std::make_shared<File>(Locate::currentDirectory() / "log.txt");
+                if (this->flags->log_clear) {
+                    this->file->clear();
+                }
                 this->refresh({});
             };
             Logger(
@@ -56,6 +60,9 @@ namespace RenWeb {
             : flags(std::move(flags)),
               file(file)
             { 
+                if (this->flags->log_clear) {
+                    this->file->clear();
+                }
                 this->refresh({});
             };
             ~Logger() override = default;
@@ -116,6 +123,11 @@ namespace RenWeb {
                 
                 this->logger.reset(new spdlog::logger("default", begin(log_sinks), end(log_sinks)));
                 this->logger->set_level(spdlog::level::trace);
+                if (this->flags->log_level < spdlog::level::info) {
+                    this->logger->flush_on(spdlog::level::trace);
+                } else {
+                    this->logger->flush_on(spdlog::level::err);
+                }
 
                 #if defined(_WIN32)
                     HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);

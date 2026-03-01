@@ -20,8 +20,7 @@ if [ ${#EXES[@]} -gt 1 ]; then
 else
     EXE="${EXES[0]}"
 fi
-ARCH=${EXE##*-}
-LIB_DIR="$SCRIPT_DIR/lib-$ARCH"
-[ ! -d "$LIB_DIR" ] && echo "Error: Library directory not found: lib-$ARCH" && exit 1
+LIB_DIR="$SCRIPT_DIR/lib"
+[ ! -d "$LIB_DIR" ] && echo "Error: Library directory not found: lib" && exit 1
 [[ "$OSTYPE" == "darwin"* ]] && export DYLD_LIBRARY_PATH="$LIB_DIR:$DYLD_LIBRARY_PATH" || export LD_LIBRARY_PATH="$LIB_DIR:$LD_LIBRARY_PATH"
 exec "$EXE" "$@"
