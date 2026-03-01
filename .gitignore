@@ -1,4 +1,5 @@
 .sconsign.dblite
+.vscode
 compile_commands.json
 *.o
 *.d
