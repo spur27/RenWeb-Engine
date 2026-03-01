@@ -202,11 +202,6 @@
         document.addEventListener('click', (e) => {
             const link = e.target.closest('a[href^="../?page="]');
             if (link && window.parent !== window) {
-                // If link has target="_blank", allow default behavior to open in new window
-                if (link.getAttribute('target') === '_blank') {
-                    return; // Don't prevent default
-                }
-                
                 e.preventDefault();
                 const href = link.getAttribute('href');
                 const url = new URL(href, window.location.href);
