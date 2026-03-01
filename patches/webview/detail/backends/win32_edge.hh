@@ -488,7 +488,9 @@ protected:
                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE |
                        SWP_FRAMECHANGED);
     }
-    return window_show();
+    // PATCH: Don't automatically show window when size is set
+    // Original: return window_show();
+    return {};
   }
 
   noresult navigate_impl(const std::string &url) override {
@@ -767,6 +769,7 @@ private:
 
   noresult window_show() {
     if (owns_window() && !m_is_window_shown) {
+      ShowWindow(m_widget, SW_SHOW);  // Show widget first
       ShowWindow(m_window, SW_SHOW);
       UpdateWindow(m_window);
       SetFocus(m_window);
@@ -864,7 +867,9 @@ private:
 }");
     resize_webview();
     m_controller->put_IsVisible(TRUE);
-    ShowWindow(m_widget, SW_SHOW);
+    // PATCH: Don't show widget automatically - let window_show() control visibility
+    // Original line: ShowWindow(m_widget, SW_SHOW);
+    // Removed to start window hidden
     UpdateWindow(m_widget);
     if (owns_window()) {
       focus_webview();

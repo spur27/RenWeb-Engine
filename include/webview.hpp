@@ -14,18 +14,7 @@ namespace RenWeb {
         public:
             Webview(bool debug, void* window) 
                 : webview_impl(std::make_unique<webview::webview>(debug, window))
-            { 
-                #if  defined(__linux__)
-                auto gtk_window = this->window();
-                if (gtk_window.has_value() && gtk_window.value()) {
-                    GtkWidget* window_widget = static_cast<GtkWidget*>(gtk_window.value());
-                    
-                    gtk_window_set_type_hint(GTK_WINDOW(window_widget), GDK_WINDOW_TYPE_HINT_NORMAL);
-                    gtk_window_set_decorated(GTK_WINDOW(window_widget), TRUE);
-                    gtk_window_set_resizable(GTK_WINDOW(window_widget), TRUE);
-                }
-                #endif
-            }
+            { }
             ~Webview() override = default;
             
             void run() override {

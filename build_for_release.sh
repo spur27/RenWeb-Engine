@@ -367,6 +367,13 @@ main() {
             
             print_info "  Detected: OS=$os, Arch=$arch"
             
+            # Skip bundle creation for macOS
+            if [ "$os" = "macos" ]; then
+                print_info "  ⊘ Skipping bundle for macOS (not needed)"
+                echo ""
+                continue
+            fi
+            
             # Create tmp directory
             mkdir -p ./build/tmp
             

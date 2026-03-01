@@ -2604,7 +2604,7 @@ WF* WF::setInternalCallbacks() {
                 }
                 
                 id delegate = [[delegateClass alloc] init];
-                objc_setAssociatedObject(delegate, "cspContext", ctx, OBJC_ASSOCIATION_ASSIGN);
+                objc_setAssociatedObject(delegate, "cspContext", (__bridge id)(void*)ctx, OBJC_ASSOCIATION_ASSIGN);
                 [webview setNavigationDelegate:delegate];
                 
                 // Content filter for subresources
@@ -3239,13 +3239,14 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup(const json::object& setup_state) {
     const json::value req = json::value(nullptr);
-// #ifndef _WIN32
-    if (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool() && !setup_state.at("initially_shown").as_bool()) {
-        this->window_callbacks->run(
-            "show", 
-            json::array({setup_state.at("initially_shown")})
-        );
-    }
+    std::cout << setup_state << std::endl;
+    bool initially_shown = (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool())
+        ? setup_state.at("initially_shown").as_bool()
+        : true;
+    this->window_callbacks->run(
+        "show", 
+        json::array({json::value(initially_shown)})
+    );
     std::string title = "";
     if (this->app->config->getProperty("title").is_string()) {
         title = this->app->config->getProperty("title").as_string();
@@ -3260,7 +3261,6 @@ WF* WF::setup(const json::object& setup_state) {
             json::array({title})
         );
     }
-// #endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;
