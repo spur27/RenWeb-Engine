@@ -11,7 +11,6 @@
 #include <string>
 #include <fstream>
 #include <regex>
-#include <boost/process/v1.hpp>
 #include "../include/web_server.hpp"
 #include "../include/app.hpp"
 #include "../include/locate.hpp"
@@ -21,11 +20,13 @@
     #include <windows.h>
     #include <urlmon.h>
     #include <shellapi.h>
+    #include <shlwapi.h>
     #include <wrl/client.h>
     #include <wrl.h>
     #include "webview2/WebView2.h"
     #pragma comment(lib, "urlmon.lib")
     #pragma comment(lib, "shell32.lib")
+    #pragma comment(lib, "shlwapi.lib")
 #elif defined(__APPLE__)
     #import <Foundation/Foundation.h>
     #import <objc/runtime.h>
@@ -2428,8 +2429,13 @@ WF* WF::setInternalCallbacks() {
                 }
                 
                 // Resource filtering for subresources
-                if (!allow_all && !allowed_origins.empty()) {
-                    auto* filter_ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
+                if (!allow_all) {
+                    // Ensure webserver domain is always in allowed origins for resource filtering
+                    std::vector<std::string> filter_origins = allowed_origins;
+                    if (std::find(filter_origins.begin(), filter_origins.end(), webserver_url) == filter_origins.end()) {
+                        filter_origins.push_back(webserver_url);
+                    }
+                    auto* filter_ctx = new CSPContext{this->app, this->logger, filter_origins, allow_all, webserver_url};
                     
                     hr = webview2->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
                     if (SUCCEEDED(hr)) {
@@ -2449,6 +2455,7 @@ WF* WF::setInternalCallbacks() {
                                     
                                     // Allow webserver or wildcard mode
                                     if (url.find(filter_ctx->webserver_url) == 0 || filter_ctx->allow_all) {
+                                        request->Release();
                                         return S_OK;
                                     }
                                     
@@ -2463,18 +2470,8 @@ WF* WF::setInternalCallbacks() {
                                     
                                     if (!allowed) {
                                         filter_ctx->logger->debug("[csp] Blocking third-party resource: " + url);
-                                        // Block by creating empty response
-                                        ICoreWebView2WebResourceResponse* response;
-                                        ICoreWebView2Environment* env;
-                                        sender->get_Environment(&env);
-                                        
-                                        IStream* nullStream = SHCreateMemStream(nullptr, 0);
-                                        env->CreateWebResourceResponse(nullStream, 403, L"Forbidden", L"", &response);
-                                        args->put_Response(response);
-                                        
-                                        nullStream->Release();
-                                        response->Release();
-                                        env->Release();
+                                        // Don't set any response - this causes the request to fail
+                                        // WebView2 will treat this as a network error
                                     }
                                     
                                     request->Release();
@@ -2611,7 +2608,7 @@ WF* WF::setInternalCallbacks() {
                 [webview setNavigationDelegate:delegate];
                 
                 // Content filter for subresources
-                if (!allow_all && !allowed_origins.empty()) {
+                if (!allow_all) {
                     // Helper: Extract domain from URL
                     auto extract_domain = [](const std::string& url) -> std::string {
                         size_t start = url.find("://");
@@ -3242,7 +3239,7 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup(const json::object& setup_state) {
     const json::value req = json::value(nullptr);
-#ifndef _WIN32
+// #ifndef _WIN32
     if (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool() && !setup_state.at("initially_shown").as_bool()) {
         this->window_callbacks->run(
             "show", 
@@ -3263,7 +3260,7 @@ WF* WF::setup(const json::object& setup_state) {
             json::array({title})
         );
     }
-#endif
+// #endif
     if (this->saved_states.find("setup_complete") != this->saved_states.end()) {
         this->logger->warn("[function] Setup has already been completed previously - skipping");
         return this;

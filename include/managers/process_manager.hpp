@@ -4,9 +4,16 @@
 #include "../interfaces/Iprocess_manager.hpp"
 #include "../app.hpp"
 #include "../file.hpp"
-#include "locate.hpp"
-#include <boost/process/v1/child.hpp>
-#include <boost/process/v1/io.hpp>
+#include "../locate.hpp"
+#if __has_include(<boost/process/v1/child.hpp>)
+    #include <boost/process/v1/child.hpp>
+    #include <boost/process/v1/io.hpp>
+    #define BOOST_PROCESS_V1_NAMESPACE ::boost::process::v1
+#else
+    #include <boost/process/child.hpp>
+    #include <boost/process/io.hpp>
+    #define BOOST_PROCESS_V1_NAMESPACE ::boost::process
+#endif
 #include <boost/json.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/io_context.hpp>
@@ -28,7 +35,11 @@
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <iphlpapi.h>
-    #include <boost/process/v1/windows.hpp>
+    #if __has_include(<boost/process/v1/windows.hpp>)
+        #include <boost/process/v1/windows.hpp>
+    #else
+        #include <boost/process/windows.hpp>
+    #endif
     #pragma comment(lib, "iphlpapi.lib")
     #pragma comment(lib, "ws2_32.lib")
 #elif defined(__APPLE__)
@@ -46,7 +57,7 @@
 
 namespace json = boost::json;
 using File = RenWeb::File;
-using Child = boost::process::v1::child;
+using Child = BOOST_PROCESS_V1_NAMESPACE::child;
 
 typedef int32_t Pid;
 typedef uint16_t Port;
@@ -444,15 +455,7 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
     } else if (!name.empty()) {
         args.push_back(name);
     }
-    
-    // Lazy port detection - only for processes that might be servers
-    std::string url;
-    auto ports = getListeningPorts(pid);
-    if (!ports.empty()) {
-        const auto& [host, port] = ports[0];
-        url = "http://" + host + ":" + std::to_string(port);
-    }
-    
+        
     // Check if this is a managed child process and get actual running state
     bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
     bool is_running = true;
@@ -466,7 +469,7 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
                            is_child,
                            0,      // exit_code - N/A for running process
                            started_at,
-                           memory_kb, threads, url, "", false);
+                           memory_kb, threads, "", "", false);
     
 #elif defined(__APPLE__)
     struct proc_bsdinfo proc_info;
@@ -506,15 +509,7 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
     } else if (!name.empty()) {
         args.push_back(name);
     }
-    
-    // Lazy port detection
-    std::string url;
-    auto ports = getListeningPorts(pid);
-    if (!ports.empty()) {
-        const auto& [host, port] = ports[0];
-        url = "http://" + host + ":" + std::to_string(port);
-    }
-    
+        
     // Check if this is a managed child process and get actual running state
     bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
     bool is_running = true;
@@ -528,7 +523,7 @@ inline json::object PM::dumpSystemProcess(Pid pid) const {
                            is_child,
                            0,      // exit_code
                            started_at,
-                           memory_kb, threads, url, "", false);
+                           memory_kb, threads, "", "", false);
     
 #elif defined(__linux__)
     std::string proc_path = "/proc/" + std::to_string(pid);
@@ -716,7 +711,7 @@ inline PM::~ProcessManager() {
         this->logger->warn("[proc] Failed to remove PID directory during destruction: " + ec.message());
     }
 
-    std::thread([]() { PM::cleanStaleEntries(); }).detach();
+    PM::cleanStaleEntries();
 }
 
 // ----------------------------------------------------------
@@ -937,7 +932,7 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
         File out_file;
 
         if (share_stdio) {
-            proc = Child(resolved_args, boost::process::v1::std_in.close());
+            proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
             pid = static_cast<Pid>(proc.id());
             out_file = File("");
         } else {
@@ -952,9 +947,9 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
             test_file.close();
             
             proc = Child(resolved_args,
-                        boost::process::v1::std_out > temp_path.string(),
-                        boost::process::v1::std_err > temp_path.string(),
-                        boost::process::v1::std_in.close());
+                        BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
+                        BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
+                        BOOST_PROCESS_V1_NAMESPACE::std_in.close());
             pid = static_cast<Pid>(proc.id());
             
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
@@ -1060,6 +1055,10 @@ inline Pid PM::getPid() const {
 
 inline void PM::kill(Pid pid, int32_t sig) {
 #if defined(_WIN32)
+    #ifndef SIGKILL
+        #define SIGKILL 9
+    #endif
+    
     switch (sig) {
         case SIGINT:
             if (GenerateConsoleCtrlEvent(CTRL_C_EVENT, static_cast<DWORD>(pid))) {
@@ -1078,7 +1077,7 @@ inline void PM::kill(Pid pid, int32_t sig) {
             }
             break;
         case SIGTERM:
-        case SIGKILL:
+        case SIGKILL: {
             std::error_code ec;
             auto it = this->child_processes.find(pid);
             if (it == this->child_processes.end()) {
@@ -1093,6 +1092,7 @@ inline void PM::kill(Pid pid, int32_t sig) {
                 this->logger->info("[proc] Forcefully killed process PID " + std::to_string(pid) + " (SIGKILL)");
             }
             break;
+        }
         default:
             this->logger->error("[proc] Signal " + std::to_string(sig) + " is not supported on Windows. " +
                               "Supported signals: SIGINT (Ctrl+C), SIGBREAK (Ctrl+Break), SIGTERM, SIGKILL");

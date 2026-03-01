@@ -130,7 +130,7 @@ Args* Args::addDefaults() {
                         pm->createRenWebProcess(std::vector<std::string>{page}, args, false, false, true);
                     }
                     pm->waitAll();
-                    exit(0);
+                    return;
                 } else if (pages_vec.empty() || pages_vec[0] == "_") {
                     pages_vec.clear();
                     auto info = Info::getInfoFile();

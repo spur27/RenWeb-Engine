@@ -251,9 +251,10 @@ EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
 EXE := $(EXE_NAME)-$(EXE_VERSION)-$(OS_NAME)-$(ARCH)$(EXE_EXT)
 ifeq ($(OS_NAME), windows)
-	# Boost 1.90.0 paths - prefer C:/local, fallback to external/boost
-	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
-		BOOST_ROOT := C:/local/boost_1_90_0
+	# Boost paths - prefer C:/local, fallback to external/boost
+	BOOST_LOCAL := $(wildcard C:/local/boost_*)
+	ifneq ($(BOOST_LOCAL),)
+		BOOST_ROOT := $(firstword $(BOOST_LOCAL))
 		BOOST_INCLUDE := /external:I$(BOOST_ROOT)
 	else
 		BOOST_ROOT := external/boost
@@ -284,47 +285,66 @@ endif
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME), windows)
 	# Architecture-specific Boost library paths - prefer C:/local, fallback to external/boost
-	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
-		BOOST_ROOT := C:/local/boost_1_90_0
+	BOOST_LOCAL := $(wildcard C:/local/boost_*)
+	ifneq ($(BOOST_LOCAL),)
+		BOOST_ROOT := $(firstword $(BOOST_LOCAL))
+		# Extract version from directory name (e.g., boost_1_82_0 -> 1_82)
+		BOOST_VERSION := $(shell echo $(notdir $(BOOST_ROOT)) | sed 's/boost_\([0-9]*_[0-9]*\).*/\1/')
 		ifeq ($(ARCH), x86_64)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x64-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else ifeq ($(ARCH), x86_32)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib32-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x32-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else ifeq ($(ARCH), arm64)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-arm-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-a64-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else
 			$(error Unsupported architecture: $(ARCH))
 		endif
 	else
 		BOOST_ROOT := external/boost
-		ifeq ($(ARCH), x86_64)
+		# Check if standard stage/lib exists first, otherwise use arch-specific paths
+		ifneq ($(wildcard $(BOOST_ROOT)/stage/lib/*.lib),)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
-			BOOST_SYSTEM_LIB :=
-		else ifeq ($(ARCH), x86_32)
-			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
-			BOOST_SYSTEM_LIB :=
-		else ifeq ($(ARCH), arm64)
-			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_LIB_SUFFIX := .lib
 			BOOST_SYSTEM_LIB :=
 		else
-			$(error Unsupported architecture: $(ARCH))
+			ifeq ($(ARCH), x86_64)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/x86_64/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else ifeq ($(ARCH), x86_32)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/x86_32/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else ifeq ($(ARCH), arm64)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/arm64/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else
+				$(error Unsupported architecture: $(ARCH))
+			endif
 		endif
+	endif
+	
+	# Determine library prefix and link flags based on source (C:/local vs external/boost)
+	ifneq ($(BOOST_LOCAL),)
+		# C:/local uses "boost_" prefix (no "lib")
+		BOOST_LIB_PREFIX := boost_
+	else
+		# external/boost built libs use "libboost_" prefix
+		BOOST_LIB_PREFIX := libboost_
 	endif
 	
 	LIBS := \
 		comdlg32.lib \
-		$(BOOST_LIB_PATH)/boost_program_options$(BOOST_LIB_SUFFIX) \
-		$(BOOST_LIB_PATH)/boost_json$(BOOST_LIB_SUFFIX) \
-		$(BOOST_LIB_PATH)/boost_filesystem$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)program_options$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)json$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)filesystem$(BOOST_LIB_SUFFIX) \
 		$(BOOST_SYSTEM_LIB)
 endif
 ifeq ($(OS_NAME), macos)
@@ -538,6 +558,7 @@ copy-files: $(BUILD_PATH)/$(EXE) bundle-libs
 	cp -R $(LIC_PATH) $(COPY_PATH)
 	cp $(INFO_PATH) $(COPY_PATH)/info.json
 	cp $(CONFIG_PATH) $(COPY_PATH)/config.json
+	rm -rf $(COPY_PATH)/assets
 	cp -r $(ASSETS_PATH) $(COPY_PATH)/assets
 	$(call step,Copy Files, Copying example pages)
 	rm -rf $(COPY_PATH)/content

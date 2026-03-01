@@ -6,7 +6,7 @@
 #include <memory>
 #include <filesystem>
 #include "../plugin.hpp"
-#include "locate.hpp"
+#include "../locate.hpp"
 
 #ifndef _WIN32
     #include <dlfcn.h>
