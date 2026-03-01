@@ -133,10 +133,15 @@ public:
     // that it is the only interface requested in this case. None have been
     // observed to be requested when using the official WebView2 loader.
 
+    const auto navigation_starting =
+      cast_info_t<ICoreWebView2NavigationStartingEventHandler>{
+        IID_ICoreWebView2NavigationStartingEventHandler};
+
     if (cast_if_equal_iid(this, riid, controller_completed, ppv) ||
         cast_if_equal_iid(this, riid, environment_completed, ppv) ||
         cast_if_equal_iid(this, riid, message_received, ppv) ||
-        cast_if_equal_iid(this, riid, permission_requested, ppv)) {
+      cast_if_equal_iid(this, riid, permission_requested, ppv) ||
+      cast_if_equal_iid(this, riid, navigation_starting, ppv)) {
       return S_OK;
     }
 
@@ -662,6 +667,8 @@ private:
       if (!m_window) {
         throw exception{WEBVIEW_ERROR_INVALID_STATE, "Window is null"};
       }
+      // Start hidden; visibility is controlled by higher-level logic.
+      ShowWindow(m_window, SW_HIDE);
       on_window_created();
 
       m_dpi = get_window_dpi(m_window);
@@ -867,9 +874,9 @@ private:
 }");
     resize_webview();
     m_controller->put_IsVisible(TRUE);
-    // PATCH: Don't show widget automatically - let window_show() control visibility
-    // Original line: ShowWindow(m_widget, SW_SHOW);
-    // Removed to start window hidden
+    // Keep parent window hidden if owned, but the child widget must be visible
+    // so content renders when the host window is shown externally.
+    ShowWindow(m_widget, SW_SHOW);
     UpdateWindow(m_widget);
     if (owns_window()) {
       focus_webview();

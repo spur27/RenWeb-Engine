@@ -629,6 +629,17 @@ export namespace FS {
         { return decode(await BIND_get_application_dir_path()); }
     
     /**
+     * Gets a temporary directory path for the current session.
+     * The path is unique per process and can be used for storing temporary files.
+     * These files will be deleted once the applicaiton is closed.
+     * @param options - Options for getting the temporary directory path (default: { create: false })
+     * @param options.create - Whether to create the directory if it doesn't exist (default: false)
+     * @returns Promise that resolves to the tmp directory path
+     */
+    export async function getTmpDirPath(options: { create?: boolean } = { create: false }): Promise<string> 
+        { return decode(await BIND_get_tmp_dir_path(encode(options))); }
+    
+    /**
      * Downloads a file from a URI to a local path.
      * @param uri - URI to download from
      * @param path - Local path to save the file
@@ -1396,6 +1407,7 @@ declare const BIND_ls: (...args: any[]) => Promise<any>;
 declare const BIND_rename: (...args: any[]) => Promise<any>;
 declare const BIND_copy: (...args: any[]) => Promise<any>;
 declare const BIND_get_application_dir_path: (...args: any[]) => Promise<any>;
+declare const BIND_get_tmp_dir_path: (...args: any[]) => Promise<any>;
 declare const BIND_download_uri: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_config: (...args: any[]) => Promise<any>;

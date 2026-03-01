@@ -99,7 +99,6 @@ namespace RenWeb {
             
             static std::filesystem::path getRegistryPath();
             static std::filesystem::path getProcessOutputDir(Pid pid);
-            static std::filesystem::path getTempBaseDir();
             static bool isProcessAlive(Pid pid);
             static json::array readRegistryFile();
             static bool writeRegistryFile(const json::array& entries);
@@ -174,7 +173,7 @@ using PM = RenWeb::ProcessManager;
 // ----------------------------------------------------------
 
 inline /*static*/ std::filesystem::path PM::getRegistryPath() {
-    std::filesystem::path temp_dir = getTempBaseDir();
+    std::filesystem::path temp_dir = Locate::tempDirectory();
     std::filesystem::path renweb_dir = temp_dir / ".renweb";
     
     if (!std::filesystem::exists(renweb_dir)) {
@@ -189,7 +188,7 @@ inline /*static*/ std::filesystem::path PM::getRegistryPath() {
 // ----------------------------------------------------------
 
 inline /*static*/ std::filesystem::path PM::getProcessOutputDir(Pid pid) {
-    std::filesystem::path temp_dir = getTempBaseDir();
+    std::filesystem::path temp_dir = Locate::tempDirectory();
     std::filesystem::path pid_dir = temp_dir / ".renweb" / "proc" / std::to_string(pid);
     
     std::error_code ec;
@@ -198,21 +197,6 @@ inline /*static*/ std::filesystem::path PM::getProcessOutputDir(Pid pid) {
     }
     
     return pid_dir;
-}
-
-// ----------------------------------------------------------
-// ----------------------------------------------------------
-// ----------------------------------------------------------
-
-inline /*static*/ std::filesystem::path PM::getTempBaseDir() {
-#if defined(_WIN32)
-    const char* temp = std::getenv("TEMP");
-    if (!temp) temp = std::getenv("TMP");
-    if (!temp) temp = "C:\\Windows\\Temp";
-    return std::filesystem::path(temp);
-#else
-    return std::filesystem::path("/tmp");
-#endif
 }
 
 // ----------------------------------------------------------
@@ -291,7 +275,7 @@ inline /*static*/ bool PM::writeRegistryFile(const json::array& entries) {
 
 inline /*static*/ void PM::cleanStaleEntries() {
  // Registry File
-    std::filesystem::path temp_dir = PM::getTempBaseDir();
+    std::filesystem::path temp_dir = Locate::tempDirectory();
     std::filesystem::path renweb_dir = temp_dir / ".renweb";
     
     json::array entries = readRegistryFile();
@@ -304,7 +288,7 @@ inline /*static*/ void PM::cleanStaleEntries() {
             const auto& obj = entry.as_object();
             if (!obj.contains("pid")) continue;
             
-            Pid pid = obj.at("pid").as_int64();
+            Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
             if (isProcessAlive(pid)) {
                 valid_entries.push_back(entry);
             }
@@ -329,7 +313,7 @@ inline /*static*/ void PM::cleanStaleEntries() {
             }
             
             try {
-                Pid pid = std::stoll(dir_name);
+                Pid pid = static_cast<Pid>(std::stoll(dir_name));
                 if (!isProcessAlive(pid)) {
                     std::error_code ec;
                     std::filesystem::remove_all(entry.path(), ec);
@@ -649,7 +633,7 @@ inline json::object PM::dumpRenWebProcess(Pid pid) const {
         const auto& obj = entry.as_object();
         if (!obj.contains("pid") || !obj.contains("url")) continue;
         
-        Pid entry_pid = obj.at("pid").as_int64();
+        Pid entry_pid = static_cast<Pid>(obj.at("pid").as_int64());
         if (entry_pid != pid) continue;
         
         std::string url = obj.at("url").as_string().c_str();
@@ -784,7 +768,7 @@ inline json::array PM::dumpRenWebProcesses() const {
         const auto& obj = entry.as_object();
         if (!obj.contains("pid") || !obj.contains("url")) continue;
         
-        Pid pid = obj.at("pid").as_int64();
+        Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
         std::string url = obj.at("url").as_string().c_str();
         
         if (pid == this->getPid()) {
@@ -1328,7 +1312,7 @@ inline void PM::unregisterProcess() const {
             const auto& obj = entry.as_object();
             if (!obj.contains("pid")) continue;
             
-            Pid pid = obj.at("pid").as_int64();
+            Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
             if (pid != current_pid) {
                 remaining.push_back(entry);
             }

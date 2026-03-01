@@ -45,6 +45,58 @@ print_step() {
     echo -e "${BLUE}${BOLD}[STEP]${RESET} $1"
 }
 
+# Detect operating system
+detect_os() {
+    case "$(uname -s)" in
+        Linux*) OS_NAME="Linux" ;;
+        Darwin*) OS_NAME="macOS" ;;
+        CYGWIN*|MINGW*|MSYS*) OS_NAME="Windows" ;;
+        *) OS_NAME="Unknown" ;;
+    esac
+}
+
+# Create a zip archive (falls back to PowerShell on Windows)
+zip_dir() {
+    local src_dir=$1
+    local dest_zip=$2
+
+    if command -v zip >/dev/null 2>&1; then
+        (cd "$src_dir" && zip -q -r "$dest_zip" .)
+        return $?
+    fi
+
+    if [ "$OS_NAME" = "Windows" ]; then
+        local ps_src
+        local ps_dest
+        if command -v cygpath >/dev/null 2>&1; then
+            ps_src="$(cygpath -w "$src_dir")\\*"
+            ps_dest="$(cygpath -w "$dest_zip")"
+        else
+            ps_src="${src_dir}\\*"
+            ps_dest="$dest_zip"
+        fi
+        powershell -NoProfile -Command "Compress-Archive -Path \"$ps_src\" -DestinationPath \"$ps_dest\" -Force" >/dev/null
+        return $?
+    fi
+
+    print_error "zip not found and no Windows fallback available"
+    return 1
+}
+
+# Create a tar.gz archive
+tar_dir() {
+    local src_dir=$1
+    local dest_tar=$2
+
+    if command -v tar >/dev/null 2>&1; then
+        tar -czf "$dest_tar" -C "$src_dir" .
+        return $?
+    fi
+
+    print_error "tar not found; cannot create $dest_tar"
+    return 1
+}
+
 # Get version from info.json
 get_version() {
     grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4 | xargs
@@ -121,6 +173,8 @@ EOF
 
 main() {
     print_header "RenWeb Release Build Script"
+
+    detect_os
     
     # Verify we're in the right directory
     if [ ! -f "info.json" ]; then
@@ -139,6 +193,7 @@ main() {
     
     print_info "Project: $EXE_NAME"
     print_info "Version: $VERSION"
+    print_info "OS: $OS_NAME"
     echo ""
     
     # ==========================================================================
@@ -277,10 +332,10 @@ main() {
     print_step "8. Creating example archives"
     
     print_info "Creating: example-${VERSION}.zip"
-    (cd ./build && zip -q -r "../release/example-${VERSION}.zip" .)
+    zip_dir "./build" "../release/example-${VERSION}.zip"
     
     print_info "Creating: example-${VERSION}.tar.gz"
-    tar -czf "./release/example-${VERSION}.tar.gz" -C ./build .
+    tar_dir "./build" "./release/example-${VERSION}.tar.gz"
     
     print_info "Example archives created successfully"
     echo ""
@@ -297,7 +352,12 @@ main() {
         exit 1
     fi
     
-    if ! ./build_all_archs.sh --bundle; then
+    if [ "$OS_NAME" = "Windows" ]; then
+        if ! bash ./build_all_archs.sh --bundle; then
+            print_error "Build failed - check output above"
+            exit 1
+        fi
+    elif ! ./build_all_archs.sh --bundle; then
         print_error "Build failed - check output above"
         exit 1
     fi
@@ -402,10 +462,10 @@ main() {
             bundle_name="bundle-${VERSION}-${os}-${arch}"
             
             print_info "  → Creating ${bundle_name}.zip"
-            (cd ./build/tmp && zip -q -r "../../release/${bundle_name}.zip" .)
+            zip_dir "./build/tmp" "../../release/${bundle_name}.zip"
             
             print_info "  → Creating ${bundle_name}.tar.gz"
-            tar -czf "./release/${bundle_name}.tar.gz" -C ./build/tmp .
+            tar_dir "./build/tmp" "./release/${bundle_name}.tar.gz"
             
             # Clean up tmp
             rm -rf ./build/tmp

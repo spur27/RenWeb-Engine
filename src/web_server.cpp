@@ -340,7 +340,9 @@ void WebServer::setMethodCallbacks() {
                 "    await window.onServerMessage(decoded);"
                 "  }"
                 "})();";
-            this->app->w->eval(callback_js);
+            this->app->w->dispatch([this, callback_js]() {
+                this->app->w->eval(callback_js);
+            });
         } else {
             this->sendStatus(req, res, httplib::StatusCode::MethodNotAllowed_405, "POST cannot be used in this context: " + req.target);
         }

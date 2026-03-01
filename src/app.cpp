@@ -142,10 +142,7 @@ void App::run() {
     
     this->procm->registerProcess();
     
-    this->fns->setup();
-
     this->w->dispatch([this](){
-        this->fns->setup();
         json::object current_state = this->config->getJson().is_object() 
             ? this->config->getJson().as_object() : json::object{};
         if (current_state["merge_defaults"] == json::value(true)) {

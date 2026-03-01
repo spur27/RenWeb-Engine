@@ -65,6 +65,15 @@ namespace WebView2Helper {
 }
 
 namespace WindowHelper {
+    static std::string WideToUtf8(const std::wstring& input) {
+        if (input.empty()) return std::string();
+        int size = WideCharToMultiByte(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), nullptr, 0, nullptr, nullptr);
+        if (size <= 0) return std::string();
+        std::string output(static_cast<size_t>(size), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), output.data(), size, nullptr, nullptr);
+        return output;
+    }
+
     static HWND GetHWND(RenWeb::App* app) {
         auto window_result = app->w->window();
         if (!window_result.has_value()) {
@@ -464,8 +473,8 @@ WF* WF::setGetSets() {
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                int physical_x = WindowHelper::LogicalToPhysical(hwnd, x);
-                int physical_y = WindowHelper::LogicalToPhysical(hwnd, y);
+                int physical_x = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(x));
+                int physical_y = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(y));
                 SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
             }
         #elif defined(__APPLE__)
@@ -503,7 +512,17 @@ WF* WF::setGetSets() {
         #if defined(_WIN32)
             HWND hwnd = WindowHelper::GetHWND(this->app);
             if (hwnd) {
-                WindowHelper::SetStyleBit(hwnd, WS_CAPTION, has_titlebar);
+                DWORD style = WindowHelper::GetStyle(hwnd);
+                const DWORD titlebar_bits = WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
+                                            WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_BORDER;
+                if (has_titlebar) {
+                    style |= titlebar_bits;
+                } else {
+                    style &= ~titlebar_bits;
+                }
+                SetWindowLongPtr(hwnd, GWL_STYLE, style);
+                SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -648,6 +667,11 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool minimize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
+            if (this->saved_states.find("window_visible") != this->saved_states.end() &&
+                this->saved_states["window_visible"].is_bool() &&
+                !this->saved_states["window_visible"].as_bool()) {
+                return;
+            }
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
@@ -694,6 +718,11 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool maximize = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
+            if (this->saved_states.find("window_visible") != this->saved_states.end() &&
+                this->saved_states["window_visible"].is_bool() &&
+                !this->saved_states["window_visible"].as_bool()) {
+                return;
+            }
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
@@ -739,6 +768,11 @@ WF* WF::setGetSets() {
         std::function<void(const json::value&)>([this](const json::value& req){
             const bool fullscreen = this->getSingleParameter(req).as_bool();
         #if defined(_WIN32)
+            if (this->saved_states.find("window_visible") != this->saved_states.end() &&
+                this->saved_states["window_visible"].is_bool() &&
+                !this->saved_states["window_visible"].as_bool()) {
+                return;
+            }
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
@@ -878,6 +912,7 @@ WF* WF::setWindowCallbacks() {
     }))->add("show",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const bool show_window = this->getSingleParameter(req).as_bool();
+            this->saved_states["window_visible"] = json::value(show_window);
         #if defined(_WIN32)
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
@@ -1605,6 +1640,21 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
             (void)req;
             return json::value(Locate::currentDirectory().string());
+    }))->add("get_tmp_dir_path",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            json::value param = this->getSingleParameter(req);
+            bool create = (param.is_object() && param.as_object().contains("create"))
+                ? param.as_object().at("create").as_bool()
+                : false;
+            const std::filesystem::path tmp_path = Locate::tempDirectory() / ".renweb" / "proc" / std::to_string(this->app->procm->getPid()) / ".session";
+            if (create) {
+                std::error_code ec;
+                std::filesystem::create_directories(tmp_path, ec);
+                if (ec) {
+                    this->logger->error("[function] Tried to create tmp directory but failed: " + ec.message());
+                }
+            }
+            return json::value(tmp_path.string());
     }))->add("download_uri",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string uri = this->getSingleParameter(req).as_string().c_str();
@@ -1742,7 +1792,7 @@ WF* WF::setProcessCallbacks() {
     }))->add("dump_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
+            Pid pid = static_cast<Pid>(params[0].as_int64());
             return this->app->procm->dumpProcess(pid);
     }))->add("dump_current_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
@@ -1758,13 +1808,13 @@ WF* WF::setProcessCallbacks() {
                 std::map<Pid, json::object> renweb_process_map;
                 for (const auto& renweb_proc : renweb_processes) {
                     if (renweb_proc.is_object() && renweb_proc.as_object().contains("pid") && renweb_proc.as_object().at("pid").is_int64()) {
-                        renweb_process_map[renweb_proc.as_object().at("pid").as_int64()] = renweb_proc.as_object();
+                        renweb_process_map[static_cast<Pid>(renweb_proc.as_object().at("pid").as_int64())] = renweb_proc.as_object();
                     }
                 }
                 json::array system_processes = this->app->procm->dumpSystemProcesses();
                 for (const auto& system_proc : system_processes) {
                     if (system_proc.is_object() && system_proc.as_object().contains("pid") && system_proc.as_object().at("pid").is_int64()) {
-                        Pid sys_pid = system_proc.as_object().at("pid").as_int64();
+                        Pid sys_pid = static_cast<Pid>(system_proc.as_object().at("pid").as_int64());
                         if (renweb_process_map.find(sys_pid) != renweb_process_map.end()) {
                             processes.push_back(renweb_process_map[sys_pid]);
                         } else {
@@ -1786,27 +1836,27 @@ WF* WF::setProcessCallbacks() {
     }))->add("kill_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
-            int32_t signal = (params[1].is_int64()) ? params[1].as_int64() : SIGINT;
+            Pid pid = static_cast<Pid>(params[0].as_int64());
+            int32_t signal = (params[1].is_int64()) ? static_cast<int32_t>(params[1].as_int64()) : SIGINT;
             this->app->procm->kill(pid, signal);
             return json::value(nullptr);
     }))->add("detach_process",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
+            Pid pid = static_cast<Pid>(params[0].as_int64());
             this->app->procm->detach(pid);
             return json::value(nullptr);
     }))->add("send_message",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
+            Pid pid = static_cast<Pid>(params[0].as_int64());
             json::value message = params[1];
             this->app->procm->send(pid, message);
             return json::value(nullptr);
     }))->add("listen_to_output",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
+            Pid pid = static_cast<Pid>(params[0].as_int64());
             int64_t lines = (params[1].as_int64() < 0) ? INT64_MAX : params[1].as_int64();
             bool tail = params[2].as_object().at("tail").as_bool();
             std::vector<std::string> output = this->app->procm->listen(pid, lines, tail);
@@ -1814,7 +1864,7 @@ WF* WF::setProcessCallbacks() {
     }))->add("wait",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::array params = req.as_array();
-            Pid pid = params[0].as_int64();
+            Pid pid = static_cast<Pid>(params[0].as_int64());
             this->app->procm->wait(pid);
             return json::value(nullptr);
     }))->add("wait_all",
@@ -2369,7 +2419,7 @@ WF* WF::setInternalCallbacks() {
                             LPWSTR uri_wide;
                             args->get_Uri(&uri_wide);
                             std::wstring wide_url(uri_wide);
-                            std::string url(wide_url.begin(), wide_url.end());
+                            std::string url = WindowHelper::WideToUtf8(wide_url);
                             CoTaskMemFree(uri_wide);
                             
                             BOOL is_user_initiated;
@@ -2450,7 +2500,7 @@ WF* WF::setInternalCallbacks() {
                                     LPWSTR uri_wide;
                                     request->get_Uri(&uri_wide);
                                     std::wstring wide_url(uri_wide);
-                                    std::string url(wide_url.begin(), wide_url.end());
+                                    std::string url = WindowHelper::WideToUtf8(wide_url);
                                     CoTaskMemFree(uri_wide);
                                     
                                     // Allow webserver or wildcard mode
