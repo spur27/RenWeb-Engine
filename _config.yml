@@ -1,0 +1,7 @@
+# GitHub Pages configuration
+# NOTE: .nojekyll disables Jekyll processing entirely, so GitHub Pages serves
+# all files as static assets directly. This file is kept as documentation only.
+# With .nojekyll present, all directories (wiki/, docs/, etc.) are served as-is.
+include:
+  - wiki
+  - docs

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plugin API - RenWeb Engine</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="api-docs.css">
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
@@ -661,7 +661,7 @@ public:
         logger->info("[custom_plugin] Plugin initialized successfully!");
     }
 
-    ~ExamplePlugin() override { }
+    ~CustomPlugin() override { }
 
 private:
     void registerFunctions() {
@@ -697,7 +697,7 @@ extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr&lt;RenWeb:
     </div>
     
     <footer class="footer">
-        RenWeb Engine &copy; 2025 | <a href="https://github.com/spurdo-tech/renweb-engine">GitHub</a>
+        RenWeb Engine &copy; 2025 | <a href="https://github.com/spur27/RenWeb-Engine">GitHub</a>
     </footer>
     
     <script src="script.js"></script>

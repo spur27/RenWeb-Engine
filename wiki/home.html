@@ -198,25 +198,6 @@
             modal.classList.remove('active');
         }
         
-        // Handle navigation links to other pages
-        document.addEventListener('click', (e) => {
-            const link = e.target.closest('a[href^="../?page="]');
-            if (link && window.parent !== window) {
-                e.preventDefault();
-                const href = link.getAttribute('href');
-                const url = new URL(href, window.location.href);
-                const params = new URLSearchParams(url.search);
-                const page = params.get('page');
-                const hash = url.hash.substring(1); // Remove the # symbol
-                
-                window.parent.postMessage({
-                    type: 'navigate',
-                    page: page,
-                    hash: hash
-                }, '*');
-            }
-        });
-        
         // Handle hash navigation on load
         if (window.location.hash) {
             setTimeout(() => {

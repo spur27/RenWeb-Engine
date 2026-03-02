@@ -227,7 +227,7 @@
                 if (e.data.hash) {
                     newUrl += `#${e.data.hash}`;
                 } else if (e.data.search) {
-                    newUrl += `?search=${encodeURIComponent(e.data.search)}`;
+                    newUrl += `&search=${encodeURIComponent(e.data.search)}`;
                 }
                 history.pushState({}, '', newUrl);
                 loadPage();

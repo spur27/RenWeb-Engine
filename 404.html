@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Redirecting... - RenWeb Engine</title>
+    <script>
+        // GitHub Pages 404 redirect trick.
+        // Handles direct navigation to wiki/*.html URLs by redirecting to index.html?page=
+        // Works for both root deployments (spur27.github.io) and
+        // subdirectory deployments (spur27.github.io/RenWeb-Engine/).
+        (function () {
+            const path = window.location.pathname;
+
+            // Match /wiki/page.html or /RepoName/wiki/page.html
+            const match = path.match(/\/wiki\/([^/.]+)\.html$/);
+            if (match) {
+                const page = match[1];
+                // Strip the /wiki/page.html suffix to get the base path
+                const base = path.replace(/\/wiki\/[^/]+\.html$/, '') || '/';
+                window.location.replace(base + '/?page=' + encodeURIComponent(page));
+            } else {
+                // Unknown 404 — go to root of the deployment
+                const base = path.replace(/\/[^/]*$/, '') || '/';
+                window.location.replace(base + '/');
+            }
+        })();
+    </script>
+</head>
+<body></body>
+</html>

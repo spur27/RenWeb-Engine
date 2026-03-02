@@ -9,7 +9,7 @@
     const match = path.match(/\/wiki\/([^.]+)\.html$/);
     if (match) {
         const page = match[1];
-        window.location.href = `/?page=${page}`;
+        window.location.href = `../index.html?page=${page}`;
     }
 })();
 
