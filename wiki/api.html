@@ -1509,6 +1509,35 @@ await FS.rm("folder", { recursive: true });</code></pre>
                     </div>
                 </div>
 
+                <div id="fs-gettmpdirpath" class="api-method">
+                    <h3>
+                        FS.getTmpDirPath(): Promise&lt;string&gt;
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getTmpDirPath(options: { create: boolean } = { create: false }): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the application's temporary directory path.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">{ create: boolean }</span>
+                                <span class="param-description">- Optional settings: { create: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - Temporary directory path</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const tmpDir = await FS.getTmpDirPath();</code></pre>
+                    </div>
+                </div>
+
                 <div id="fs-downloaduri" class="api-method">
                     <h3>
                         FS.downloadUri()
@@ -2653,11 +2682,41 @@ Utils.serialize(123); // Returns: "123"
 Utils.serialize([1, 2, 3]); // Returns: "[1,2,3]"</code></pre>
                     </div>
                 </div>
+
+                <div id="callbacks-onservermessage" class="api-method">
+                    <h3>
+                        window.onServerMessage
+                    </h3>
+                    <div class="method-signature"><code>window.onServerMessage = async (message: any) => { ... }</code></div>
+                    <p class="method-description">
+                        Handles messages received from the server. This function is called whenever a message is received, and the message is passed as an argument.
+                    </p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">message</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- The message received from the server</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void</span> - This function does not return a value</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.onServerMessage = async (message) => {
+    await Log.debug("Received message:", message);
+};</code></pre>
+                    </div>
+                </div>
             </section>
 
         </main>
     </div>
-    
+        
     <footer class="footer">
         <p>&copy; 2025 RenWeb Engine | <a href="https://github.com/spur27/RenWeb-Engine/blob/main/LICENSE" target="_blank">Boost Software License 1.0</a> | <a href="https://github.com/spur27/RenWeb-Engine" target="_blank">GitHub</a></p>
     </footer>

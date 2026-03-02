@@ -32,6 +32,7 @@ namespace RenWeb {
           std::unique_ptr<RenWeb::PluginManager> pm = nullptr;
           
           void run();
+          static void showErrorPopup(const std::string& message);
           
         friend class AppBuilder;
     };

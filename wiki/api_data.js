@@ -93,6 +93,7 @@ window.apiData = {
         {name: 'rename', signature: 'rename(orig_path, new_path, settings = { overwrite: false })', description: 'Returns: Promise<boolean>'},
         {name: 'copy', signature: 'copy(orig_path, new_path, settings = { overwrite: false })', description: 'Returns: Promise<boolean>'},
         {name: 'getApplicationDirPath', signature: 'getApplicationDirPath()', description: 'Returns: Promise<string>'},
+        {name: 'getTmpDirPath', signature: 'getTmpDirPath(options = { create: false })', description: 'Returns: Promise<string>'},
         {name: 'downloadUri', signature: 'downloadUri(uri, path)', description: 'Returns: Promise<void>'}
     ],
     'Config': [
@@ -148,6 +149,9 @@ window.apiData = {
         {name: 'decode', signature: 'decode(str)', description: 'Decode a base64 string'},
         {name: 'encode', signature: 'encode(str, options = { string: "base64" })', description: 'Encode a string to base64'},
         {name: 'serialize', signature: 'serialize(obj)', description: 'Serialize an object to JSON'}
+    ],
+    'Callbacks': [
+        {name: 'onServerMessage', signature: 'onServerMessage = async (message) => {...}', description: 'Handles messages received from the server.'},
     ],
     'Plugin': [
         // Constructor

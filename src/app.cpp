@@ -12,8 +12,38 @@
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
+
 using namespace RenWeb;
 using JSON = RenWeb::JSON;
+
+void App::showErrorPopup(const std::string& message) {
+#if defined(_WIN32)
+    MessageBoxA(nullptr, message.c_str(), "RenWeb \xe2\x80\x93 Error", MB_OK | MB_ICONERROR);
+#elif defined(__APPLE__)
+    std::string escaped = message;
+    size_t pos = 0;
+    while ((pos = escaped.find('\'', pos)) != std::string::npos) {
+        escaped.replace(pos, 1, "'\\'' ");
+        pos += 4;
+    }
+    std::string cmd = "osascript -e 'display alert \"RenWeb \xe2\x80\x93 Error\" message \"" + escaped + "\" as critical'";
+    std::system(cmd.c_str());
+#elif defined(__linux__) || defined(__CYGWIN__)
+    std::string escaped = message;
+    size_t pos = 0;
+    while ((pos = escaped.find('"', pos)) != std::string::npos) {
+        escaped.replace(pos, 1, "\\\"");
+        pos += 2;
+    }
+    std::string cmd = "zenity --error --title='RenWeb \xe2\x80\x93 Error' --text=\"" + escaped + "\" 2>/dev/null"
+                      " || xmessage -center \"" + escaped + "\" 2>/dev/null";
+    std::system(cmd.c_str());
+#endif
+}
 
 void AppBuilder::validateOpt(const std::string& opt) {
     if (this->opts.find(opt) == this->opts.end()) {

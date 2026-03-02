@@ -178,6 +178,7 @@ void Args::run() {
         }
     } catch (const std::exception& e) {
         std::cerr << "\x1b[31m[ERROR]\x1b[0m [args] " << e.what() << std::endl;
+        App::showErrorPopup(e.what());
         throw;
     }
 }

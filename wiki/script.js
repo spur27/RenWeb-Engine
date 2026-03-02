@@ -1315,15 +1315,16 @@ function formatSignature(name, details) {
         },
         'FS': {
             'readFile': { params: [{name: 'path', type: 'string'}], returns: 'Promise<string | null>' },
-            'writeFile': { params: [{name: 'path', type: 'string'}, {name: 'contents', type: 'string'}, {name: 'settings?', type: 'WriteSettings', defaultValue: '{ append: false }'}], returns: 'Promise<boolean>' },
+            'writeFile': { params: [{name: 'path', type: 'string'}, {name: 'contents', type: 'string'}, {name: 'settings?', type: '{ append: boolean }', defaultValue: '{ append: false }'}], returns: 'Promise<boolean>' },
             'exists': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
             'isDir': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
             'mkDir': { params: [{name: 'path', type: 'string'}], returns: 'Promise<boolean>' },
-            'rm': { params: [{name: 'path', type: 'string'}, {name: 'settings?', type: 'RmSettings', defaultValue: '{ recursive: false }'}], returns: 'Promise<boolean>' },
+            'rm': { params: [{name: 'path', type: 'string'}, {name: 'settings?', type: '{ recursive: boolean }', defaultValue: '{ recursive: false }'}], returns: 'Promise<boolean>' },
             'ls': { params: [{name: 'path', type: 'string'}], returns: 'Promise<string[] | null>' },
-            'rename': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: 'RenameCopySettings', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
-            'copy': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: 'RenameCopySettings', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
+            'rename': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: '{ overwrite: boolean }', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
+            'copy': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: '{ overwrite: boolean }', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
             'getApplicationDirPath': { params: [], returns: 'Promise<string>' },
+            'getTmpDirPath': { params: [{name: "options", type: "{ create: boolean }", defaultValue: '{ create: false }'}], returns: 'Promise<string>' },
             'downloadUri': { params: [{name: 'uri', type: 'string'}, {name: 'path', type: 'string'}], returns: 'Promise<void>' }
         },
         'Config': {
@@ -1379,6 +1380,9 @@ function formatSignature(name, details) {
             'decode': { params: [{name: 'str', type: 'any'}], returns: 'any' },
             'encode': { params: [{name: 'str', type: 'any'}, {name: 'options?', type: 'object', defaultValue: '{ string: "base64" }'}], returns: 'any' },
             'serialize': { params: [{name: 'obj', type: 'any'}], returns: 'string' }
+        },
+        'Callbacks': {
+            'onServerMessage': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' }
         }
     };
     
@@ -1386,7 +1390,7 @@ function formatSignature(name, details) {
         'Properties': ['getSize', 'setSize', 'getPosition', 'setPosition', 'getTitleBar', 'setTitleBar', 'getResizable', 'setResizable', 'getKeepAbove', 'setKeepAbove', 'getMinimize', 'setMinimize', 'getMaximize', 'setMaximize', 'getFullscreen', 'setFullscreen', 'getTaskbarShow', 'setTaskbarShow', 'getOpacity', 'setOpacity'],
         'Window': ['isFocus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
         'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
-        'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'downloadUri'],
+        'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'downloadUri'],
         'Config': ['getConfig', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
         'System': ['getPID', 'getOS'],
         'Process': {
@@ -1417,7 +1421,8 @@ function formatSignature(name, details) {
         'Network': ['getLoadProgress', 'isLoading'],
         'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
         'Plugins': ['getPluginsList'],
-        'Utils': ['decode', 'encode', 'serialize']
+        'Utils': ['decode', 'encode', 'serialize'],
+        'Callbacks': ['onServerMessage']
     };
     
     // Generate tree HTML with CSS-based indentation

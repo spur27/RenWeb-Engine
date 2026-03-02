@@ -528,16 +528,6 @@ export namespace Log {
  * File system operations for reading, writing, and managing files and directories.
  */
 export namespace FS {
-    export type WriteSettings = {
-        append: boolean
-    }
-    export type RmSettings = {
-        recursive: boolean
-    }
-    export type RenameCopySettings = {
-        overwrite: boolean
-    }
-    
     /**
      * Reads the contents of a file.
      * @param path - Path to the file to read
@@ -554,7 +544,7 @@ export namespace FS {
      * @param settings.append - Whether to append to file instead of overwriting (default: false)
      * @returns Promise that resolves to true if successful
      */
-    export async function writeFile(path: string, contents: string, settings: WriteSettings = { append: false }): Promise<boolean> 
+    export async function writeFile(path: string, contents: string, settings: {append: boolean} = { append: false }): Promise<boolean> 
         { return await BIND_write_file(encode(path), encode(contents), settings); }
     
     /**
@@ -588,7 +578,7 @@ export namespace FS {
      * @param settings.recursive - Whether to recursively remove directories (default: false)
      * @returns Promise that resolves to true if successful
      */
-    export async function rm(path: string, settings: RmSettings = { recursive: false }): Promise<boolean> 
+    export async function rm(path: string, settings: { recursive: boolean } = { recursive: false }): Promise<boolean> 
         { return await BIND_rm(encode(path), settings); }
     
     /**
@@ -607,7 +597,7 @@ export namespace FS {
      * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
-    export async function rename(orig_path: string, new_path: string, settings: RenameCopySettings = { overwrite: false }): Promise<boolean> 
+    export async function rename(orig_path: string, new_path: string, settings: { overwrite: boolean } = { overwrite: false }): Promise<boolean> 
         { return await BIND_rename(encode(orig_path), encode(new_path), settings); }
     
     /**
@@ -618,7 +608,7 @@ export namespace FS {
      * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
-    export async function copy(orig_path: string, new_path: string, settings: RenameCopySettings = { overwrite: false }): Promise<boolean> 
+    export async function copy(orig_path: string, new_path: string, settings: { overwrite: boolean } = { overwrite: false }): Promise<boolean> 
         { return await BIND_copy(encode(orig_path), encode(new_path), settings); }
     
     /**
