@@ -2406,10 +2406,23 @@ WF* WF::setInternalCallbacks() {
                     std::vector<std::string> allowed_origins;
                     bool allow_all;
                     std::string webserver_url;
+                    ICoreWebView2Environment* environment;
                 };
-                
-                auto* ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url};
-                
+
+                // Get environment via ICoreWebView2_2 (needed for CreateWebResourceResponse)
+                ICoreWebView2_2* webview2_2 = nullptr;
+                ICoreWebView2Environment* environment = nullptr;
+                if (SUCCEEDED(webview2->QueryInterface(IID_PPV_ARGS(&webview2_2))) && webview2_2) {
+                    webview2_2->get_Environment(&environment);
+                    webview2_2->Release();
+                }
+                if (!environment) {
+                    this->logger->error("[csp] Failed to get WebView2 environment");
+                    return json::value(nullptr);
+                }
+
+                auto* ctx = new CSPContext{this->app, this->logger, allowed_origins, allow_all, webserver_url, environment};
+
                 // Navigation interception
                 HRESULT hr = webview2->add_NavigationStarting(
                     Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
@@ -2485,7 +2498,7 @@ WF* WF::setInternalCallbacks() {
                     if (std::find(filter_origins.begin(), filter_origins.end(), webserver_url) == filter_origins.end()) {
                         filter_origins.push_back(webserver_url);
                     }
-                    auto* filter_ctx = new CSPContext{this->app, this->logger, filter_origins, allow_all, webserver_url};
+                    auto* filter_ctx = new CSPContext{this->app, this->logger, filter_origins, allow_all, webserver_url, environment};
                     
                     hr = webview2->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
                     if (SUCCEEDED(hr)) {
@@ -2520,8 +2533,18 @@ WF* WF::setInternalCallbacks() {
                                     
                                     if (!allowed) {
                                         filter_ctx->logger->debug("[csp] Blocking third-party resource: " + url);
-                                        // Don't set any response - this causes the request to fail
-                                        // WebView2 will treat this as a network error
+                                        // Must set a response to actually block the request.
+                                        // Returning S_OK without a response lets the request pass through.
+                                        IStream* empty_stream = nullptr;
+                                        CreateStreamOnHGlobal(nullptr, TRUE, &empty_stream);
+                                        ICoreWebView2WebResourceResponse* block_response = nullptr;
+                                        HRESULT block_hr = filter_ctx->environment->CreateWebResourceResponse(
+                                            empty_stream, 403, L"Forbidden", L"", &block_response);
+                                        if (empty_stream) empty_stream->Release();
+                                        if (SUCCEEDED(block_hr) && block_response) {
+                                            args->put_Response(block_response);
+                                            block_response->Release();
+                                        }
                                     }
                                     
                                     request->Release();
@@ -2540,6 +2563,10 @@ WF* WF::setInternalCallbacks() {
                     }
                 }
                 
+                // Release our reference — the WebView2 runtime holds its own, so the
+                // pointer remains valid inside the WebResourceRequested callbacks.
+                environment->Release();
+
                 this->logger->info("[csp] Origin-based navigation security enabled");
                 
             #elif defined(__APPLE__)
