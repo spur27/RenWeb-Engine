@@ -364,15 +364,6 @@ export declare namespace Log {
  * File system operations for reading, writing, and managing files and directories.
  */
 export declare namespace FS {
-    type WriteSettings = {
-        append: boolean;
-    };
-    type RmSettings = {
-        recursive: boolean;
-    };
-    type RenameCopySettings = {
-        overwrite: boolean;
-    };
     /**
      * Reads the contents of a file.
      * @param path - Path to the file to read
@@ -387,7 +378,9 @@ export declare namespace FS {
      * @param settings.append - Whether to append to file instead of overwriting (default: false)
      * @returns Promise that resolves to true if successful
      */
-    function writeFile(path: string, contents: string, settings?: WriteSettings): Promise<boolean>;
+    function writeFile(path: string, contents: string, settings?: {
+        append: boolean;
+    }): Promise<boolean>;
     /**
      * Checks if a file or directory exists.
      * @param path - Path to check
@@ -413,7 +406,9 @@ export declare namespace FS {
      * @param settings.recursive - Whether to recursively remove directories (default: false)
      * @returns Promise that resolves to true if successful
      */
-    function rm(path: string, settings?: RmSettings): Promise<boolean>;
+    function rm(path: string, settings?: {
+        recursive: boolean;
+    }): Promise<boolean>;
     /**
      * Lists contents of a directory.
      * @param path - Directory path to list
@@ -428,7 +423,9 @@ export declare namespace FS {
      * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
-    function rename(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise<boolean>;
+    function rename(orig_path: string, new_path: string, settings?: {
+        overwrite: boolean;
+    }): Promise<boolean>;
     /**
      * Copies a file or directory.
      * @param orig_path - Source path
@@ -437,12 +434,25 @@ export declare namespace FS {
      * @param settings.overwrite - Whether to overwrite existing files (default: false)
      * @returns Promise that resolves to true if successful
      */
-    function copy(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise<boolean>;
+    function copy(orig_path: string, new_path: string, settings?: {
+        overwrite: boolean;
+    }): Promise<boolean>;
     /**
      * Gets the application's directory path.
      * @returns Promise that resolves to the application directory path
      */
     function getApplicationDirPath(): Promise<string>;
+    /**
+     * Gets a temporary directory path for the current session.
+     * The path is unique per process and can be used for storing temporary files.
+     * These files will be deleted once the applicaiton is closed.
+     * @param options - Options for getting the temporary directory path (default: { create: false })
+     * @param options.create - Whether to create the directory if it doesn't exist (default: false)
+     * @returns Promise that resolves to the tmp directory path
+     */
+    function getTmpDirPath(options?: {
+        create?: boolean;
+    }): Promise<string>;
     /**
      * Downloads a file from a URI to a local path.
      * @param uri - URI to download from

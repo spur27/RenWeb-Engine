@@ -53,4 +53,4 @@ A cross-platform desktop application framework that lets you build native GUI ap
 
 ## License
 
-[Boost Software License 1.0](./licenses/LICENSE)
+Copyright (C) 2025 spur27 — [Boost Software License 1.0](./licenses/LICENSE)
