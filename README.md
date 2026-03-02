@@ -5,12 +5,22 @@
     </a>
 </p>
 
-![Ubuntu](https://github.com/SpurSlicer/RenWeb/actions/workflows/ubuntu_make_test.yml/badge.svg)
-![Fedora](https://github.com/SpurSlicer/RenWeb/actions/workflows/fedora_make_test.yml/badge.svg)
-![Windows](https://github.com/SpurSlicer/RenWeb/actions/workflows/windows_make_test.yml/badge.svg)
-![MacOS](https://github.com/SpurSlicer/RenWeb/actions/workflows/macos_make_test.yml/badge.svg) 
+<p align="center">
+    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/ubuntu_make_test.yml/badge.svg" alt="Ubuntu">
+    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/fedora_make_test.yml/badge.svg" alt="Fedora">
+    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/windows_make_test.yml/badge.svg" alt="Windows">
+    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/macos_make_test.yml/badge.svg" alt="MacOS">
+</p>
 
-#### [Home](https://spur27.github.io/RenWeb-Engine/?page=home) | [Downloads](https://spur27.github.io/RenWeb-Engine/?page=downloads) | [Usage](https://spur27.github.io/RenWeb-Engine/?page=usage) | [Compilation](https://spur27.github.io/RenWeb-Engine/?page=compilation) | [CLI Tool](https://spur27.github.io/RenWeb-Engine/?page=cli) | [JS API](https://spur27.github.io/RenWeb-Engine/?page=api) | [Plugin API](https://spur27.github.io/RenWeb-Engine/?page=plugins)
+<h4 align="center">
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=home" target="_blank">Home</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=downloads" target="_blank">Downloads</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=usage" target="_blank">Usage</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=compilation" target="_blank">Compilation</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=cli" target="_blank">CLI Tool</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=api" target="_blank">JS API</a> |
+    <a href="https://spur27.github.io/RenWeb-Engine/?page=plugins" target="_blank">Plugin API</a>
+</h4>
 
 ## RenWeb Engine
 
