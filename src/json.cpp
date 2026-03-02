@@ -21,9 +21,6 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
     }
 }
 
-
-// JSON::~JSON();
-
 /*static*/ json::value JSON::peek(File* file, const std::string& key) {
     if (file->exists()) {
         try {

@@ -85,6 +85,17 @@ ifndef TARGET
 	TARGET := debug
 endif
 # -----------------------------------------------------------------------------
+# Bundle runtime libraries for portable deployment
+# Set BUNDLE=true for portable deployment with bundled libraries
+# Set WIN7_COMPAT=true for Windows 7 compatible WebView2 (version 109)
+# -----------------------------------------------------------------------------
+ifdef BUNDLE
+	BUNDLE := false
+endif
+ifdef WIN7_COMPAT
+	WIN7_COMPAT := false
+endif
+# -----------------------------------------------------------------------------
 # OS info
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
@@ -172,7 +183,7 @@ else
 			endif
 		endif
     else ifeq ($(UNAME_S),Darwin)
-        OS_NAME := apple
+        OS_NAME := macos
 		CXX := clang++
 		CXXFLAGS := -std=c++17 -MMD -MP -mmacosx-version-min=10.15
 		LDFLAGS += -mmacosx-version-min=10.15
@@ -230,6 +241,8 @@ BUILD_PATH :=  ./build
 COPY_PATH :=   ./build
 LIC_PATH :=    ./licenses
 INFO_PATH :=   ./info.json
+CONFIG_PATH := ./config.json
+ASSETS_PATH := ./web/example/assets
 SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
@@ -238,9 +251,10 @@ EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
 EXE := $(EXE_NAME)-$(EXE_VERSION)-$(OS_NAME)-$(ARCH)$(EXE_EXT)
 ifeq ($(OS_NAME), windows)
-	# Boost 1.90.0 paths - prefer C:/local, fallback to external/boost
-	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
-		BOOST_ROOT := C:/local/boost_1_90_0
+	# Boost paths - prefer C:/local, fallback to external/boost
+	BOOST_LOCAL := $(wildcard C:/local/boost_*)
+	ifneq ($(BOOST_LOCAL),)
+		BOOST_ROOT := $(firstword $(BOOST_LOCAL))
 		BOOST_INCLUDE := /external:I$(BOOST_ROOT)
 	else
 		BOOST_ROOT := external/boost
@@ -271,50 +285,69 @@ endif
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME), windows)
 	# Architecture-specific Boost library paths - prefer C:/local, fallback to external/boost
-	ifneq ($(wildcard C:/local/boost_1_90_0/boost),)
-		BOOST_ROOT := C:/local/boost_1_90_0
+	BOOST_LOCAL := $(wildcard C:/local/boost_*)
+	ifneq ($(BOOST_LOCAL),)
+		BOOST_ROOT := $(firstword $(BOOST_LOCAL))
+		# Extract version from directory name (e.g., boost_1_82_0 -> 1_82)
+		BOOST_VERSION := $(shell echo $(notdir $(BOOST_ROOT)) | sed 's/boost_\([0-9]*_[0-9]*\).*/\1/')
 		ifeq ($(ARCH), x86_64)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x64-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else ifeq ($(ARCH), x86_32)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib32-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-x32-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else ifeq ($(ARCH), arm64)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/lib64-arm-msvc-14.3-static
-			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_LIB_SUFFIX := -vc143-mt-a64-$(BOOST_VERSION).lib
 			BOOST_SYSTEM_LIB :=
 		else
 			$(error Unsupported architecture: $(ARCH))
 		endif
 	else
 		BOOST_ROOT := external/boost
-		ifeq ($(ARCH), x86_64)
+		# Check if standard stage/lib exists first, otherwise use arch-specific paths
+		ifneq ($(wildcard $(BOOST_ROOT)/stage/lib/*.lib),)
 			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-x64-1_90.lib
-			BOOST_SYSTEM_LIB :=
-		else ifeq ($(ARCH), x86_32)
-			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-x32-1_90.lib
-			BOOST_SYSTEM_LIB :=
-		else ifeq ($(ARCH), arm64)
-			BOOST_LIB_PATH := $(BOOST_ROOT)/stage/lib
-			BOOST_LIB_SUFFIX := -vc143-mt-a64-1_90.lib
+			BOOST_LIB_SUFFIX := .lib
 			BOOST_SYSTEM_LIB :=
 		else
-			$(error Unsupported architecture: $(ARCH))
+			ifeq ($(ARCH), x86_64)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/x86_64/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else ifeq ($(ARCH), x86_32)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/x86_32/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else ifeq ($(ARCH), arm64)
+				BOOST_LIB_PATH := $(BOOST_ROOT)/stage/arm64/lib
+				BOOST_LIB_SUFFIX := .lib
+				BOOST_SYSTEM_LIB :=
+			else
+				$(error Unsupported architecture: $(ARCH))
+			endif
 		endif
+	endif
+	
+	# Determine library prefix and link flags based on source (C:/local vs external/boost)
+	ifneq ($(BOOST_LOCAL),)
+		# C:/local uses "boost_" prefix (no "lib")
+		BOOST_LIB_PREFIX := boost_
+	else
+		# external/boost built libs use "libboost_" prefix
+		BOOST_LIB_PREFIX := libboost_
 	endif
 	
 	LIBS := \
 		comdlg32.lib \
-		$(BOOST_LIB_PATH)/boost_program_options$(BOOST_LIB_SUFFIX) \
-		$(BOOST_LIB_PATH)/boost_json$(BOOST_LIB_SUFFIX) \
-		$(BOOST_LIB_PATH)/boost_filesystem$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)program_options$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)json$(BOOST_LIB_SUFFIX) \
+		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)filesystem$(BOOST_LIB_SUFFIX) \
 		$(BOOST_SYSTEM_LIB)
 endif
-ifeq ($(OS_NAME), apple)
+ifeq ($(OS_NAME), macos)
 	LIBS := -L./external/boost/stage/lib -lboost_program_options -lboost_json -framework Cocoa -framework WebKit -ldl 
 endif
 ifeq ($(OS_NAME), linux)
@@ -350,7 +383,7 @@ endif
 # -----------------------------------------------------------------------------
 # Source and Object files
 # -----------------------------------------------------------------------------
-SRCS := $(wildcard $(SRC_PATH)/*.cpp)
+SRCS := $(wildcard $(SRC_PATH)/*.cpp) $(wildcard $(SRC_PATH)/managers/*.cpp)
 OBJS := $(patsubst $(SRC_PATH)/%.cpp, $(OBJ_PATH)/%$(OBJ_EXT), $(SRCS))
 
 ifeq ($(OS_NAME), windows)
@@ -396,7 +429,7 @@ endif
 # -----------------------------------------------------------------------------
 # RULE: Special compilation for window_functions.cpp and app.cpp on macOS (Objective-C++)
 # -----------------------------------------------------------------------------
-ifeq ($(OS_NAME), apple)
+ifeq ($(OS_NAME), macos)
 $(OBJ_PATH)/window_functions$(OBJ_EXT): $(SRC_PATH)/window_functions.cpp | $(OBJ_PATH)
 	$(call step,Compiling (Objective-C++),$<)
 	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
@@ -411,6 +444,7 @@ endif
 # RULE: Compile source files to object files
 # -----------------------------------------------------------------------------
 $(OBJ_PATH)/%$(OBJ_EXT): $(SRC_PATH)/%.cpp | $(OBJ_PATH)
+	@mkdir -p $(dir $@)
 	$(call step,Compiling,$<)
 ifeq ($(OS_NAME),windows)
 ifeq ($(LINKTYPE),shared)
@@ -474,7 +508,7 @@ test: $(BUILD_PATH)/$(EXE)
 	$(call step,Testing)
 ifeq ($(OS_NAME),linux)
 	ulimit -n 20000 && valgrind --leak-check=full --show-leak-kinds=all ./$(BUILD_PATH)/$(EXE) -l0
-else ifeq ($(OS_NAME),apple)
+else ifeq ($(OS_NAME),macos)
 	MallocStackLogging=1 leaks --atExit -- ./$(BUILD_PATH)/$(EXE) -l0
 else ifeq ($(OS_NAME),windows)
 	@echo "Running Dr. Memory for 10 seconds (GUI app will be terminated)..."
@@ -503,6 +537,8 @@ help:
 	@echo "Usage:"
 	@echo "  make TARGET=debug      Build the application in debug mode"
 	@echo "  make TARGET=release    Build the application in release mode"
+	@echo "  make BUNDLE=true       Bundle runtime libraries for portable deployment (Linux/macOS)"
+	@echo "  make verify-bundle     Verify bundled libraries are complete (run after BUNDLE=true)"
 	@echo "  make sub_modules       Builds the submodules"
 	@echo "  make clean             Clean up the build directory"
 	@echo "  make run               Build and run the application"
@@ -512,16 +548,215 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help copy-files
+.PHONY: all clean run help copy-files bundle-libs verify-bundle
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy files
 # -----------------------------------------------------------------------------
-copy-files:
+copy-files: $(BUILD_PATH)/$(EXE) bundle-libs
 	$(call step,Copy Files, Copying Files at $@)
 	mkdir -p $(COPY_PATH)
 	cp -R $(LIC_PATH) $(COPY_PATH)
 	cp $(INFO_PATH) $(COPY_PATH)/info.json
+	cp $(CONFIG_PATH) $(COPY_PATH)/config.json
+	rm -rf $(COPY_PATH)/assets
+	cp -r $(ASSETS_PATH) $(COPY_PATH)/assets
+	$(call step,Copy Files, Copying example pages)
+	rm -rf $(COPY_PATH)/content
+	@mkdir -p $(COPY_PATH)/content
+	@if [ -d "./web/example/pages" ]; then \
+		for page_dir in ./web/example/pages/*; do \
+			if [ -d "$$page_dir" ]; then \
+				page_name=$$(basename "$$page_dir"); \
+				cp -r "$$page_dir" "$(COPY_PATH)/content/$$page_name"; \
+			fi; \
+		done; \
+	fi
+	$(call step,Copy Files, Copying API files to pages)
+	@if [ -d "./web/api" ]; then \
+		for page_dir in $(COPY_PATH)/content/*; do \
+			if [ -d "$$page_dir" ]; then \
+				for file in index.js index.js.map index.d.ts; do \
+					if [ -f "./web/api/$$file" ]; then \
+						cp "./web/api/$$file" "$$page_dir/"; \
+					fi; \
+				done; \
+			fi; \
+		done; \
+	fi
 	$(call step,Copy Files [DONE] Copying Files at $@)
+# -----------------------------------------------------------------------------
+# PHONY TARGET: Bundle runtime libraries for portable deployment
+# -----------------------------------------------------------------------------
+bundle-libs: $(BUILD_PATH)/$(EXE)
+ifeq ($(BUNDLE),true)
+ifeq ($(OS_NAME),linux)
+	$(call step,Bundling Libraries,Copying runtime dependencies for portable deployment)
+	@rm -rf $(BUILD_PATH)/lib-$(ARCH)
+	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)
+	$(call step,Collecting Dependencies,Gathering shared libraries for $(ARCH))
+ifdef TOOLCHAIN
+	@# Cross-compilation: recursively find all dependencies from sysroot
+	@SYSROOT_PATH=/usr/$(TOOLCHAIN); \
+	if [ -d "$$SYSROOT_PATH/lib" ]; then \
+		SEARCH_DIRS="$$SYSROOT_PATH/lib $$SYSROOT_PATH/usr/lib $$SYSROOT_PATH/usr/local/lib"; \
+		TODO_LIBS="$(BUILD_PATH)/$(EXE)"; \
+		PROCESSED=""; \
+		while [ -n "$$TODO_LIBS" ]; do \
+			CURRENT_LIB=$$(echo "$$TODO_LIBS" | head -n1); \
+			TODO_LIBS=$$(echo "$$TODO_LIBS" | tail -n +2); \
+			PROCESSED="$$PROCESSED $$CURRENT_LIB"; \
+			NEEDED=$$($(TOOLCHAIN)-readelf -d "$$CURRENT_LIB" 2>/dev/null | grep 'NEEDED' | awk '{print $$5}' | tr -d '[]'); \
+			for lib in $$NEEDED; do \
+				echo "$$PROCESSED" | grep -q " $$lib" && continue; \
+				case "$$lib" in \
+					ld-linux*|libc.so*|libm.so*|libpthread*|libdl.so*|librt.so*|libresolv*) continue ;; \
+					libgallium*|libglapi.so*) continue ;; \
+				esac; \
+				for search_dir in $$SEARCH_DIRS; do \
+					if [ -f "$$search_dir/$$lib" ]; then \
+						cp -L "$$search_dir/$$lib" $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
+						$(TOOLCHAIN)-strip --strip-unneeded $(BUILD_PATH)/lib-$(ARCH)/$$lib 2>/dev/null || true; \
+						TODO_LIBS="$$TODO_LIBS"$$'\n'"$$search_dir/$$lib"; \
+						break; \
+					fi; \
+				done; \
+			done; \
+		done; \
+		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
+		if [ $$LIB_COUNT -gt 0 ]; then \
+			printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT libraries from $(TOOLCHAIN) sysroot"; \
+		else \
+			printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found for $(TOOLCHAIN)"; \
+		fi; \
+	else \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Sysroot not found at $$SYSROOT_PATH"; \
+	fi
+else
+	@# Native compilation: use ldd
+	@LIBS=$$(ldd $(BUILD_PATH)/$(EXE) 2>/dev/null | grep -v 'linux-vdso\|ld-linux\|libc\.so\|libm\.so\|libpthread\|libdl\|librt\|libresolv' | grep '=>' | awk '{print $$3}' | grep -v '^$$' | sort -u); \
+	if [ -n "$$LIBS" ]; then \
+		echo "$$LIBS" | xargs -I {} cp -L {} $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
+		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
+		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT shared libraries bundled"; \
+	else \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found to bundle"; \
+	fi
+endif
+	$(call step,Creating Launcher,Generating bundle_exec.sh)
+	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
+	     -e 's/@EXE_VERSION@/$(EXE_VERSION)/g' \
+	     -e 's/@OS_NAME@/$(OS_NAME)/g' \
+	     script_templates/bundle_exec.template.sh > $(BUILD_PATH)/bundle_exec.sh
+	@chmod +x $(BUILD_PATH)/bundle_exec.sh
+	$(call step,Bundle Complete,Run with: ./$(BUILD_PATH)/bundle_exec.sh)
+	@$(MAKE) verify-bundle --no-print-directory
+else ifeq ($(OS_NAME),windows)
+	$(call step,Bundling Libraries,Preparing WebView2 runtime for Windows)
+	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)
+	@case "$(ARCH)" in \
+		x86_64) WEBVIEW2_ARCH="x64" ;; \
+		x86_32) WEBVIEW2_ARCH="x86" ;; \
+		arm64)  WEBVIEW2_ARCH="arm64" ;; \
+		*)      WEBVIEW2_ARCH="x64" ;; \
+	esac; \
+	if [ "$(WIN7_COMPAT)" = "true" ]; then \
+		case "$$WEBVIEW2_ARCH" in \
+			x64) DOWNLOAD_URL="https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d5031e13-8c65-4488-b047-8c5e878dcc12/MicrosoftEdgeWebView2RuntimeInstallerX64.exe" ;; \
+			x86) DOWNLOAD_URL="https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/5f2caf84-2943-4fad-9b2a-0a50c8f33c7b/MicrosoftEdgeWebView2RuntimeInstallerX86.exe" ;; \
+			arm64) DOWNLOAD_URL="https://go.microsoft.com/fwlink/p/?LinkId=2099616" ;; \
+		esac; \
+		$(call warn,Windows 7 Mode,Using WebView2 v109 - last version supporting Windows 7); \
+	else \
+		case "$$WEBVIEW2_ARCH" in \
+			x64) DOWNLOAD_URL="https://go.microsoft.com/fwlink/p/?LinkId=2124703" ;; \
+			x86) DOWNLOAD_URL="https://go.microsoft.com/fwlink/p/?LinkId=2099617" ;; \
+			arm64) DOWNLOAD_URL="https://go.microsoft.com/fwlink/p/?LinkId=2099616" ;; \
+		esac; \
+	fi; \
+	$(call step,Copying Loader,WebView2Loader.dll for $$WEBVIEW2_ARCH); \
+	if [ -f "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" ]; then \
+		cp "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" "$(BUILD_PATH)/lib-$(ARCH)/"; \
+	else \
+		$(call warn,Warning,WebView2Loader.dll not found for $$WEBVIEW2_ARCH); \
+	fi; \
+	$(call step,Downloading Runtime,Fetching WebView2 installer ~3MB); \
+	RUNTIME_DIR="$(BUILD_PATH)/lib-$(ARCH)/WebView2Runtime"; \
+	TEMP_DL="$(BUILD_PATH)/lib-$(ARCH)/wv2.exe"; \
+	mkdir -p "$$RUNTIME_DIR"; \
+	(wget -q --show-progress -O "$$TEMP_DL" "$$DOWNLOAD_URL" 2>/dev/null || \
+	 curl -L -o "$$TEMP_DL" "$$DOWNLOAD_URL" 2>/dev/null || \
+	 ($(call warn,Error,wget or curl required for download) && rm -rf "$$RUNTIME_DIR" && exit 1)) && \
+	$(call step,Extracting Runtime,Unpacking ~150MB) && \
+	(7z x -y -o"$$RUNTIME_DIR" "$$TEMP_DL" >/dev/null 2>&1 || \
+	 unzip -q -o "$$TEMP_DL" -d "$$RUNTIME_DIR" 2>/dev/null || \
+	 ($(call warn,Warning,Install p7zip-full for extraction) && rm -rf "$$RUNTIME_DIR")) && \
+	rm -f "$$TEMP_DL"; \
+	if [ -d "$$RUNTIME_DIR" ] && [ "$$(ls -A $$RUNTIME_DIR 2>/dev/null)" ]; then \
+		$(call step,Bundle Complete,WebView2 runtime packaged successfully); \
+	else \
+		$(call warn,Warning,Runtime not bundled - requires system installation); \
+	fi
+	$(call step,Creating Launcher,Generating bundle_exec.bat)
+	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
+	     -e 's/@EXE_VERSION@/$(EXE_VERSION)/g' \
+	     -e 's/@OS_NAME@/$(OS_NAME)/g' \
+	     script_templates/bundle_exec.template.bat > $(BUILD_PATH)/bundle_exec.bat
+	$(call step,Bundle Complete,Run with: $(BUILD_PATH)/bundle_exec.bat)
+else ifeq ($(OS_NAME),macos)
+	@echo "macOS does not require library bundling - WebKit is a system framework"
+else
+	@echo "Bundling not supported for $(OS_NAME)"
+endif
+endif
+# -----------------------------------------------------------------------------
+# PHONY TARGET: Verify bundle completeness
+# -----------------------------------------------------------------------------
+verify-bundle:
+ifeq ($(OS_NAME),linux)
+	$(call step,Verifying Bundle,Checking $(ARCH) dependencies)
+	@if [ ! -d "$(BUILD_PATH)/lib-$(ARCH)" ]; then \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "lib-$(ARCH) not found - run: make BUNDLE=true"; \
+		exit 1; \
+	fi
+	@cd $(BUILD_PATH) && LD_LIBRARY_PATH=./lib-$(ARCH):$$LD_LIBRARY_PATH ldd ./$(EXE) | grep "not found" && \
+		(printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "Missing dependencies in executable" && exit 1) || true
+	@cd $(BUILD_PATH) && failed=0; \
+	for lib in lib-$(ARCH)/*.so*; do \
+		missing=$$(LD_LIBRARY_PATH=./lib-$(ARCH):$$LD_LIBRARY_PATH ldd "$$lib" 2>/dev/null | grep "not found"); \
+		if [ -n "$$missing" ]; then \
+			echo "Missing in $$lib: $$missing"; \
+			failed=1; \
+		fi; \
+	done; \
+	if [ $$failed -eq 0 ]; then \
+		printf "$(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Verification Complete" "All dependencies satisfied"; \
+	else \
+		exit 1; \
+	fi
+else ifeq ($(OS_NAME),windows)
+	$(call step,Verifying Bundle,Checking $(ARCH) WebView2 components)
+	@if [ ! -d "$(BUILD_PATH)/lib-$(ARCH)" ]; then \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "lib-$(ARCH) not found - run: make BUNDLE=true"; \
+		exit 1; \
+	fi
+	@if [ -f "$(BUILD_PATH)/lib-$(ARCH)/WebView2Loader.dll" ]; then \
+		SIZE=$$(du -h $(BUILD_PATH)/lib-$(ARCH)/WebView2Loader.dll | cut -f1); \
+		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Loader" "Present" "Size" "$$SIZE"; \
+	else \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "WebView2Loader.dll not found"; \
+	fi
+	@if [ -d "$(BUILD_PATH)/lib-$(ARCH)/WebView2Runtime" ] && [ "$$(ls -A $(BUILD_PATH)/lib-$(ARCH)/WebView2Runtime 2>/dev/null)" ]; then \
+		SIZE=$$(du -sh $(BUILD_PATH)/lib-$(ARCH)/WebView2Runtime | cut -f1); \
+		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Runtime" "Bundled" "Size" "$$SIZE"; \
+	else \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Runtime not bundled - requires system installation"; \
+	fi
+	$(call step,Verification Complete,Bundle ready for deployment)
+else ifeq ($(OS_NAME),macos)
+	$(call step,No Bundling Needed,macOS uses system WebKit framework)
+else
+	$(call warn,Not Supported,Bundle verification unavailable for $(OS_NAME))
+endif
 # -----------------------------------------------------------------------------
 # Includes
 # -----------------------------------------------------------------------------

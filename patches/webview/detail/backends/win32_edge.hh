@@ -133,10 +133,15 @@ public:
     // that it is the only interface requested in this case. None have been
     // observed to be requested when using the official WebView2 loader.
 
+    const auto navigation_starting =
+      cast_info_t<ICoreWebView2NavigationStartingEventHandler>{
+        IID_ICoreWebView2NavigationStartingEventHandler};
+
     if (cast_if_equal_iid(this, riid, controller_completed, ppv) ||
         cast_if_equal_iid(this, riid, environment_completed, ppv) ||
         cast_if_equal_iid(this, riid, message_received, ppv) ||
-        cast_if_equal_iid(this, riid, permission_requested, ppv)) {
+      cast_if_equal_iid(this, riid, permission_requested, ppv) ||
+      cast_if_equal_iid(this, riid, navigation_starting, ppv)) {
       return S_OK;
     }
 
@@ -488,7 +493,9 @@ protected:
                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE |
                        SWP_FRAMECHANGED);
     }
-    return window_show();
+    // PATCH: Don't automatically show window when size is set
+    // Original: return window_show();
+    return {};
   }
 
   noresult navigate_impl(const std::string &url) override {
@@ -660,6 +667,8 @@ private:
       if (!m_window) {
         throw exception{WEBVIEW_ERROR_INVALID_STATE, "Window is null"};
       }
+      // Start hidden; visibility is controlled by higher-level logic.
+      ShowWindow(m_window, SW_HIDE);
       on_window_created();
 
       m_dpi = get_window_dpi(m_window);
@@ -767,6 +776,7 @@ private:
 
   noresult window_show() {
     if (owns_window() && !m_is_window_shown) {
+      ShowWindow(m_widget, SW_SHOW);  // Show widget first
       ShowWindow(m_window, SW_SHOW);
       UpdateWindow(m_window);
       SetFocus(m_window);
@@ -864,6 +874,8 @@ private:
 }");
     resize_webview();
     m_controller->put_IsVisible(TRUE);
+    // Keep parent window hidden if owned, but the child widget must be visible
+    // so content renders when the host window is shown externally.
     ShowWindow(m_widget, SW_SHOW);
     UpdateWindow(m_widget);
     if (owns_window()) {

@@ -4,281 +4,1046 @@
 * ---------------Helper Functions----------------
 * -----------------------------------------------
 */
-function decodeObj(dec) {
-    for (const key in dec) {
-        if (typeof dec[key] === "object" && "__encoding_type__" in dec[key] && "__val__" in dec[key]) {
-            dec[key] = decode(dec[key]);
-        }
-    }
-    return dec;
-}
-function decodeArray(dec) {
-    for (let i = 0; i < dec.length; i++) {
-        if (typeof dec[i] === "object" && "__encoding_type__" in dec[i] && "__val__" in dec[i]) {
-            dec[i] = decode(dec[i]);
-        }
-    }
-    return dec;
-}
+/**
+ * Recursively decodes encoded values in an object structure.
+ * Detects objects with __encoding_type__ and __val__ properties and decodes them.
+ * Currently supports base64 encoding type.
+ *
+ * @param dec - The value to decode (can be any type)
+ * @returns The decoded value with all nested encoded values converted
+ *
+ * @example
+ * // Decodes a base64 encoded string
+ * decode({ __encoding_type__: "base64", __val__: [72, 101, 108, 108, 111] })
+ * // Returns: "Hello"
+ *
+ * @example
+ * // Recursively decodes nested objects
+ * decode({ name: { __encoding_type__: "base64", __val__: [74, 111, 104, 110] } })
+ * // Returns: { name: "John" }
+ */
 function decode(dec) {
-    switch (dec.__encoding_type__) {
-        case "base64":
-            return new TextDecoder().decode(new Uint8Array(dec.__val__));
+    switch (typeof dec) {
+        case "object":
+            if (dec === null) {
+                return null;
+            }
+            else if ("__encoding_type__" in dec && "__val__" in dec) {
+                switch (dec.__encoding_type__) {
+                    case "base64":
+                        return new TextDecoder().decode(new Uint8Array(dec.__val__));
+                    default:
+                        return dec;
+                }
+            }
+            else if (Array.isArray(dec)) {
+                return dec.map(el => decode(el));
+            }
+            else {
+                const decodedObj = {};
+                for (const key in dec) {
+                    decodedObj[key] = decode(dec[key]);
+                }
+                return decodedObj;
+            }
         default:
-            return null;
+            return dec;
     }
 }
-function encodeObj(enc) {
-    for (const key in enc) {
-        if (typeof enc[key] === "object") {
-            enc[key] = encode(enc[key]);
-        }
-    }
-    return enc;
-}
-function encodeArray(enc) {
-    for (let i = 0; i < enc.length; i++) {
-        if (typeof enc[i] === "object") {
-            enc[i] = encode(enc[i]);
-        }
-    }
-    return enc;
-}
-function encode(enc, enc_type = "base64") {
-    switch (enc_type) {
-        case "base64":
-            return {
-                __encoding_type__: "base64",
-                __val__: Array.from(new TextEncoder().encode(enc))
-            };
+/**
+ * Recursively encodes values in an object structure.
+ * Converts strings to an encoded format with __encoding_type__ and __val__ properties.
+ * Arrays and objects are processed recursively.
+ *
+ * @param enc - The value to encode (can be any type)
+ * @param options - Encoding options (default: { string: "base64" })
+ * @param options.string - The encoding type for strings (default: "base64")
+ * @returns The encoded value with all nested strings converted to encoded format
+ *
+ * @example
+ * // Encodes a string to base64 format
+ * encode("Hello")
+ * // Returns: { __encoding_type__: "base64", __val__: [72, 101, 108, 108, 111] }
+ *
+ * @example
+ * // Recursively encodes nested objects
+ * encode({ name: "John", age: 30 })
+ * // Returns: { name: { __encoding_type__: "base64", __val__: [...] }, age: 30 }
+ */
+function encode(enc, options = { string: "base64" }) {
+    const string = options?.string ?? "base64";
+    switch (typeof enc) {
+        case "string":
+            switch (string) {
+                case "base64":
+                    return {
+                        __encoding_type__: "base64",
+                        __val__: Array.from(new TextEncoder().encode(enc))
+                    };
+                default:
+                    return {
+                        __encoding_type__: "none",
+                        __val__: []
+                    };
+            }
+        case "object":
+            if (enc === null) {
+                return null;
+            }
+            else if (Array.isArray(enc)) {
+                return enc.map(el => encode(el, { string: string }));
+            }
+            else {
+                const encodedObj = {};
+                for (const key in enc) {
+                    encodedObj[key] = encode(enc[key], { string: string });
+                }
+                return encodedObj;
+            }
         default:
-            return {
-                __encoding_type__: "none",
-                __val__: []
-            };
+            return enc;
     }
 }
+/**
+ * Serializes a value to a string representation.
+ * If the value is already a string, returns it unchanged.
+ * Otherwise, converts the value to a JSON string.
+ *
+ * @param obj - The value to serialize
+ * @returns The string representation of the value
+ *
+ * @example
+ * serialize("hello") // Returns: "hello"
+ * serialize({ key: "value" }) // Returns: '{"key":"value"}'
+ * serialize(123) // Returns: "123"
+ */
 function serialize(obj) {
     return (typeof obj === "string") ? obj : JSON.stringify(obj);
 }
-/*
-* -----------------------------------------------
-* ------------------Exports----------------------
-* -----------------------------------------------
-*/
-export var Log;
-(function (Log) {
-    async function trace(msg) { await BIND_log_trace(encode(serialize(msg))); }
-    Log.trace = trace;
-    async function debug(msg) { await BIND_log_debug(encode(serialize(msg))); }
-    Log.debug = debug;
-    async function info(msg) { await BIND_log_info(encode(serialize(msg))); }
-    Log.info = info;
-    async function warn(msg) { await BIND_log_warn(encode(serialize(msg))); }
-    Log.warn = warn;
-    async function error(msg) { await BIND_log_error(encode(serialize(msg))); }
-    Log.error = error;
-    async function critical(msg) { await BIND_log_critical(encode(serialize(msg))); }
-    Log.critical = critical;
-})(Log || (Log = {}));
-export var FS;
-(function (FS) {
-    async function readFile(path) { return decode(await BIND_read_file(encode(path))); }
-    FS.readFile = readFile;
-    async function writeFile(path, contents, settings = { append: false }) { return await BIND_write_file(encode(path), encode(contents), settings); }
-    FS.writeFile = writeFile;
-    async function exists(path) { return await BIND_exists(encode(path)); }
-    FS.exists = exists;
-    async function isDir(path) { return await BIND_is_dir(encode(path)); }
-    FS.isDir = isDir;
-    async function mkDir(path) { return await BIND_mk_dir(encode(path)); }
-    FS.mkDir = mkDir;
-    async function rm(path, settings = { recursive: false }) { return await BIND_rm(encode(path), settings); }
-    FS.rm = rm;
-    async function ls(path) { const result = await BIND_ls(encode(path)); return result ? result.map((path) => decode(path)) : null; }
-    FS.ls = ls;
-    async function rename(orig_path, new_path, settings = { overwrite: false }) { return await BIND_rename(encode(orig_path), encode(new_path), settings); }
-    FS.rename = rename;
-    async function copy(orig_path, new_path, settings = { overwrite: false }) { return await BIND_copy(encode(orig_path), encode(new_path), settings); }
-    FS.copy = copy;
-    async function getApplicationDirPath() { return decode(await BIND_get_application_dir_path()); }
-    FS.getApplicationDirPath = getApplicationDirPath;
-    async function downloadUri(uri, path) { await BIND_download_uri(encode(uri), encode(path)); }
-    FS.downloadUri = downloadUri;
-})(FS || (FS = {}));
-export var Window;
-(function (Window) {
-    async function isFocus() { return await BIND_is_focus(null); }
-    Window.isFocus = isFocus;
-    async function show(is_window_shown = true) { await BIND_show(is_window_shown); }
-    Window.show = show;
-    async function changeTitle(title) { await BIND_change_title(encode(title)); }
-    Window.changeTitle = changeTitle;
-    async function resetTitle() { await BIND_reset_title(null); }
-    Window.resetTitle = resetTitle;
-    async function currentTitle() { return decode(await BIND_current_title(null)); }
-    Window.currentTitle = currentTitle;
-    async function reloadPage() { await BIND_reload_page(null); }
-    Window.reloadPage = reloadPage;
-    async function navigatePage(uri) { await BIND_navigate_page(encode(uri)); }
-    Window.navigatePage = navigatePage;
-    async function terminate() { await BIND_terminate(null); }
-    Window.terminate = terminate;
-    async function startWindowDrag() { await BIND_start_window_drag(null); }
-    Window.startWindowDrag = startWindowDrag;
-    async function printPage() { await BIND_print_page(null); }
-    Window.printPage = printPage;
-    async function zoomIn() { await BIND_zoom_in(null); }
-    Window.zoomIn = zoomIn;
-    async function zoomOut() { await BIND_zoom_out(null); }
-    Window.zoomOut = zoomOut;
-    async function zoomReset() { await BIND_zoom_reset(null); }
-    Window.zoomReset = zoomReset;
-    async function getZoomLevel() { return await BIND_get_zoom_level(null); }
-    Window.getZoomLevel = getZoomLevel;
-    async function setZoomLevel(level) { await BIND_set_zoom_level(level); }
-    Window.setZoomLevel = setZoomLevel;
-    async function findInPage(text) { await BIND_find_in_page(encode(text)); }
-    Window.findInPage = findInPage;
-    async function findNext() { await BIND_find_next(null); }
-    Window.findNext = findNext;
-    async function findPrevious() { await BIND_find_previous(null); }
-    Window.findPrevious = findPrevious;
-    async function clearFind() { await BIND_clear_find(null); }
-    Window.clearFind = clearFind;
-})(Window || (Window = {}));
-export var System;
-(function (System) {
-    async function getPID() { return await BIND_get_pid(null); }
-    System.getPID = getPID;
-    async function getOS() { return decode(await BIND_get_OS(null)); }
-    System.getOS = getOS;
-})(System || (System = {}));
-export var Config;
-(function (Config) {
-    async function getConfig() { return decodeObj(await BIND_get_config(null)); }
-    Config.getConfig = getConfig;
-    async function saveConfig() { await BIND_save_config(null); }
-    Config.saveConfig = saveConfig;
-    async function loadConfig() { await BIND_load_config(null); }
-    Config.loadConfig = loadConfig;
-    async function setConfigProperty(key, value) { await BIND_set_config_property(encode(key), value); }
-    Config.setConfigProperty = setConfigProperty;
-    async function resetToDefaults() { await BIND_reset_to_defaults(null); }
-    Config.resetToDefaults = resetToDefaults;
-})(Config || (Config = {}));
-export var Process;
-(function (Process) {
-    async function start(process_type, key, args) { return await BIND_process_start(encode(process_type), encode(key), args.map(arg => encode(arg))); }
-    Process.start = start;
-    async function kill(process_type, key) { return await BIND_process_kill(encode(process_type), encode(key)); }
-    Process.kill = kill;
-    async function has(process_type, key) { return await BIND_process_has(encode(process_type), encode(key)); }
-    Process.has = has;
-    async function hasPid(process_type, pid) { return await BIND_process_has_pid(encode(process_type), pid); }
-    Process.hasPid = hasPid;
-    async function hasRunning(process_type, key) { return await BIND_process_has_running(encode(process_type), encode(key)); }
-    Process.hasRunning = hasRunning;
-    async function wait(process_type, key) { return await BIND_process_wait(encode(process_type), encode(key)); }
-    Process.wait = wait;
-    async function waitPid(process_type, pid) { return await BIND_process_wait_pid(encode(process_type), pid); }
-    Process.waitPid = waitPid;
-    async function duplicate() { return await BIND_duplicate_process(null); }
-    Process.duplicate = duplicate;
-    async function pipeRead(key, byte_limit) { const result = await BIND_pipe_read(encode(key), byte_limit ?? null); return result ? decode(result) : null; }
-    Process.pipeRead = pipeRead;
-    async function pipeReadPid(pid, byte_limit) { const result = await BIND_pipe_read_pid(pid, byte_limit ?? null); return result ? decode(result) : null; }
-    Process.pipeReadPid = pipeReadPid;
-    async function openUri(uri) { await BIND_open_uri(encode(uri)); }
-    Process.openUri = openUri;
-    async function openWindow(uri, is_single = false) { await BIND_open_window(encode(uri), is_single); }
-    Process.openWindow = openWindow;
-})(Process || (Process = {}));
-export var Signal;
-(function (Signal) {
-    async function add(signal_num, callback_name) { await BIND_signal_add(signal_num, encode(callback_name)); }
-    Signal.add = add;
-    async function remove(signal_num) { await BIND_signal_remove(signal_num); }
-    Signal.remove = remove;
-    async function has(signal_num) { return await BIND_signal_has(signal_num); }
-    Signal.has = has;
-    async function clear() { await BIND_signal_clear(null); }
-    Signal.clear = clear;
-    async function count() { return await BIND_signal_count(null); }
-    Signal.count = count;
-    async function trigger(signal_num) { await BIND_signal_trigger(signal_num); }
-    Signal.trigger = trigger;
-})(Signal || (Signal = {}));
-export var Debug;
-(function (Debug) {
-    async function clearConsole() { await BIND_clear_console(null); }
-    Debug.clearConsole = clearConsole;
-    async function openDevtools() { await BIND_open_devtools(null); }
-    Debug.openDevtools = openDevtools;
-    async function closeDevtools() { await BIND_close_devtools(null); }
-    Debug.closeDevtools = closeDevtools;
-})(Debug || (Debug = {}));
-export var Network;
-(function (Network) {
-    async function getLoadProgress() { return await BIND_get_load_progress(null); }
-    Network.getLoadProgress = getLoadProgress;
-    async function isLoading() { return await BIND_is_loading(null); }
-    Network.isLoading = isLoading;
-})(Network || (Network = {}));
-export var Navigate;
-(function (Navigate) {
-    async function back() { await BIND_navigate_back(null); }
-    Navigate.back = back;
-    async function forward() { await BIND_navigate_forward(null); }
-    Navigate.forward = forward;
-    async function stopLoading() { await BIND_stop_loading(null); }
-    Navigate.stopLoading = stopLoading;
-    async function canGoBack() { return await BIND_can_go_back(null); }
-    Navigate.canGoBack = canGoBack;
-    async function canGoForward() { return await BIND_can_go_forward(null); }
-    Navigate.canGoForward = canGoForward;
-})(Navigate || (Navigate = {}));
+export const Utils = {
+    decode,
+    encode,
+    serialize
+};
+window.onServerMessage = async (msg) => { };
+/**
+ * Window property getters and setters.
+ */
 export var Properties;
 (function (Properties) {
+    /**
+     * Gets the window size.
+     * @returns Promise that resolves to object with width and height
+     */
     async function getSize() { return await BIND_get_size(null); }
     Properties.getSize = getSize;
-    async function setSize(width, height) { await BIND_set_size({ width, height }); }
+    /**
+     * Sets the window size.
+     * @param width - Window width in pixels
+     * @param height - Window height in pixels
+     * @returns Promise that resolves when size is set
+     */
+    async function setSize(width, height) { await BIND_set_size({ width: width, height: height }); }
     Properties.setSize = setSize;
+    /**
+     * Gets the window position.
+     * @returns Promise that resolves to object with x and y coordinates
+     */
     async function getPosition() { return await BIND_get_position(null); }
     Properties.getPosition = getPosition;
-    async function setPosition(x, y) { await BIND_set_position({ x, y }); }
+    /**
+     * Sets the window position.
+     * @param x - X coordinate in pixels
+     * @param y - Y coordinate in pixels
+     * @returns Promise that resolves when position is set
+     */
+    async function setPosition(x, y) { await BIND_set_position({ x: x, y: y }); }
     Properties.setPosition = setPosition;
-    async function getDecorated() { return await BIND_get_decorated(null); }
-    Properties.getDecorated = getDecorated;
-    async function setDecorated(is_decorated) { await BIND_set_decorated(is_decorated); }
-    Properties.setDecorated = setDecorated;
+    /**
+     * Gets whether window has a title bar.
+     * @returns Promise that resolves to true if title bar is shown
+     */
+    async function getTitleBar() { return await BIND_get_title_bar(null); }
+    Properties.getTitleBar = getTitleBar;
+    /**
+     * Sets whether window has a title bar.
+     * @param has_title_bar - Whether to show title bar
+     * @returns Promise that resolves when title bar state is set
+     */
+    async function setTitleBar(has_title_bar) { await BIND_set_title_bar(has_title_bar); }
+    Properties.setTitleBar = setTitleBar;
+    /**
+     * Gets whether window is resizable.
+     * @returns Promise that resolves to true if resizable
+     */
     async function getResizable() { return await BIND_get_resizable(null); }
     Properties.getResizable = getResizable;
+    /**
+     * Sets whether window is resizable.
+     * @param is_resizable - Whether window can be resized
+     * @returns Promise that resolves when resizable state is set
+     */
     async function setResizable(is_resizable) { await BIND_set_resizable(is_resizable); }
     Properties.setResizable = setResizable;
+    /**
+     * Gets whether window stays on top of other windows.
+     * @returns Promise that resolves to true if window is kept above
+     */
     async function getKeepAbove() { return await BIND_get_keepabove(null); }
     Properties.getKeepAbove = getKeepAbove;
+    /**
+     * Sets whether window stays on top of other windows.
+     * @param is_keepabove - Whether to keep window above others
+     * @returns Promise that resolves when keep-above state is set
+     */
     async function setKeepAbove(is_keepabove) { await BIND_set_keepabove(is_keepabove); }
     Properties.setKeepAbove = setKeepAbove;
+    /**
+     * Gets whether window is minimized.
+     * @returns Promise that resolves to true if minimized
+     */
     async function getMinimize() { return await BIND_get_minimize(null); }
     Properties.getMinimize = getMinimize;
+    /**
+     * Sets whether window is minimized.
+     * @param is_minimize - Whether to minimize window
+     * @returns Promise that resolves when minimize state is set
+     */
     async function setMinimize(is_minimize) { await BIND_set_minimize(is_minimize); }
     Properties.setMinimize = setMinimize;
+    /**
+     * Gets whether window is maximized.
+     * @returns Promise that resolves to true if maximized
+     */
     async function getMaximize() { return await BIND_get_maximize(null); }
     Properties.getMaximize = getMaximize;
+    /**
+     * Sets whether window is maximized.
+     * @param is_maximize - Whether to maximize window
+     * @returns Promise that resolves when maximize state is set
+     */
     async function setMaximize(is_maximize) { await BIND_set_maximize(is_maximize); }
     Properties.setMaximize = setMaximize;
+    /**
+     * Gets whether window is in fullscreen mode.
+     * @returns Promise that resolves to true if fullscreen
+     */
     async function getFullscreen() { return await BIND_get_fullscreen(null); }
     Properties.getFullscreen = getFullscreen;
+    /**
+     * Sets whether window is in fullscreen mode.
+     * @param is_fullscreen - Whether to enable fullscreen
+     * @returns Promise that resolves when fullscreen state is set
+     */
     async function setFullscreen(is_fullscreen) { await BIND_set_fullscreen(is_fullscreen); }
     Properties.setFullscreen = setFullscreen;
+    /**
+     * Gets whether window is shown in taskbar.
+     * @returns Promise that resolves to true if shown in taskbar
+     */
     async function getTaskbarShow() { return await BIND_get_taskbar_show(null); }
     Properties.getTaskbarShow = getTaskbarShow;
+    /**
+     * Sets whether window is shown in taskbar.
+     * @param is_taskbar_show - Whether to show in taskbar
+     * @returns Promise that resolves when taskbar visibility is set
+     */
     async function setTaskbarShow(is_taskbar_show) { await BIND_set_taskbar_show(is_taskbar_show); }
     Properties.setTaskbarShow = setTaskbarShow;
+    /**
+     * Gets the window opacity.
+     * @returns Promise that resolves to opacity value (0.0 to 1.0)
+     */
     async function getOpacity() { return await BIND_get_opacity(null); }
     Properties.getOpacity = getOpacity;
+    /**
+     * Sets the window opacity.
+     * @param opacity - Opacity value (0.0 = transparent, 1.0 = opaque)
+     * @returns Promise that resolves when opacity is set
+     */
     async function setOpacity(opacity) { await BIND_set_opacity(opacity); }
     Properties.setOpacity = setOpacity;
 })(Properties || (Properties = {}));
+/**
+ * Window management and control functions.
+ */
+export var Window;
+(function (Window) {
+    /**
+     * Checks if the window currently has focus.
+     * @returns Promise that resolves to true if window is focused
+     */
+    async function isFocus() { return await BIND_is_focus(null); }
+    Window.isFocus = isFocus;
+    /**
+     * Shows or hides the window.
+     * @param is_window_shown - Whether to show the window
+     * @returns Promise that resolves when operation is complete
+     */
+    async function show(is_window_shown = true) { await BIND_show(is_window_shown); }
+    Window.show = show;
+    /**
+     * Changes the window title.
+     * @param title - New window title
+     * @returns Promise that resolves to the new title
+     */
+    async function changeTitle(title) { return decode(await BIND_change_title(encode(title))); }
+    Window.changeTitle = changeTitle;
+    /**
+     * Resets the window title to the default.
+     * @returns Promise that resolves to the default title
+     */
+    async function resetTitle() { return decode(await BIND_reset_title(null)); }
+    Window.resetTitle = resetTitle;
+    /**
+     * Gets the current window title.
+     * @returns Promise that resolves to the current title
+     */
+    async function currentTitle() { return decode(await BIND_current_title(null)); }
+    Window.currentTitle = currentTitle;
+    /**
+     * Resets the current page to the starting page.
+     * @returns Promise that resolves when page reset starts
+     */
+    async function resetPage() { await BIND_reset_page(null); }
+    Window.resetPage = resetPage;
+    /**
+     * Gets the current page name.
+     * @returns Promise that resolves to the current page
+     */
+    async function currentPage() { return decode(await BIND_current_page(null)); }
+    Window.currentPage = currentPage;
+    /**
+     * Gets the initial starting page.
+     * @returns Promise that resolves to the initial page
+     */
+    async function initialPage() { return decode(await BIND_initial_page(null)); }
+    Window.initialPage = initialPage;
+    /**
+     * Reloads the current page.
+     * @returns Promise that resolves when page reload starts
+     */
+    async function reloadPage() { await BIND_reload_page(null); }
+    Window.reloadPage = reloadPage;
+    /**
+     * Navigates to a different page or URI.
+     * @param uri - URI or page name to navigate to
+     * @returns Promise that resolves when navigation starts
+     */
+    async function navigatePage(uri) { await BIND_navigate_page(encode(uri)); }
+    Window.navigatePage = navigatePage;
+    /**
+     * Terminates the current window/process.
+     * @returns Promise that resolves when termination starts
+     */
+    async function terminate() { await BIND_terminate(null); }
+    Window.terminate = terminate;
+    /**
+     * Starts a window drag operation (allows moving the window).
+     * @returns Promise that resolves when drag operation starts
+     */
+    async function startWindowDrag() { await BIND_start_window_drag(null); }
+    Window.startWindowDrag = startWindowDrag;
+    /**
+     * Opens the print dialog for the current page.
+     * @returns Promise that resolves when print dialog opens
+     */
+    async function printPage() { await BIND_print_page(null); }
+    Window.printPage = printPage;
+    /**
+     * Increases the page zoom level.
+     * @returns Promise that resolves when zoom is increased
+     */
+    async function zoomIn() { await BIND_zoom_in(null); }
+    Window.zoomIn = zoomIn;
+    /**
+     * Decreases the page zoom level.
+     * @returns Promise that resolves when zoom is decreased
+     */
+    async function zoomOut() { await BIND_zoom_out(null); }
+    Window.zoomOut = zoomOut;
+    /**
+     * Resets the page zoom level to default (1.0).
+     * @returns Promise that resolves when zoom is reset
+     */
+    async function zoomReset() { await BIND_zoom_reset(null); }
+    Window.zoomReset = zoomReset;
+    /**
+     * Gets the current zoom level.
+     * @returns Promise that resolves to the zoom level (1.0 = 100%)
+     */
+    async function getZoomLevel() { return await BIND_get_zoom_level(null); }
+    Window.getZoomLevel = getZoomLevel;
+    /**
+     * Sets the page zoom level.
+     * @param level - Zoom level (1.0 = 100%, 2.0 = 200%, etc.)
+     * @returns Promise that resolves when zoom is set
+     */
+    async function setZoomLevel(level) { await BIND_set_zoom_level(level); }
+    Window.setZoomLevel = setZoomLevel;
+    /**
+     * Searches for text in the current page.
+     * @param text - Text to search for
+     * @returns Promise that resolves when search starts
+     */
+    async function findInPage(text) { await BIND_find_in_page(encode(text)); }
+    Window.findInPage = findInPage;
+    /**
+     * Finds the next occurrence of the search text.
+     * @returns Promise that resolves when next match is found
+     */
+    async function findNext() { await BIND_find_next(null); }
+    Window.findNext = findNext;
+    /**
+     * Finds the previous occurrence of the search text.
+     * @returns Promise that resolves when previous match is found
+     */
+    async function findPrevious() { await BIND_find_previous(null); }
+    Window.findPrevious = findPrevious;
+    /**
+     * Clears the current search highlighting.
+     * @returns Promise that resolves when search is cleared
+     */
+    async function clearFind() { await BIND_clear_find(null); }
+    Window.clearFind = clearFind;
+})(Window || (Window = {}));
+/**
+ * Logging functions for different severity levels.
+ */
+export var Log;
+(function (Log) {
+    /**
+     * Logs a trace-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function trace(msg) { await BIND_log_trace(encode(serialize(msg))); }
+    Log.trace = trace;
+    /**
+     * Logs a debug-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function debug(msg) { await BIND_log_debug(encode(serialize(msg))); }
+    Log.debug = debug;
+    /**
+     * Logs an info-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function info(msg) { await BIND_log_info(encode(serialize(msg))); }
+    Log.info = info;
+    /**
+     * Logs a warning-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function warn(msg) { await BIND_log_warn(encode(serialize(msg))); }
+    Log.warn = warn;
+    /**
+     * Logs an error-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function error(msg) { await BIND_log_error(encode(serialize(msg))); }
+    Log.error = error;
+    /**
+     * Logs a critical-level message.
+     * @param msg - Message to log (string or object)
+     */
+    async function critical(msg) { await BIND_log_critical(encode(serialize(msg))); }
+    Log.critical = critical;
+})(Log || (Log = {}));
+/**
+ * File system operations for reading, writing, and managing files and directories.
+ */
+export var FS;
+(function (FS) {
+    /**
+     * Reads the contents of a file.
+     * @param path - Path to the file to read
+     * @returns Promise that resolves to file contents or null if file doesn't exist
+     */
+    async function readFile(path) { return decode(await BIND_read_file(encode(path))); }
+    FS.readFile = readFile;
+    /**
+     * Writes contents to a file.
+     * @param path - Path to the file to write
+     * @param contents - Content to write to the file
+     * @param settings - Write settings (default: { append: false })
+     * @param settings.append - Whether to append to file instead of overwriting (default: false)
+     * @returns Promise that resolves to true if successful
+     */
+    async function writeFile(path, contents, settings = { append: false }) { return await BIND_write_file(encode(path), encode(contents), settings); }
+    FS.writeFile = writeFile;
+    /**
+     * Checks if a file or directory exists.
+     * @param path - Path to check
+     * @returns Promise that resolves to true if path exists
+     */
+    async function exists(path) { return await BIND_exists(encode(path)); }
+    FS.exists = exists;
+    /**
+     * Checks if a path is a directory.
+     * @param path - Path to check
+     * @returns Promise that resolves to true if path is a directory
+     */
+    async function isDir(path) { return await BIND_is_dir(encode(path)); }
+    FS.isDir = isDir;
+    /**
+     * Creates a new directory.
+     * @param path - Path of directory to create
+     * @returns Promise that resolves to true if successful
+     */
+    async function mkDir(path) { return await BIND_mk_dir(encode(path)); }
+    FS.mkDir = mkDir;
+    /**
+     * Removes a file or directory.
+     * @param path - Path to remove
+     * @param settings - Remove settings (default: { recursive: false })
+     * @param settings.recursive - Whether to recursively remove directories (default: false)
+     * @returns Promise that resolves to true if successful
+     */
+    async function rm(path, settings = { recursive: false }) { return await BIND_rm(encode(path), settings); }
+    FS.rm = rm;
+    /**
+     * Lists contents of a directory.
+     * @param path - Directory path to list
+     * @returns Promise that resolves to array of file/directory names or null
+     */
+    async function ls(path) { return decode(await BIND_ls(encode(path))); }
+    FS.ls = ls;
+    /**
+     * Renames or moves a file or directory.
+     * @param orig_path - Original path
+     * @param new_path - New path
+     * @param settings - Rename settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
+     * @returns Promise that resolves to true if successful
+     */
+    async function rename(orig_path, new_path, settings = { overwrite: false }) { return await BIND_rename(encode(orig_path), encode(new_path), settings); }
+    FS.rename = rename;
+    /**
+     * Copies a file or directory.
+     * @param orig_path - Source path
+     * @param new_path - Destination path
+     * @param settings - Copy settings (default: { overwrite: false })
+     * @param settings.overwrite - Whether to overwrite existing files (default: false)
+     * @returns Promise that resolves to true if successful
+     */
+    async function copy(orig_path, new_path, settings = { overwrite: false }) { return await BIND_copy(encode(orig_path), encode(new_path), settings); }
+    FS.copy = copy;
+    /**
+     * Gets the application's directory path.
+     * @returns Promise that resolves to the application directory path
+     */
+    async function getApplicationDirPath() { return decode(await BIND_get_application_dir_path()); }
+    FS.getApplicationDirPath = getApplicationDirPath;
+    /**
+     * Downloads a file from a URI to a local path.
+     * @param uri - URI to download from
+     * @param path - Local path to save the file
+     * @returns Promise that resolves when download is complete
+     */
+    async function downloadUri(uri, path) { await BIND_download_uri(encode(uri), encode(path)); }
+    FS.downloadUri = downloadUri;
+})(FS || (FS = {}));
+/**
+ * Configuration management functions.
+ */
+export var Config;
+(function (Config) {
+    /**
+     * Gets the config set for the current page.
+     * @returns Promise that resolves to the configuration object
+     */
+    async function getConfig() { return decode(await BIND_get_config(null)); }
+    Config.getConfig = getConfig;
+    /**
+     * Gets the config set for \_\_defaults\_\_.
+     * @returns Promise that resolves to the configuration object
+     */
+    async function getDefaults() { return decode(await BIND_get_defaults(null)); }
+    Config.getDefaults = getDefaults;
+    /**
+     * Gets all of the current property values of the window.
+     * @returns Promise that resolves to state object
+     */
+    async function getState() { return decode(await BIND_get_state(null)); }
+    Config.getState = getState;
+    /**
+     * Loads the state properties from the object.
+     * @param state - State object to load
+     * @returns Promise that resolves when state is loaded
+     */
+    async function loadState(state) { await BIND_load_state(encode(state)); }
+    Config.loadState = loadState;
+    /**
+     * Saves the current configuration to disk.
+     * @returns Promise that resolves when config is saved
+     */
+    async function saveConfig(config) { (config == null) ? await BIND_save_config(null) : await BIND_save_config(encode(config)); }
+    Config.saveConfig = saveConfig;
+    /**
+     * Sets a configuration property.
+     * @param key - Property key to set
+     * @param value - Value to set
+     * @returns Promise that resolves when property is set
+     */
+    async function setConfigProperty(key, value) { await BIND_set_config_property(encode(key), encode(value)); }
+    Config.setConfigProperty = setConfigProperty;
+    /**
+     * Resets the configuration to default values.
+     * @returns Promise that resolves when config is reset
+     */
+    async function resetToDefaults() { await BIND_reset_to_defaults(null); }
+    Config.resetToDefaults = resetToDefaults;
+})(Config || (Config = {}));
+/**
+ * System information functions.
+ */
+export var System;
+(function (System) {
+    /**
+     * Gets the current process ID.
+     * @returns Promise that resolves to the PID
+     */
+    async function getPID() { return await BIND_get_pid(null); }
+    System.getPID = getPID;
+    /**
+     * Gets the operating system name.
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     */
+    async function getOS() { return decode(await BIND_get_OS(null)); }
+    System.getOS = getOS;
+})(System || (System = {}));
+/**
+ * Represents a system or RenWeb process with methods for process management and communication.
+ * Process instances can only be created through static factory methods like createProcess() or createWindow().
+ *
+ * @example
+ * // Create a new RenWeb window
+ * const proc = await Process.createWindow("home");
+ *
+ * @example
+ * // Create a system process
+ * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+ *
+ * @example
+ * // Get current process info
+ * const current = await Process.dumpCurrentProcess();
+ * console.log(current?.pid);
+ */
+export class Process {
+    constructor(pid, ppid, name, path, args, is_background_process, is_running, is_child, exit_code, started_at, memory_kb, threads, url, page, renweb) {
+        this._pid = pid;
+        this._ppid = ppid;
+        this._name = name;
+        this._path = path;
+        this._args = args;
+        this._is_background_process = is_background_process;
+        this._is_running = is_running;
+        this._is_child = is_child;
+        this._exit_code = exit_code;
+        this._started_at = started_at;
+        this._memory_kb = memory_kb;
+        this._threads = threads;
+        this._url = url;
+        this._page = page;
+        this._renweb = renweb;
+    }
+    /**
+     * Gets all process information as an object.
+     * @returns Object containing all process properties
+     */
+    get info() {
+        return {
+            pid: this._pid,
+            ppid: this._ppid,
+            name: this._name,
+            path: this._path,
+            args: this._args,
+            is_background_process: this._is_background_process,
+            is_running: this._is_running,
+            is_child: this._is_child,
+            exit_code: this._exit_code,
+            started_at: this._started_at,
+            memory_kb: this._memory_kb,
+            threads: this._threads,
+            url: this._url,
+            page: this._page,
+            renweb: this._renweb
+        };
+    }
+    /** Gets the process ID */
+    get pid() { return this._pid; }
+    /** Gets the parent process ID */
+    get ppid() { return this._ppid; }
+    /** Gets the process name */
+    get name() { return this._name; }
+    /** Gets the process executable path */
+    get path() { return this._path; }
+    /** Gets the process command-line arguments */
+    get args() { return this._args; }
+    /** Gets whether this is a background process */
+    get is_background_process() { return this._is_background_process; }
+    /** Gets whether the process is currently running */
+    get is_running() { return this._is_running; }
+    /** Gets whether this is a child process of the current process */
+    get is_child() { return this._is_child; }
+    /** Gets the process exit code (0 if still running) */
+    get exit_code() { return this._exit_code; }
+    /** Gets the process start time */
+    get started_at() { return this._started_at; }
+    /** Gets the process memory usage in kilobytes */
+    get memory_kb() { return this._memory_kb; }
+    /** Gets the number of threads in the process */
+    get threads() { return this._threads; }
+    /** Gets the URL (for RenWeb processes) */
+    get url() { return this._url; }
+    /** Gets the page name (for RenWeb processes) */
+    get page() { return this._page; }
+    /** Gets whether this is a RenWeb process */
+    get renweb() { return this._renweb; }
+    /**
+     * Refreshes the process information from the system.
+     * Updates all properties with current values.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.refresh();
+     * console.log(proc.memory_kb); // Updated memory usage
+     */
+    async refresh() {
+        const updated_proc_info = await BIND_dump_process(this._pid);
+        this._pid = updated_proc_info.pid;
+        this._ppid = updated_proc_info.ppid;
+        this._name = updated_proc_info.name;
+        this._path = updated_proc_info.path;
+        this._args = updated_proc_info.args;
+        this._is_background_process = updated_proc_info.is_background_process;
+        this._is_running = updated_proc_info.is_running;
+        this._is_child = updated_proc_info.is_child;
+        this._exit_code = updated_proc_info.exit_code;
+        this._started_at = new Date(updated_proc_info.started_at);
+        this._memory_kb = updated_proc_info.memory_kb;
+        this._threads = updated_proc_info.threads;
+        this._url = updated_proc_info.url;
+        this._page = updated_proc_info.page;
+        this._renweb = updated_proc_info.renweb;
+        return this;
+    }
+    /**
+     * Sends a signal to terminate or interrupt the process.
+     * @param signal - Signal number to send (default: 0x2 = SIGINT)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.kill(); // Send SIGINT
+     * await proc.kill(0x9); // Send SIGKILL
+     */
+    async kill(signal = 0x2) {
+        await BIND_kill_process(this._pid, signal);
+        return this;
+    }
+    /**
+     * Detaches the process, allowing it to run independently.
+     * After detaching, the process will continue running even if the parent terminates.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.detach();
+     */
+    async detach() {
+        await BIND_detach_process(this._pid);
+        return this;
+    }
+    /**
+     * Sends a message to this process.
+     * The message will be automatically encoded before sending.
+     * @param msg - Message to send (can be any serializable value)
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.send({ type: "command", data: "hello" });
+     */
+    async send(msg) {
+        await BIND_send_message(this._pid, encode(msg));
+        return this;
+    }
+    /**
+     * Listens to and retrieves output from the process.
+     * @param lines - Number of lines to retrieve (default: -1 for all)
+     * @param options - Options object (default: { tail: false })
+     * @param options.tail - Whether to retrieve lines from the end of the file. (default: false)
+     * @returns Array of output lines
+     * @example
+     * const output = await proc.listenToOutput(10); // Last 10 lines
+     * const allOutput = await proc.listenToOutput(); // All lines
+     */
+    async listenToOutput(lines = -1, options = { tail: false }) {
+        const tail = options?.tail ?? false;
+        return Process.listenToOutput(this._pid, lines, { tail: tail });
+    }
+    /**
+     * Gets messages sent to this process.
+     * @returns Array of messages received by this process
+     * @example
+     * const messages = await proc.getMessages();
+     */
+    async getMessages() {
+        return Process.getMessages(this._pid);
+    }
+    /**
+     * Waits for the process to complete execution.
+     * This will block until the process exits.
+     * @returns This Process instance for method chaining
+     * @example
+     * await proc.wait();
+     * console.log("Process finished with code:", proc.exit_code);
+     */
+    async wait() {
+        await BIND_wait(this._pid);
+        return this;
+    }
+    /**
+ * Listens to and retrieves output from the process of the specified pid.
+ * @param pid - Process ID to listen to (default: -1 for current process)
+ * @param lines - Number of lines to retrieve (default: -1 for all)
+ * @param options - Options object (default: { tail: false })
+ * @param options.tail - Whether to retrieve lines from the end of the file. (default: false)
+ * @returns Array of output lines
+ * @example
+ * const output = await Process.listenToOutput(1234, 10); // Last 10 lines of process with PID 1234
+ * const allOutput = await Process.listenToOutput(1234); // All lines of process with PID 1234
+ */
+    static async listenToOutput(pid = -1, lines = -1, options = { tail: false }) {
+        if (pid == -1) {
+            const proc = await Process.dumpCurrentProcess();
+            if (proc == null) {
+                throw new Error("Failed to get current process information");
+            }
+            pid = proc?.pid;
+        }
+        const tail = options?.tail ?? false;
+        return decode(await BIND_listen_to_output(pid, lines, { tail: tail }));
+    }
+    /**
+     * Creates a new system process.
+     * @param args - Array of command and arguments (first element is the executable)
+     * @param options - Options object (default: { is_detachable: false })
+     * @param options.is_detachable - Whether the process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if creation failed
+     * @example
+     * const proc = await Process.createProcess(["/bin/ls", "-la"]);
+     * await proc.wait();
+     */
+    static async createProcess(args, options = { is_detachable: false, share_stdio: false }) {
+        const is_detachable = options?.is_detachable ?? false;
+        const share_stdio = options?.share_stdio ?? false;
+        const process = decode(await BIND_create_process(encode(args), encode({ is_detachable: is_detachable, share_stdio: share_stdio })));
+        if (typeof process === "object" && process?.pid != null) {
+            return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
+        }
+        return null;
+    }
+    static async createWindow(pageOrPages, args = [], options = {}) {
+        const is_detachable = options?.is_detachable ?? false;
+        const include_orig_args = options?.include_orig_args ?? true;
+        const share_stdio = options?.share_stdio ?? false;
+        const pages = typeof pageOrPages === 'string' ? [pageOrPages] : pageOrPages;
+        const process = decode(await BIND_create_window(encode(pages), encode(args), encode({ is_detachable: is_detachable, include_orig_args: include_orig_args, share_stdio: share_stdio })));
+        if (typeof process === "object" && process?.pid != null) {
+            return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
+        }
+        return null;
+    }
+    /**
+     * Duplicates a process or creates a duplicate of the current window.
+     * @param pid - Process ID to duplicate (default: -1 for current process)
+     * @param options - Options object (default: { is_detachable: true })
+     * @param options.is_detachable - Whether the new process can be detached (default: false)
+     * @param options.share_stdio - Whether to share stdio with the parent process (default: false)
+     * @returns New Process instance or null if duplication failed
+     * @example
+     * const duplicate = await Process.duplicate(); // Duplicate current window
+     * const copy = await Process.duplicate(1234); // Duplicate process 1234
+     */
+    static async duplicate(pid = -1, options = { is_detachable: false, share_stdio: false }) {
+        const is_detachable = options?.is_detachable ?? true;
+        const share_stdio = options?.share_stdio ?? false;
+        if (pid < 0) {
+            return Process.createWindow([], [], { is_detachable: is_detachable, include_orig_args: true, share_stdio: share_stdio });
+        }
+        else {
+            const process = await Process.dumpProcess(pid);
+            if (process != null) {
+                return Process.createProcess(process.args, { is_detachable: is_detachable, share_stdio: share_stdio });
+            }
+            else {
+                return null;
+            }
+        }
+    }
+    /**
+     * Gets messages for a specific process or all messages.
+     * @param pid - Process ID to get messages for (-1 for all messages)
+     * @returns Array of messages
+     * @example
+     * const allMessages = await Process.getMessages();
+     * const procMessages = await Process.getMessages(1234);
+     */
+    static async getMessages(pid = -1) {
+        const messages = decode(await BIND_get_messages());
+        return (pid < 0) ? messages : messages.filter(msg => {
+            return Object.hasOwnProperty.call(msg, "pid") && msg.pid == pid;
+        });
+    }
+    /**
+     * Gets detailed information about a specific process.
+     * @param pid - Process ID to query
+     * @returns Process instance with current information or null if not found
+     * @example
+     * const proc = await Process.dumpProcess(1234);
+     * if (proc) console.log(proc.name, proc.memory_kb);
+     */
+    static async dumpProcess(pid) {
+        const process = decode(await BIND_dump_process(pid));
+        if (typeof process === "object" && process?.pid != null) {
+            return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
+        }
+        return null;
+    }
+    /**
+     * Gets a list of processes with optional filtering.
+     * @param filter - Filter type: '' (all), 'system' (system processes), 'renweb' (RenWeb processes), 'child' (child processes)
+     * @returns Array of Process instances
+     * @example
+     * const allProcs = await Process.dumpProcesses();
+     * const renwebProcs = await Process.dumpProcesses('renweb');
+     * const children = await Process.dumpProcesses('child');
+     */
+    static async dumpProcesses(filter = '') {
+        const processes = decode(await BIND_dump_processes(encode(filter)));
+        if (!Array.isArray(processes)) {
+            return [];
+        }
+        return processes.filter(proc => typeof proc === "object" && proc?.pid != null).map(proc => new Process(proc.pid, proc.ppid, proc.name, proc.path, proc.args, proc.is_background_process, proc.is_running, proc.is_child, proc.exit_code, new Date(proc.started_at), proc.memory_kb, proc.threads, proc.url, proc.page, proc.renweb));
+    }
+    /**
+     * Gets information about the current process.
+     * @returns Process instance representing the current process or null
+     * @example
+     * const current = await Process.dumpCurrentProcess();
+     * console.log("Current PID:", current?.pid);
+     */
+    static async dumpCurrentProcess() {
+        const process = decode(await BIND_dump_current_process(null));
+        if (typeof process === "object" && process?.pid != null) {
+            return new Process(process.pid, process.ppid, process.name, process.path, process.args, process.is_background_process, process.is_running, process.is_child, process.exit_code, new Date(process.started_at), process.memory_kb, process.threads, process.url, process.page, process.renweb);
+        }
+        return null;
+    }
+    /**
+     * Waits for all child processes to complete execution.
+     * This will block until all child processes have exited.
+     * @returns Promise that resolves when all child processes complete
+     * @example
+     * await Process.createWindow("page1");
+     * await Process.createWindow("page2");
+     * await Process.waitAll(); // Wait for both to finish
+     */
+    static async waitAll() {
+        await BIND_wait_all(null);
+    }
+}
+/**
+ * Debug and developer tools functions.
+ */
+export var Debug;
+(function (Debug) {
+    /**
+     * Clears the browser console.
+     * @returns Promise that resolves when console is cleared
+     */
+    async function clearConsole() { await BIND_clear_console(null); }
+    Debug.clearConsole = clearConsole;
+    /**
+     * Opens the developer tools panel.
+     * @returns Promise that resolves when devtools are opened
+     */
+    async function openDevtools() { await BIND_open_devtools(null); }
+    Debug.openDevtools = openDevtools;
+    /**
+     * Closes the developer tools panel.
+     * @returns Promise that resolves when devtools are closed
+     */
+    async function closeDevtools() { await BIND_close_devtools(null); }
+    Debug.closeDevtools = closeDevtools;
+})(Debug || (Debug = {}));
+/**
+ * Network status and loading information.
+ */
+export var Network;
+(function (Network) {
+    /**
+     * Gets the current page load progress.
+     * @returns Promise that resolves to progress value (0-100)
+     */
+    async function getLoadProgress() { return await BIND_get_load_progress(null); }
+    Network.getLoadProgress = getLoadProgress;
+    /**
+     * Checks if a page is currently loading.
+     * @returns Promise that resolves to true if loading
+     */
+    async function isLoading() { return await BIND_is_loading(null); }
+    Network.isLoading = isLoading;
+})(Network || (Network = {}));
+/**
+ * Page navigation functions.
+ */
+export var Navigate;
+(function (Navigate) {
+    /**
+     * Navigates back in browser history.
+     * @returns Promise that resolves when navigation completes
+     */
+    async function back() { await BIND_navigate_back(null); }
+    Navigate.back = back;
+    /**
+     * Navigates forward in browser history.
+     * @returns Promise that resolves when navigation completes
+     */
+    async function forward() { await BIND_navigate_forward(null); }
+    Navigate.forward = forward;
+    /**
+     * Stops the current page load.
+     * @returns Promise that resolves when loading is stopped
+     */
+    async function stopLoading() { await BIND_stop_loading(null); }
+    Navigate.stopLoading = stopLoading;
+    /**
+     * Checks if back navigation is possible.
+     * @returns Promise that resolves to true if can go back
+     */
+    async function canGoBack() { return await BIND_can_go_back(null); }
+    Navigate.canGoBack = canGoBack;
+    /**
+     * Checks if forward navigation is possible.
+     * @returns Promise that resolves to true if can go forward
+     */
+    async function canGoForward() { return await BIND_can_go_forward(null); }
+    Navigate.canGoForward = canGoForward;
+    /**
+     * Opens a URI depending on the type.
+     * Some examples are file paths in the local filesystem, http/https links, mailto links, etc.
+     * @returns Promise that resolves when the URI is opened
+     */
+    async function openURI(uri) { await BIND_open_uri(encode(uri)); }
+    Navigate.openURI = openURI;
+})(Navigate || (Navigate = {}));
+/**
+ * Plugins
+ */
+export var Plugins;
+(function (Plugins) {
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
+    Plugins.getPluginsList = getPluginsList;
+})(Plugins || (Plugins = {}));
 //# sourceMappingURL=index.js.map

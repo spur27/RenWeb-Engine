@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Usage Guide - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+    <script src="template_jsons.js"></script>
+    <style>
+        .os-linux { color: #90ee90; font-weight: 500; }
+        .os-windows { color: #ffb6c1; font-weight: 500; }
+        .os-macos { color: #add8e6; font-weight: 500; }
+    </style>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container">
+        <main class="main-content">
+            <!-- Requirements Section -->
+            <section id="requirements" class="card">
+                <h2>Runtime Requirements</h2>
+                
+                <p class="intro-text">
+                    RenWeb uses the platform's native WebView instead of bundling a browser, keeping executables under 2MB. 
+                    You need to ensure the appropriate WebView runtime is installed on your system.
+                </p>
+
+                <div class="os-tabs">
+                    <button class="tab-btn active" data-target="linux-runtime"><span class="os-linux">Linux</span></button>
+                    <button class="tab-btn" data-target="windows-runtime"><span class="os-windows">Windows</span></button>
+                    <button class="tab-btn" data-target="macos-runtime"><span class="os-macos">macOS</span></button>
+                </div>
+
+                <div id="linux-runtime" class="tab-content active">
+                    <h3><span class="os-linux">Linux</span> - WebKitGTK 4.1</h3>
+                    
+                    <div class="requirement-card">
+                        <h4>Required Runtime Libraries</h4>
+                        <ul>
+                            <li><strong>libwebkit2gtk-4.1-0</strong> - Modern WebView with WebGL support</li>
+                            <li><strong>libgtk-3-0</strong> - GTK 3.0+ GUI toolkit</li>
+                        </ul>
+                    </div>
+
+                    <div class="code-tabs">
+                        <button class="tab-btn active" data-target="debian-runtime">Debian/Ubuntu</button>
+                        <button class="tab-btn" data-target="fedora-runtime">Fedora/RHEL</button>
+                        <button class="tab-btn" data-target="arch-runtime">Arch Linux</button>
+                    </div>
+
+                    <div id="debian-runtime" class="code-content active">
+                        <pre><code class="language-bash">sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0</code></pre>
+                    </div>
+
+                    <div id="fedora-runtime" class="code-content">
+                        <pre><code class="language-bash">sudo dnf install webkit2gtk4.1 gtk3</code></pre>
+                    </div>
+
+                    <div id="arch-runtime" class="code-content">
+                        <pre><code class="language-bash">sudo pacman -S webkit2gtk gtk3</code></pre>
+                    </div>
+                </div>
+
+                <div id="windows-runtime" class="tab-content">
+                    <h3><span class="os-windows">Windows</span> - WebView2</h3>
+                    
+                    <div class="requirement-card">
+                        <h4>Microsoft Edge WebView2 Runtime</h4>
+                        <ul>
+                            <li>Chromium-based WebView for Windows</li>
+                            <li>Minimum: Windows 7 (Windows 10+ recommended)</li>
+                        </ul>
+                    </div>
+
+                    <div class="code-tabs">
+                        <button class="tab-btn active" data-target="windows11-runtime">Windows 11</button>
+                        <button class="tab-btn" data-target="windows10-runtime">Windows 10</button>
+                        <button class="tab-btn" data-target="windows-legacy-runtime">Windows &lt; 10</button>
+                    </div>
+
+                    <div id="windows11-runtime" class="code-content active">
+                        <div class="highlight-box">
+                            <h4>✅ Pre-installed</h4>
+                            <p>
+                                WebView2 Runtime is <strong>pre-installed</strong> on Windows 11. No setup required!
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="windows10-runtime" class="code-content">
+                        <div class="info-box">
+                            <h4>Installation Required</h4>
+                            <p>Download and install the WebView2 Runtime:</p>
+                            <ol>
+                                <li>Visit <a href="https://developer.microsoft.com/en-us/microsoft-edge/webview2" target="_blank">Microsoft WebView2 Downloads</a></li>
+                                <li>Download the <strong>Evergreen Standalone Installer</strong></li>
+                                <li>Run the installer (requires administrator privileges)</li>
+                            </ol>
+                        </div>
+                        <pre><code class="language-bash"># Or download directly via PowerShell
+Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile "MicrosoftEdgeWebview2Setup.exe"
+.\MicrosoftEdgeWebview2Setup.exe</code></pre>
+                    </div>
+
+                    <div id="windows-legacy-runtime" class="code-content">
+                        <div class="info-box">
+                            <h4>Windows 7, 8, and 8.1</h4>
+                            <p>Download and install the WebView2 Runtime:</p>
+                            <ol>
+                                <li>Visit <a href="https://developer.microsoft.com/en-us/microsoft-edge/webview2" target="_blank">Microsoft WebView2 Downloads</a></li>
+                                <li>Download the <strong>Evergreen Standalone Installer</strong></li>
+                                <li>Run the installer (requires administrator privileges)</li>
+                                <li>May require <a href="https://support.microsoft.com/en-us/topic/update-for-universal-c-runtime-in-windows-c0514201-7fe6-95a3-b0a5-287930f3560c" target="_blank">Universal C Runtime update</a></li>
+                            </ol>
+                        </div>
+                        <div class="highlight-box" style="background: rgba(255, 183, 77, 0.1); border-left: 4px solid #ffb74d;">
+                            <h4>⚠️ Limited Support</h4>
+                            <p>
+                                Windows 7, 8, and 8.1 have reached end-of-life. While RenWeb will work, these systems 
+                                no longer receive security updates. <strong>Windows 10 or later is recommended.</strong>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="macos-runtime" class="tab-content">
+                    <h3><span class="os-macos">macOS</span> - WKWebView</h3>
+                    
+                    <div class="requirement-card">
+                        <h4>Built-in WKWebView</h4>
+                        <ul>
+                            <li>Native macOS WebView (included with system)</li>
+                            <li>Minimum: macOS 10.15 Catalina</li>
+                        </ul>
+                    </div>
+
+                    <div class="code-tabs">
+                        <button class="tab-btn active" data-target="macos-supported">macOS ≥ 10.15</button>
+                        <button class="tab-btn" data-target="macos-legacy">macOS &lt; 10.15</button>
+                    </div>
+
+                    <div id="macos-supported" class="code-content active">
+                        <div class="highlight-box">
+                            <h4>✅ No Installation Required</h4>
+                            <p>
+                                WKWebView is part of macOS 10.15 Catalina and later, and is <strong>automatically available</strong>. 
+                                RenWeb applications work out of the box!
+                            </p>
+                        </div>
+                    </div>
+
+                    <div id="macos-legacy" class="code-content">
+                        <div class="highlight-box" style="background: rgba(244, 67, 54, 0.1); border-left: 4px solid #f44336;">
+                            <h4>❌ Not Supported</h4>
+                            <p>
+                                RenWeb requires macOS 10.15 Catalina or later. Earlier versions (High Sierra, Mojave) 
+                                do not meet the minimum requirements.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- Engine Section -->
+            <section id="engine" class="card">
+                <h2>Using the RenWeb Engine from the Terminal</h2>
+                
+                <p class="intro-text">
+                    Should you want to run the application from the terminal to view logs, debug, or simply see what 
+                    the engine has to say, you can run it from a terminal with various command-line arguments to test,
+                    adjust, and play around with the engine.
+                </p>
+
+                <h3>Command-Line Arguments</h3>
+
+                <div class="requirement-card">
+                    <h4>General Options</h4>
+                    <ul>
+                        <li><code>-h, --help</code> - Display help information</li>
+                        <li><code>-v, --version</code> - Display version from info.json</li>
+                    </ul>
+                </div>
+
+                <div class="requirement-card">
+                    <h4>Logging Options</h4>
+                    <ul>
+                        <li><code>-s, --log-silent</code> - Suppress console log output</li>
+                        <li><code>-b, --log-boring</code> - Disable colored log output</li>
+                        <li><code>-l, --log-level &lt;n&gt;</code> - Set log level (0=trace, 5=critical, default=2)</li>
+                        <li><code>-c, --log-clear</code> - Clear log.txt before starting</li>
+                    </ul>
+                </div>
+
+                <div class="requirement-card">
+                    <h4>Page Options</h4>
+                    <ul>
+                        <li><code>-p, --page &lt;name&gt; [names...]</code> - Open specific page(s)</li>
+                    </ul>
+                </div>
+
+                <h3>Usage Examples</h3>
+
+                <pre><code class="language-bash"># Open default pages from info.json
+./renweb
+
+# Open specific page
+./renweb --page myapp
+
+# Open multiple pages
+./renweb -pwindow1 --page window2 -pwindow3
+
+# Run with trace logging
+./renweb --log-level 0
+
+# Disable colored output
+./renweb --log-boring
+
+# Clear logs and run silently
+./renweb --log-clear --log-silent</code></pre>
+
+
+                <div class="info-box">
+                    <p>
+                        <strong>Note:</strong> The engine looks for <code>info.json</code> to retrieve the version number and title; 
+                        that json file in particular is crucial for the engine to run.
+                    </p>
+                </div>
+            </section>
+
+            <!-- File Structure Section -->
+            <section id="file-structure" class="card">
+                <h2>File Structure</h2>
+                    <ul style="list-style: none; padding-left: 0;">
+                        <li><span style="color: #4ec9b0; font-weight: bold;">●</span> Executable files</li>
+                        <li><span style="color: #ce9178; font-weight: bold;">●</span> Required files/directories</li>
+                        <li><span style="color: #dcdcaa; font-weight: bold;">●</span> Auto-generated files</li>
+                        <li><span style="color: #569cd6; font-weight: bold;">●</span> Optional directories</li>
+                        <li><span style="color: #c586c0; font-weight: bold;">●</span> Bundle-specific (for dependencyless mode)</li>
+                        <li><span style="color: #6a9955; font-weight: bold;">●</span> Comments</li>
+                    </ul>
+                <div style="background: #1e1e1e; padding: 1.5rem; border-radius: 8px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 0.9rem; line-height: 1.6; overflow-x: auto; white-space: pre;">
+<span style="color: #dcdcdc;"><strong>build/</strong></span>
+<span style="color: #808080;">├──</span> <span style="color: #4ec9b0; font-weight: bold;">renweb</span>                        <span style="color: #6a9955;"># Executable</span>
+<span style="color: #808080;">├──</span> <span style="color: #c586c0;">bundle_exec</span>                   <span style="color: #6a9955;"># Bundle environment script (.sh or .bat) - for bundled libs</span>
+<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">info.json</span>                     <span style="color: #6a9955;"># Application metadata - REQUIRED</span>
+<span style="color: #808080;">├──</span> <span style="color: #dcdcaa;">config.json</span>                   <span style="color: #6a9955;"># Window configuration - auto-generated</span>
+<span style="color: #808080;">├──</span> <span style="color: #dcdcaa;">log.txt</span>                       <span style="color: #6a9955;"># Application logs - auto-generated</span>
+<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">content/</span>                      <span style="color: #6a9955;"># Page content - REQUIRED</span>
+<span style="color: #808080;">│   └──</span> <span style="color: #ce9178; font-weight: bold;">&lt;page_name&gt;/</span>
+<span style="color: #808080;">│       ├──</span> <span style="color: #ce9178;">index.html</span>            <span style="color: #6a9955;"># Required entry point</span>
+<span style="color: #808080;">│       └── ...</span>
+<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">assets/</span>                       <span style="color: #6a9955;"># Shared assets</span>
+<span style="color: #808080;">│   └── ...</span>
+<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">resources/</span>                    <span style="color: #6a9955;"># Resources</span>
+<span style="color: #808080;">│   └── ...</span>
+<span style="color: #808080;">├──</span> <span style="color: #569cd6;">custom/</span>                       <span style="color: #6a9955;"># User customization - optional</span>
+<span style="color: #808080;">│   └──</span> <span style="color: #808080;">(overrides for content/assets)</span>
+<span style="color: #808080;">├──</span> <span style="color: #569cd6;">backup/</span>                       <span style="color: #6a9955;"># Fallback content - optional</span>
+<span style="color: #808080;">│   └──</span> <span style="color: #808080;">(emergency fallback files)</span>
+<span style="color: #808080;">├──</span> <span style="color: #569cd6;">plugins/</span>                      <span style="color: #6a9955;"># Plugin libraries - optional</span>
+<span style="color: #808080;">│   └──</span> <span style="color: #808080;">(.so | .dll | .dylib)</span>
+<span style="color: #808080;">├──</span> <span style="color: #c586c0;">lib/</span>                         <span style="color: #6a9955;"># Bundled dependencies - for bundle mode</span>
+<span style="color: #808080;">│   └──</span> <span style="color: #808080;">(.so | .dll | .dylib)</span>
+<span style="color: #808080;">└──</span> <span style="color: #ce9178; font-weight: bold;">licenses/</span>                     <span style="color: #6a9955;"># License files</span>
+<span style="color: #808080;">    └── ...</span>
+</div>
+
+                <div class="info-box">
+                    <p>
+                        RenWeb looks for files relative to the executable location. The file structure is modular, self contained, and 
+                        designed for easy customization and interaction for both the programmer and end user.
+                    </p>
+                </div>
+                <h3>File Resolution Order</h3>
+
+                <p>
+                    When handling GET requests, the server searches in this order:
+                </p>
+
+                <ol class="resolution-order">
+                    <li><code>custom/[page_name]/[file]</code> - <strong>User customization (highest priority)</strong></li>
+                    <li><code>content/[page_name]/[file]</code> - Page-specific content</li>
+                    <li><code>[file]</code> - Root directory (for assets, info.json, etc.)</li>
+                    <li><code>backup/[page_name]/[file]</code> - <strong>Fallback content (lowest priority)</strong></li>
+                </ol>
+
+                <div class="highlight-box">
+                    <h4>Example: Request for <code>/assets/logo.png</code> on page "test"</h4>
+                    <ol>
+                        <li>Checks <code>custom/test/assets/logo.png</code></li>
+                        <li>Checks <code>content/test/assets/logo.png</code></li>
+                        <li>Checks <code>assets/logo.png</code> ← Found!</li>
+                        <li>Would check <code>backup/test/assets/logo.png</code> if not found</li>
+                        <li>Returns <strong>404</strong> if not found anywhere</li>
+                    </ol>
+                    <p>
+                        This allows users to customize your application by placing files in <code>custom/</code> 
+                        without modifying the original content.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Configuration Section -->
+            <section id="configuration" class="card">
+                <h2>Configuration Files</h2>
+
+                <h3 id="info-json">info.json</h3>
+
+                <p class="intro-text">
+                    Application metadata file - <strong>required</strong> for RenWeb to run. Must be in the same 
+                    directory as the executable.
+                </p>
+
+                <h4>Example Configuration</h4>
+                <pre><code id="info-json-example" class="language-json">Loading...</code></pre>
+
+                <h4>Required Fields</h4>
+                <div class="requirement-card">
+                    <ul>
+                        <li><code>title</code> (string) - Application name (displayed with <code>-v</code> flag)</li>
+                        <li><code>version</code> (string) - Application version</li>
+                        <li><code>starting_pages</code> (array or string) - Page name(s) to open on launch</li>
+                    </ul>
+                </div>
+
+                <h4>Optional Fields</h4>
+                <div class="requirement-card">
+                    <ul>
+                        <li><code>author</code> (string) - Creator/developer name</li>
+                        <li><code>description</code> (string) - Brief application description</li>
+                        <li><code>license</code> (string) - License identifier (e.g., "BSL", "MIT", "GPL-3.0")</li>
+                        <li><code>repository</code> (string) - Source code repository URL</li>
+                        <li><code>categories</code> (array of strings) - Application categories for app stores/launchers (e.g., ["Utility"], ["Game", "Adventure"])</li>
+                        <li><code>copyright</code> (string) - Copyright notice</li>
+                        <li><code>app_id</code> (string) - Unique application identifier for packaging (reverse domain notation recommended)</li>
+                        <li><code>pkg_id</code> (string) - Short package identifier for package management systems</li>
+                        <li><code>startup_notify</code> (boolean) - Whether to show desktop startup notification</li>
+                    </ul>
+                </div>
+
+                <h4>Permissions Object</h4>
+                <div class="requirement-card">
+                    <ul>
+                        <li><code>geolocation</code> (boolean) - Allow location access</li>
+                        <li><code>notifications</code> (boolean) - Allow desktop notifications</li>
+                        <li><code>media_devices</code> (boolean) - Allow camera/microphone</li>
+                        <li><code>pointer_lock</code> (boolean) - Allow mouse pointer locking</li>
+                        <li><code>install_missing_media_plugins</code> (boolean) - Auto-install codecs</li>
+                        <li><code>device_info</code> (boolean) - Allow hardware information access</li>
+                    </ul>
+                </div>
+
+                <h4>Server Configuration</h4>
+                <div class="requirement-card">
+                    <ul>
+                        <li><code>ip</code> (string) - IP address for webserver (default: 127.0.0.1)</li>
+                        <li><code>port</code> (number) - Port (default: random)</li>
+                        <li><code>https</code> (boolean) - Enable HTTPS instead of HTTP</li>
+                        <li><code>ssl_cert_path</code> (string) - HTTPS only - path to SSL certificate file</li>
+                        <li><code>ssl_key_path</code> (string) - HTTPS only - path to SSL key</li>
+                    </ul>
+                </div>
+
+                <h4>Origins Array</h4>
+                <div class="info-box">
+                    <p>
+                        The <code>origins</code> field contains an array of allowed base URLs with protocols. 
+                        This provides URI allowlisting for security.
+                    </p>
+                    <pre><code class="language-json">"origins": [
+  "https://example.one",
+  "http://example.two/sequel",
+  "*" // Allow all origins (not recommended)
+]</code></pre>
+                </div>
+
+                <h3 id="config-json">config.json</h3>
+
+                <p class="intro-text">
+                    Window configuration file - <strong>auto-generated</strong> if missing. Stores per-page window 
+                    settings and global defaults.
+                </p>
+
+                <h4>Example Configuration</h4>
+                <pre><code id="config-json-example" class="language-json">Loading...</code></pre>
+
+                <h4>Window Properties</h4>
+
+                <p>All window properties are get/set-able via the client JavaScript API:</p>
+
+                <div class="requirement-card">
+                    <ul>
+                        <li><code>title</code> (string) - Window title text (overrides title in <code>info.json</code>)</li>
+                        <li><code>title_bar</code> (boolean) - Show window title bar</li>
+                        <li><code>size</code> (object) - Window dimensions
+                            <ul>
+                                <li><code>width</code> (number) - Width in pixels</li>
+                                <li><code>height</code> (number) - Height in pixels</li>
+                            </ul>
+                        </li>
+                        <li><code>position</code> (object) - Window position on screen
+                            <ul>
+                                <li><code>x</code> (number) - X coordinate in pixels</li>
+                                <li><code>y</code> (number) - Y coordinate in pixels</li>
+                            </ul>
+                        </li>
+                        <li><code>keepabove</code> (boolean) - Keep window on top of others</li>
+                        <li><code>resizable</code> (boolean) - Allow window resizing</li>
+                        <li><code>minimize</code> (boolean) - Window minimized state</li>
+                        <li><code>maximize</code> (boolean) - Window maximized state</li>
+                        <li><code>fullscreen</code> (boolean) - Window fullscreen state</li>
+                        <li><code>taskbar_show</code> (boolean) - Show window in taskbar/dock</li>
+                        <li><code>opacity</code> (number) - Window opacity (0.0 = transparent, 1.0 = opaque)</li>
+                        <li><code>initially_shown</code> (boolean) - Show window immediately on load</li>
+                        <li><code>merge_defaults</code> (boolean) - Merge page settings with defaults on initial load</li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box">
+                    <h4>Default Settings</h4>
+                    <p>
+                        The <code>__defaults__</code> section provides fallback values for all pages. 
+                        Individual page settings override these defaults unless <code>merge_defaults</code> is set to <code>false</code>.
+                    </p>
+                </div>
+
+                <div class="info-box">
+                    <h4>Tip: initially_shown</h4>
+                    <p>
+                        If set to <code>false</code>, the window won't show until you call <code>Window.show()</code> 
+                        from JavaScript. This is useful to prevent the white flash during page load:
+                    </p>
+                    <pre><code class="language-javascript">window.onload = async () => {
+  await Window.show();
+};</code></pre>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <footer class="footer">
+        <p>&copy; 2025 RenWeb Engine | <a href="https://github.com/spur27/RenWeb-Engine/blob/main/LICENSE" target="_blank">Boost Software License 1.0</a> | <a href="https://github.com/spur27/RenWeb-Engine" target="_blank">GitHub</a></p>
+    </footer>
+    
+    <script src="script.js"></script>
+    <script>
+        async function loadConfigExamples() {
+            try {
+                const infoData = await fetchInfoJson();
+                const infoElement = document.getElementById('info-json-example');
+                if (infoElement) {
+                    infoElement.textContent = JSON.stringify(infoData, null, 2);
+                    infoElement.removeAttribute('data-highlighted');
+                    infoElement.className = 'language-json';
+                }
+                
+                const configData = await fetchConfigJson();
+                const configElement = document.getElementById('config-json-example');
+                if (configElement) {
+                    configElement.textContent = JSON.stringify(configData, null, 2);
+                    configElement.removeAttribute('data-highlighted');
+                    configElement.className = 'language-json';
+                }
+                
+                if (typeof hljs !== 'undefined') {
+                    hljs.highlightElement(infoElement);
+                    hljs.highlightElement(configElement);
+                }
+            } catch (error) {
+                console.error('Failed to load config examples:', error);
+            }
+        }
+        
+        loadConfigExamples();
+    </script>
+    <script>
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+    </script>
+</body>
+</html>

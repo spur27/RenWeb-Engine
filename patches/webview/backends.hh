@@ -28,10 +28,10 @@
 
 #if defined(__cplusplus) && !defined(WEBVIEW_HEADER)
 
-// Modified to include original backends and our patched win32_edge
-#include "../../external/webview/core/include/webview/detail/backends/cocoa_webkit.hh"
-#include "../../external/webview/core/include/webview/detail/backends/gtk_webkitgtk.hh"
-#include "detail/backends/win32_edge.hh"  // Our patched version
+// Modified to include patched backends that start windows hidden
+#include "detail/backends/cocoa_webkit.hh"  // Our patched version for macOS
+#include "../../external/webview/core/include/webview/detail/backends/gtk_webkitgtk.hh"  // GTK already starts hidden
+#include "detail/backends/win32_edge.hh"  // Our patched version for Windows
 
 namespace webview {
 using webview = browser_engine;

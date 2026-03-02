@@ -1,0 +1,2740 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript API - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container">
+        <main class="main-content">
+
+            <section class="card api-tree-card">
+                <h2 class="api-tree-heading">JS API Tree</h2>
+                <div id="api-tree" class="api-tree"></div>
+            </section>
+            <!-- Properties Namespace -->
+            <section id="properties" class="api-namespace-section">
+                <h2>Properties</h2>
+                <p class="namespace-description">
+                    The Properties namespace provides functions to control window properties such as size, position, 
+                    opacity, fullscreen mode, and other visual attributes. All getters return Promise&lt;T&gt; and 
+                    setters return Promise&lt;void&gt;.
+                </p>
+
+
+                <div id="properties-getsize" class="api-method">
+                    <h3>
+                        Properties.getSize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getSize(): Promise&lt;{ width: number, height: number }&gt;</code></div>
+                    <p class="method-description">Gets the current window size in pixels.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ width: number, height: number }&gt;</span> - Object containing window dimensions</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const size = await Properties.getSize();
+await Log.debug(`Window: ${size.width}x${size.height}`);</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setsize" class="api-method">
+                    <h3>
+                        Properties.setSize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setSize(width: number, height: number): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets the window size to the specified dimensions.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">width</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Window width in pixels</span>
+                            </li>
+                            <li>
+                                <span class="param-name">height</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Window height in pixels</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setSize(1920, 1080);</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getposition" class="api-method">
+                    <h3>
+                        Properties.getPosition()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getPosition(): Promise&lt;{ x: number, y: number }&gt;</code></div>
+                    <p class="method-description">Gets the current window position relative to the screen.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ x: number, y: number }&gt;</span> - Object containing window coordinates</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const pos = await Properties.getPosition();
+await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setposition" class="api-method">
+                    <h3>
+                        Properties.setPosition()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setPosition(x: number, y: number): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets the window position to the specified coordinates.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">x</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- X coordinate in pixels</span>
+                            </li>
+                            <li>
+                                <span class="param-name">y</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Y coordinate in pixels</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setPosition(100, 100);</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-gettitlebar" class="api-method">
+                    <h3>
+                        Properties.getTitleBar()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getTitleBar(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window title bar is currently visible.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if title bar is shown</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const hasTitle = await Properties.getTitleBar();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-settitlebar" class="api-method">
+                    <h3>
+                        Properties.setTitleBar()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setTitleBar(has_title_bar: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Shows or hides the window title bar and decorations.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">has_title_bar</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to show the title bar</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setTitleBar(false); // Borderless window</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getresizable" class="api-method">
+                    <h3>
+                        Properties.getResizable()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getResizable(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is currently resizable by the user.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is resizable</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const canResize = await Properties.getResizable();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setresizable" class="api-method">
+                    <h3>
+                        Properties.setResizable()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setResizable(is_resizable: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets whether the window can be resized by the user.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_resizable</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether window can be resized</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setResizable(false); // Fixed size window</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getkeepabove" class="api-method">
+                    <h3>
+                        Properties.getKeepAbove()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getKeepAbove(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window stays above other windows.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is kept above others</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const isOnTop = await Properties.getKeepAbove();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setkeepabove" class="api-method">
+                    <h3>
+                        Properties.setKeepAbove()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setKeepAbove(is_keepabove: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets whether the window stays on top of other windows.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_keepabove</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to keep window above others</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setKeepAbove(true); // Always on top</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getminimize" class="api-method">
+                    <h3>
+                        Properties.getMinimize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getMinimize(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is currently minimized.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is minimized</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const isMinimized = await Properties.getMinimize();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setminimize" class="api-method">
+                    <h3>
+                        Properties.setMinimize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setMinimize(is_minimize: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Minimizes or restores the window.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_minimize</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to minimize the window</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setMinimize(true); // Minimize window</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getmaximize" class="api-method">
+                    <h3>
+                        Properties.getMaximize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getMaximize(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is currently maximized.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is maximized</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const isMaximized = await Properties.getMaximize();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setmaximize" class="api-method">
+                    <h3>
+                        Properties.setMaximize()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setMaximize(is_maximize: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Maximizes or restores the window.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_maximize</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to maximize the window</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setMaximize(true); // Maximize window</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getfullscreen" class="api-method">
+                    <h3>
+                        Properties.getFullscreen()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getFullscreen(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is in fullscreen mode.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is fullscreen</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const isFullscreen = await Properties.getFullscreen();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setfullscreen" class="api-method">
+                    <h3>
+                        Properties.setFullscreen()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setFullscreen(is_fullscreen: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Enables or disables fullscreen mode.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_fullscreen</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to enable fullscreen</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setFullscreen(true); // Enter fullscreen</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-gettaskbarshow" class="api-method">
+                    <h3>
+                        Properties.getTaskbarShow()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getTaskbarShow(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is shown in the taskbar.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if shown in taskbar</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const inTaskbar = await Properties.getTaskbarShow();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-settaskbarshow" class="api-method">
+                    <h3>
+                        Properties.setTaskbarShow()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setTaskbarShow(is_taskbar_show: boolean): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Shows or hides the window in the taskbar.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_taskbar_show</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to show in taskbar</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setTaskbarShow(false); // Hide from taskbar</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-getopacity" class="api-method">
+                    <h3>
+                        Properties.getOpacity()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getOpacity(): Promise&lt;number&gt;</code></div>
+                    <p class="method-description">Gets the current window opacity level.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;number&gt;</span> - Opacity value from 0.0 (transparent) to 1.0 (opaque)</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const opacity = await Properties.getOpacity();</code></pre>
+                    </div>
+                </div>
+
+                <div id="properties-setopacity" class="api-method">
+                    <h3>
+                        Properties.setOpacity()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setOpacity(opacity: number): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets the window opacity level.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">opacity</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Opacity value from 0.0 (transparent) to 1.0 (opaque)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Properties.setOpacity(0.8); // 80% opaque</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Window Namespace -->
+            <section id="window" class="api-namespace-section">
+                <h2>Window</h2>
+                <p class="namespace-description">
+                    The Window namespace provides functions for controlling the window itself including focus, visibility, 
+                    title changes, page navigation, zoom controls, and text search functionality.
+                </p>
+
+                <div id="window-isfocus" class="api-method">
+                    <h3>
+                        Window.isFocus()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>isFocus(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window currently has input focus.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window has focus</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const focused = await Window.isFocus();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-show" class="api-method">
+                    <h3>
+                        Window.show()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>show(is_window_shown: boolean = true): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Shows or hides the window.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">is_window_shown</span>
+                                <span class="param-type">boolean</span>
+                                <span class="param-description">- Whether to show the window</span>
+                                <span class="param-default"> = <code class="language-javascript">true</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.show(false); // Hide window</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-changetitle" class="api-method">
+                    <h3>
+                        Window.changeTitle()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>changeTitle(title: string): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Changes the window title to the specified text.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">title</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- New window title</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - The new title</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.changeTitle("My Application");</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-resettitle" class="api-method">
+                    <h3>
+                        Window.resetTitle()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>resetTitle(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Resets the window title to the default value from configuration.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - The default title</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.resetTitle();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-currenttitle" class="api-method">
+                    <h3>
+                        Window.currentTitle()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>currentTitle(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the current window title.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - The current title</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const title = await Window.currentTitle();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-resetpage" class="api-method">
+                    <h3>
+                        Window.resetPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>resetPage(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Resets the current page to the initial starting page.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.resetPage();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-currentpage" class="api-method">
+                    <h3>
+                        Window.currentPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>currentPage(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the name of the currently loaded page.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - The current page name</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const page = await Window.currentPage();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-initialpage" class="api-method">
+                    <h3>
+                        Window.initialPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>initialPage(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the initial starting page name.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - The initial page name</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const initial = await Window.initialPage();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-reloadpage" class="api-method">
+                    <h3>
+                        Window.reloadPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>reloadPage(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Reloads the current page, refreshing all content.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.reloadPage();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-navigatepage" class="api-method">
+                    <h3>
+                        Window.navigatePage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>navigatePage(uri: string): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Navigates to a different page or URI.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">uri</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Page name or URI to navigate to</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.navigatePage("settings");</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-terminate" class="api-method">
+                    <h3>
+                        Window.terminate()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>terminate(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Terminates the current window and its process.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.terminate();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-startwindowdrag" class="api-method">
+                    <h3>
+                        Window.startWindowDrag()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>startWindowDrag(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Initiates a window drag operation, allowing the user to move the window.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.startWindowDrag(); // Call on custom titlebar click</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-printpage" class="api-method">
+                    <h3>
+                        Window.printPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>printPage(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Opens the native print dialog for the current page.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.printPage();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-zoomin" class="api-method">
+                    <h3>
+                        Window.zoomIn()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>zoomIn(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Increases the page zoom level.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.zoomIn();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-zoomout" class="api-method">
+                    <h3>
+                        Window.zoomOut()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>zoomOut(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Decreases the page zoom level.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.zoomOut();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-zoomreset" class="api-method">
+                    <h3>
+                        Window.zoomReset()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>zoomReset(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Resets the page zoom level to 100%.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.zoomReset();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-getzoomlevel" class="api-method">
+                    <h3>
+                        Window.getZoomLevel()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getZoomLevel(): Promise&lt;number&gt;</code></div>
+                    <p class="method-description">Gets the current zoom level (1.0 = 100%).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;number&gt;</span> - The zoom level</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const zoom = await Window.getZoomLevel();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-setzoomlevel" class="api-method">
+                    <h3>
+                        Window.setZoomLevel()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setZoomLevel(level: number): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets the page zoom level.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">level</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Zoom level (1.0 = 100%, 2.0 = 200%)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.setZoomLevel(1.5); // 150% zoom</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-findinpage" class="api-method">
+                    <h3>
+                        Window.findInPage()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>findInPage(text: string): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Searches for text in the current page and highlights matches.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">text</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Text to search for</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.findInPage("search term");</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-findnext" class="api-method">
+                    <h3>
+                        Window.findNext()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>findNext(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Jumps to the next search result.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.findNext();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-findprevious" class="api-method">
+                    <h3>
+                        Window.findPrevious()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>findPrevious(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Jumps to the previous search result.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.findPrevious();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-clearfind" class="api-method">
+                    <h3>
+                        Window.clearFind()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>clearFind(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Clears the current search and removes highlighting.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.clearFind();</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Log Namespace -->
+            <section id="log" class="api-namespace-section">
+                <h2>Log</h2>
+                <p class="namespace-description">
+                    The Log namespace provides functions for logging messages at different severity levels. 
+                    Messages are automatically encoded and sent to the backend logging system.
+                </p>
+
+                <div id="log-trace" class="api-method">
+                    <h3>
+                        Log.trace()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>trace(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs a trace-level message (most verbose).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.trace("Detailed debug info");</code></pre>
+                    </div>
+                </div>
+
+                <div id="log-debug" class="api-method">
+                    <h3>
+                        Log.debug()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>debug(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs a debug-level message.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.debug({ data: "Debug info" });</code></pre>
+                    </div>
+                </div>
+
+                <div id="log-info" class="api-method">
+                    <h3>
+                        Log.info()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>info(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs an informational message.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.info("Application started");</code></pre>
+                    </div>
+                </div>
+
+                <div id="log-warn" class="api-method">
+                    <h3>
+                        Log.warn()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>warn(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs a warning message.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.warn("Deprecated API used");</code></pre>
+                    </div>
+                </div>
+
+                <div id="log-error" class="api-method">
+                    <h3>
+                        Log.error()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>error(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs an error message.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.error("Failed to load resource");</code></pre>
+                    </div>
+                </div>
+
+                <div id="log-critical" class="api-method">
+                    <h3>
+                        Log.critical()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>critical(msg: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Logs a critical error message (highest severity).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to log (string or object)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.critical("Fatal error occurred");</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FS Namespace -->
+            <section id="fs" class="api-namespace-section">
+                <h2>FS (File System)</h2>
+                <p class="namespace-description">
+                    The FS namespace provides comprehensive file system operations including reading, writing, 
+                    directory management, and file downloads. All file operations are performed asynchronously.
+                </p>
+
+                <div id="fs-readfile" class="api-method">
+                    <h3>
+                        FS.readFile()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>readFile(path: string): Promise&lt;string | null&gt;</code></div>
+                    <p class="method-description">Reads the contents of a file as a string.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path to the file to read</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string | null&gt;</span> - File contents or null if file doesn't exist</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const data = await FS.readFile("/path/to/file.txt");</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-writefile" class="api-method">
+                    <h3>
+                        FS.writeFile()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>writeFile(path: string, contents: string, settings?: WriteSettings): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Writes content to a file, creating it if it doesn't exist.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path to the file to write</span>
+                            </li>
+                            <li>
+                                <span class="param-name">contents</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Content to write</span>
+                            </li>
+                            <li>
+                                <span class="param-name">settings</span>
+                                <span class="param-type">WriteSettings</span>
+                                <span class="param-description">- Optional settings: { append: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if successful</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.writeFile("data.txt", "Hello World!");
+await FS.writeFile("log.txt", "\nNew entry", { append: true });</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-exists" class="api-method">
+                    <h3>
+                        FS.exists()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>exists(path: string): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if a file or directory exists at the specified path.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path to check</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if path exists</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">if (await FS.exists("config.json")) { ... }</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-isdir" class="api-method">
+                    <h3>
+                        FS.isDir()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>isDir(path: string): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if a path is a directory.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path to check</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if path is a directory</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">if (await FS.isDir("/path/to/folder")) { ... }</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-mkdir" class="api-method">
+                    <h3>
+                        FS.mkDir()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>mkDir(path: string): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Creates a new directory.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path of directory to create</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if successful</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.mkDir("/path/to/new/folder");</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-rm" class="api-method">
+                    <h3>
+                        FS.rm()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>rm(path: string, settings?: RmSettings): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Removes a file or directory.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Path to remove</span>
+                            </li>
+                            <li>
+                                <span class="param-name">settings</span>
+                                <span class="param-type">RmSettings</span>
+                                <span class="param-description">- Optional settings: { recursive: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if successful</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.rm("file.txt");
+await FS.rm("folder", { recursive: true });</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-ls" class="api-method">
+                    <h3>
+                        FS.ls()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>ls(path: string): Promise&lt;string[] | null&gt;</code></div>
+                    <p class="method-description">Lists the contents of a directory.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Directory path to list</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string[] | null&gt;</span> - Array of file/directory names or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const files = await FS.ls("/path/to/directory");</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-rename" class="api-method">
+                    <h3>
+                        FS.rename()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>rename(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Renames or moves a file or directory.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">orig_path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Original path</span>
+                            </li>
+                            <li>
+                                <span class="param-name">new_path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- New path</span>
+                            </li>
+                            <li>
+                                <span class="param-name">settings</span>
+                                <span class="param-type">RenameCopySettings</span>
+                                <span class="param-description">- Optional settings: { overwrite: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if successful</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.rename("old.txt", "new.txt");</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-copy" class="api-method">
+                    <h3>
+                        FS.copy()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>copy(orig_path: string, new_path: string, settings?: RenameCopySettings): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Copies a file or directory to a new location.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">orig_path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Source path</span>
+                            </li>
+                            <li>
+                                <span class="param-name">new_path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Destination path</span>
+                            </li>
+                            <li>
+                                <span class="param-name">settings</span>
+                                <span class="param-type">RenameCopySettings</span>
+                                <span class="param-description">- Optional settings: { overwrite: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if successful</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.copy("source.txt", "dest.txt", { overwrite: true });</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-getapplicationdirpath" class="api-method">
+                    <h3>
+                        FS.getApplicationDirPath()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getApplicationDirPath(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the application's root directory path.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - Application directory path</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const appDir = await FS.getApplicationDirPath();</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-gettmpdirpath" class="api-method">
+                    <h3>
+                        FS.getTmpDirPath(): Promise&lt;string&gt;
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getTmpDirPath(options: { create: boolean } = { create: false }): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the application's temporary directory path.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">{ create: boolean }</span>
+                                <span class="param-description">- Optional settings: { create: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - Temporary directory path</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const tmpDir = await FS.getTmpDirPath();</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-downloaduri" class="api-method">
+                    <h3>
+                        FS.downloadUri()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>downloadUri(uri: string, path: string): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Downloads a file from a URI to a local path.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">uri</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- URI to download from</span>
+                            </li>
+                            <li>
+                                <span class="param-name">path</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Local path to save the file</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await FS.downloadUri("https://example.com/file.zip", "/downloads/file.zip");</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Config Namespace -->
+            <section id="config" class="api-namespace-section">
+                <h2>Config</h2>
+                <p class="namespace-description">
+                    The Config namespace provides functions for managing application configuration, 
+                    including getting/setting configuration properties, saving state, and resetting to defaults.
+                </p>
+
+                <div id="config-getconfig" class="api-method">
+                    <h3>
+                        Config.getConfig()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getConfig(): Promise&lt;any&gt;</code></div>
+                    <p class="method-description">Gets the configuration object for the current page.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any&gt;</span> - Configuration object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const config = await Config.getConfig();</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-getdefaults" class="api-method">
+                    <h3>
+                        Config.getDefaults()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getDefaults(): Promise&lt;any&gt;</code></div>
+                    <p class="method-description">Gets the default configuration from __defaults__.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any&gt;</span> - Default configuration object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const defaults = await Config.getDefaults();</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-getstate" class="api-method">
+                    <h3>
+                        Config.getState()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getState(): Promise&lt;any&gt;</code></div>
+                    <p class="method-description">Gets all current property values of the window as a state object.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any&gt;</span> - State object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const state = await Config.getState();</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-loadstate" class="api-method">
+                    <h3>
+                        Config.loadState()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>loadState(state: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Loads window properties from a state object.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">state</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- State object with window properties</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Config.loadState(savedState);</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-saveconfig" class="api-method">
+                    <h3>
+                        Config.saveConfig()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>saveConfig(config?: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Saves the current or specified configuration to disk.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">config</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Optional configuration object (uses current if omitted)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Config.saveConfig();</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-setconfigproperty" class="api-method">
+                    <h3>
+                        Config.setConfigProperty()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>setConfigProperty(key: string, value: any): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Sets a specific configuration property.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">key</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Property key</span>
+                            </li>
+                            <li>
+                                <span class="param-name">value</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Property value</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Config.setConfigProperty("theme", "dark");</code></pre>
+                    </div>
+                </div>
+
+                <div id="config-resettodefaults" class="api-method">
+                    <h3>
+                        Config.resetToDefaults()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>resetToDefaults(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Resets the configuration to default values.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Config.resetToDefaults();</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- System Namespace -->
+            <section id="system" class="api-namespace-section">
+                <h2>System</h2>
+                <p class="namespace-description">
+                    The System namespace provides functions to access system-level information such as 
+                    process IDs and operating system details.
+                </p>
+
+                <div id="system-getpid" class="api-method">
+                    <h3>
+                        System.getPID()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getPID(): Promise&lt;number&gt;</code></div>
+                    <p class="method-description">Gets the current process ID.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;number&gt;</span> - Process ID</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const pid = await System.getPID();</code></pre>
+                    </div>
+                </div>
+
+                <div id="system-getos" class="api-method">
+                    <h3>
+                        System.getOS()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getOS(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the operating system name.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - OS name (e.g., 'Linux', 'Windows', 'Darwin')</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const os = await System.getOS();</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Process Namespace -->
+            <section id="process" class="api-namespace-section">
+                <h2>Process</h2>
+                <p class="namespace-description">
+                    The Process namespace provides comprehensive process management including creating processes and windows, 
+                    inter-process communication, process monitoring, and child process control. Process instances have both 
+                    static methods (called on Process namespace) and instance methods (called on Process objects).
+                </p>
+
+                <div id="process-createprocess" class="api-method">
+                    <h3>
+                        Process.createProcess()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.createProcess(args: string[], options?: {is_detachable?: boolean, share_stdio?: boolean}): Promise&lt;Process | null&gt;</code></div>
+                    <p class="method-description">Creates a new system process.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">args</span>
+                                <span class="param-type">string[]</span>
+                                <span class="param-description">- Command and arguments (first element is executable)</span>
+                            </li>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { is_detachable, share_stdio }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process | null&gt;</span> - Process instance or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const proc = await Process.createProcess(["/bin/ls", "-la"]);
+await proc.wait();
+const output = await proc.listenToOutput();</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-createwindow" class="api-method">
+                    <h3>
+                        Process.createWindow()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.createWindow(page: string | string[], args?: string[], options?: object): Promise&lt;Process | null&gt;</code></div>
+                    <p class="method-description">Creates a new RenWeb window process.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">page</span>
+                                <span class="param-type">string | string[]</span>
+                                <span class="param-description">- Page name(s) to load</span>
+                            </li>
+                            <li>
+                                <span class="param-name">args</span>
+                                <span class="param-type">string[]</span>
+                                <span class="param-description">- Optional additional arguments</span>
+                            </li>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { is_detachable, include_orig_args, share_stdio }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process | null&gt;</span> - Process instance or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const window = await Process.createWindow("home");
+const multiWindow = await Process.createWindow(["home", "settings"]);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-duplicate" class="api-method">
+                    <h3>
+                        Process.duplicate()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.duplicate(pid?: number, options?: object): Promise&lt;Process | null&gt;</code></div>
+                    <p class="method-description">Duplicates the current window or a specific process.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">pid</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Process ID to duplicate (-1 for current)</span>
+                                <span class="param-default"> = <code class="language-javascript">-1</code></span>
+                            </li>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { is_detachable, share_stdio }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process | null&gt;</span> - Process instance or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const duplicate = await Process.duplicate(); // Duplicate current</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-dumpprocess" class="api-method">
+                    <h3>
+                        Process.dumpProcess()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.dumpProcess(pid: number): Promise&lt;Process | null&gt;</code></div>
+                    <p class="method-description">Gets detailed information about a specific process.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">pid</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Process ID to query</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process | null&gt;</span> - Process instance or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const proc = await Process.dumpProcess(1234);
+await Log.debug(proc.name, proc.memory_kb);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-dumpprocesses" class="api-method">
+                    <h3>
+                        Process.dumpProcesses()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.dumpProcesses(filter?: '' | 'system' | 'renweb' | 'child'): Promise&lt;Process[]&gt;</code></div>
+                    <p class="method-description">Gets a list of processes with optional filtering.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">filter</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- Filter: '' (all), 'system', 'renweb', 'child'</span>
+                                <span class="param-default"> = <code class="language-javascript">''</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process[]&gt;</span> - Array of Process instances</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const allProcs = await Process.dumpProcesses();
+const renwebProcs = await Process.dumpProcesses('renweb');</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-dumpcurrentprocess" class="api-method">
+                    <h3>
+                        Process.dumpCurrentProcess()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.dumpCurrentProcess(): Promise&lt;Process | null&gt;</code></div>
+                    <p class="method-description">Gets information about the current process.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process | null&gt;</span> - Process instance or null</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const current = await Process.dumpCurrentProcess();
+await Log.debug("Current PID:", current.pid);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-getmessages-static" class="api-method">
+                    <h3>
+                        Process.getMessages() (Static)
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.getMessages(pid?: number): Promise&lt;any[]&gt;</code></div>
+                    <p class="method-description">Gets messages for a specific process or all messages.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">pid</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Process ID (-1 for all)</span>
+                                <span class="param-default"> = <code class="language-javascript">-1</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any[]&gt;</span> - Array of messages</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const allMessages = await Process.getMessages();
+const procMessages = await Process.getMessages(1234);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-waitall" class="api-method">
+                    <h3>
+                        Process.waitAll()
+                        <span class="method-tags">
+                            <span class="method-tag static">static</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>Process.waitAll(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Waits for all child processes to complete execution.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Process.createWindow("page1");
+await Process.createWindow("page2");
+await Process.waitAll(); // Block until both finish</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-refresh" class="api-method">
+                    <h3>
+                        proc.refresh()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.refresh(): Promise&lt;Process&gt;</code></div>
+                    <p class="method-description">Refreshes the process information from the system (instance method).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process&gt;</span> - The same Process instance</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await proc.refresh();
+await Log.debug("Updated memory:", proc.memory_kb);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-kill" class="api-method">
+                    <h3>
+                        proc.kill()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.kill(signal?: number): Promise&lt;Process&gt;</code></div>
+                    <p class="method-description">Sends a signal to terminate or interrupt the process (instance method).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">signal</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Signal number</span>
+                                <span class="param-default"> = <code class="language-javascript">0x2</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process&gt;</span> - The same Process instance</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await proc.kill(); // SIGINT
+await proc.kill(0x9); // SIGKILL</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-detach" class="api-method">
+                    <h3>
+                        proc.detach()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.detach(): Promise&lt;Process&gt;</code></div>
+                    <p class="method-description">Detaches the process, allowing it to run independently (instance method).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process&gt;</span> - The same Process instance</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await proc.detach(); // Process continues after parent exits</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-send" class="api-method">
+                    <h3>
+                        proc.send()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.send(msg: any): Promise&lt;Process&gt;</code></div>
+                    <p class="method-description">Sends a message to this process (instance method).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">msg</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- Message to send (automatically encoded)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process&gt;</span> - The same Process instance</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await proc.send({ type: "command", data: "hello" });</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-listentooutput" class="api-method">
+                    <h3>
+                        proc.listenToOutput()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.listenToOutput(lines?: number, options?: {truncate?: boolean}): Promise&lt;string[]&gt;</code></div>
+                    <p class="method-description">Retrieves output from the process (instance method).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">lines</span>
+                                <span class="param-type">number</span>
+                                <span class="param-description">- Number of lines (-1 for all)</span>
+                                <span class="param-default"> = <code class="language-javascript">-1</code></span>
+                            </li>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { truncate: boolean }</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string[]&gt;</span> - Array of output lines</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const output = await proc.listenToOutput(10); // Last 10 lines
+const all = await proc.listenToOutput(); // All output</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-getmessages-instance" class="api-method">
+                    <h3>
+                        proc.getMessages() (Instance)
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.getMessages(): Promise&lt;any[]&gt;</code></div>
+                    <p class="method-description">Gets messages sent to this process (instance method).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any[]&gt;</span> - Array of messages</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const messages = await proc.getMessages();</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-wait" class="api-method">
+                    <h3>
+                        proc.wait()
+                        <span class="method-tags">
+                            <span class="method-tag instance">instance</span>
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.wait(): Promise&lt;Process&gt;</code></div>
+                    <p class="method-description">Waits for the process to complete execution (instance method).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;Process&gt;</span> - The same Process instance</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await proc.wait();
+await Log.debug("Process finished with code:", proc.exit_code);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-properties" class="api-method">
+                    <h3>
+                        Process Instance Properties
+                        <span class="method-tags">
+                            <span class="method-tag attribute">attribute</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.pid, proc.name, proc.is_running, etc.</code></div>
+                    <p class="method-description">Process instance properties (read-only getters).</p>
+                    <div class="method-returns">
+                        <h4>Available Properties</h4>
+                        <p>Various process information: <span class="param-type">pid</span>, <span class="param-type">ppid</span>, <span class="param-type">name</span>, <span class="param-type">path</span>, <span class="param-type">args</span>, <span class="param-type">is_background_process</span>, <span class="param-type">is_running</span>, <span class="param-type">is_child</span>, <span class="param-type">exit_code</span>, <span class="param-type">started_at</span>, <span class="param-type">memory_kb</span>, <span class="param-type">threads</span>, <span class="param-type">url</span>, <span class="param-type">page</span>, <span class="param-type">renweb</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Log.debug(proc.pid, proc.name);
+await Log.debug(proc.memory_kb + "KB");
+await Log.debug(proc.is_running);</code></pre>
+                    </div>
+                </div>
+
+                <div id="process-info" class="api-method">
+                    <h3>
+                        proc.info
+                        <span class="method-tags">
+                            <span class="method-tag attribute">attribute</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>proc.info</code></div>
+                    <p class="method-description">Gets all process information as an object (instance property).</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">object</span> - Object containing all process properties</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const info = proc.info;
+await Log.debug(info.pid, info.name);</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Debug Namespace -->
+            <section id="debug" class="api-namespace-section">
+                <h2>Debug</h2>
+                <p class="namespace-description">
+                    The Debug namespace provides developer tools control for debugging web applications, 
+                    including console management and DevTools access.
+                </p>
+
+                <div id="debug-clearconsole" class="api-method">
+                    <h3>
+                        Debug.clearConsole()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>clearConsole(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Clears the browser console.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Debug.clearConsole();</code></pre>
+                    </div>
+                </div>
+
+                <div id="debug-opendevtools" class="api-method">
+                    <h3>
+                        Debug.openDevtools()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>openDevtools(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Opens the developer tools panel.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Debug.openDevtools();</code></pre>
+                    </div>
+                </div>
+
+                <div id="debug-closedevtools" class="api-method">
+                    <h3>
+                        Debug.closeDevtools()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>closeDevtools(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Closes the developer tools panel.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Debug.closeDevtools();</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Network Namespace -->
+            <section id="network" class="api-namespace-section">
+                <h2>Network</h2>
+                <p class="namespace-description">
+                    The Network namespace provides functions to monitor network activity and page loading status.
+                </p>
+
+                <div id="network-getloadprogress" class="api-method">
+                    <h3>
+                        Network.getLoadProgress()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getLoadProgress(): Promise&lt;number&gt;</code></div>
+                    <p class="method-description">Gets the current page load progress.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;number&gt;</span> - Progress value (0-100)</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const progress = await Network.getLoadProgress();</code></pre>
+                    </div>
+                </div>
+
+                <div id="network-isloading" class="api-method">
+                    <h3>
+                        Network.isLoading()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>isLoading(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if a page is currently loading.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if loading</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">if (await Network.isLoading()) { ... }</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Navigate Namespace -->
+            <section id="navigate" class="api-namespace-section">
+                <h2>Navigate</h2>
+                <p class="namespace-description">
+                    The Navigate namespace provides browser-style navigation controls including history navigation, 
+                    load control, and external URI opening.
+                </p>
+
+                <div id="navigate-back" class="api-method">
+                    <h3>
+                        Navigate.back()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>back(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Navigates back in browser history.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Navigate.back();</code></pre>
+                    </div>
+                </div>
+
+                <div id="navigate-forward" class="api-method">
+                    <h3>
+                        Navigate.forward()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>forward(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Navigates forward in browser history.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Navigate.forward();</code></pre>
+                    </div>
+                </div>
+
+                <div id="navigate-stoploading" class="api-method">
+                    <h3>
+                        Navigate.stopLoading()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>stopLoading(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Stops the current page load.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Navigate.stopLoading();</code></pre>
+                    </div>
+                </div>
+
+                <div id="navigate-cangoback" class="api-method">
+                    <h3>
+                        Navigate.canGoBack()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>canGoBack(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if back navigation is possible.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if can go back</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">if (await Navigate.canGoBack()) { ... }</code></pre>
+                    </div>
+                </div>
+
+                <div id="navigate-cangoforward" class="api-method">
+                    <h3>
+                        Navigate.canGoForward()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>canGoForward(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if forward navigation is possible.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if can go forward</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">if (await Navigate.canGoForward()) { ... }</code></pre>
+                    </div>
+                </div>
+
+                <div id="navigate-openuri" class="api-method">
+                    <h3>
+                        Navigate.openURI()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>openURI(uri: string): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Opens a URI in the appropriate application (file paths, http/https, mailto, etc.).</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">uri</span>
+                                <span class="param-type">string</span>
+                                <span class="param-description">- URI to open</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Navigate.openURI("https://example.com");
+await Navigate.openURI("file:///path/to/file");</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Plugins Namespace -->
+            <section id="plugins" class="api-namespace-section">
+                <h2>Plugins</h2>
+                <p class="namespace-description">
+                    The Plugins namespace provides access to information about loaded plugins and their metadata.
+                </p>
+
+                <div id="plugins-getpluginslist" class="api-method">
+                    <h3>
+                        Plugins.getPluginsList()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getPluginsList(): Promise&lt;any[]&gt;</code></div>
+                    <p class="method-description">Gets a list of all loaded plugins with their metadata.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any[]&gt;</span> - Array of plugin data objects</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const plugins = await Plugins.getPluginsList();
+for (const p of plugins) {
+    await Log.debug(p.name, p.version);
+}</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Utils Namespace -->
+            <section id="utils" class="api-namespace-section">
+                <h2>Utils</h2>
+                <p class="namespace-description">
+                    The Utils namespace provides utility functions for encoding, decoding, and serialization of data. 
+                    These functions are particularly useful for handling encoded data structures and converting values 
+                    to string representations.
+                </p>
+
+                <div id="utils-decode" class="api-method">
+                    <h3>
+                        Utils.decode()
+                    </h3>
+                    <div class="method-signature"><code>decode(dec: any): any</code></div>
+                    <p class="method-description">
+                        Recursively decodes encoded values in an object structure. Detects objects with 
+                        <code>__encoding_type__</code> and <code>__val__</code> properties and decodes them. 
+                        Currently supports base64 encoding type.
+                    </p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">dec</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- The value to decode (can be any type)</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">any</span> - The decoded value with all nested encoded values converted</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">// Decodes a base64 encoded string
+const decoded = Utils.decode({ 
+    __encoding_type__: "base64", 
+    __val__: [72, 101, 108, 108, 111] 
+});
+await Log.debug(decoded); // "Hello"
+
+// Recursively decodes nested objects
+const obj = Utils.decode({ 
+    name: { __encoding_type__: "base64", __val__: [74, 111, 104, 110] } 
+});
+await Log.debug(obj); // { name: "John" }</code></pre>
+                    </div>
+                </div>
+
+                <div id="utils-encode" class="api-method">
+                    <h3>
+                        Utils.encode()
+                    </h3>
+                    <div class="method-signature"><code>encode(enc: any, options?: { string: "base64" }): any</code></div>
+                    <p class="method-description">
+                        Recursively encodes values in an object structure. Converts strings to an encoded format with 
+                        <code>__encoding_type__</code> and <code>__val__</code> properties. Arrays and objects are 
+                        processed recursively.
+                    </p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">enc</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- The value to encode (can be any type)</span>
+                            </li>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">{ string: "base64" }</span>
+                                <span class="param-description">- Encoding options</span>
+                                <span class="param-default"> = <code class="language-javascript">{ string: "base64" }</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">any</span> - The encoded value with all nested strings converted to encoded format</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">// Encodes a string to base64 format
+const encoded = Utils.encode("Hello");
+await Log.debug(encoded); 
+// { __encoding_type__: "base64", __val__: [72, 101, 108, 108, 111] }
+
+// Recursively encodes nested objects
+const obj = Utils.encode({ name: "John", age: 30 });
+await Log.debug(obj); 
+// { name: { __encoding_type__: "base64", __val__: [...] }, age: 30 }</code></pre>
+                    </div>
+                </div>
+
+                <div id="utils-serialize" class="api-method">
+                    <h3>
+                        Utils.serialize()
+                    </h3>
+                    <div class="method-signature"><code>serialize(obj: any): string</code></div>
+                    <p class="method-description">
+                        Serializes a value to a string representation. If the value is already a string, returns it unchanged. 
+                        Otherwise, converts the value to a JSON string.
+                    </p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">obj</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- The value to serialize</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">string</span> - The string representation of the value</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">Utils.serialize("hello"); // Returns: "hello"
+Utils.serialize({ key: "value" }); // Returns: '{"key":"value"}'
+Utils.serialize(123); // Returns: "123"
+Utils.serialize([1, 2, 3]); // Returns: "[1,2,3]"</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <section id="callbacks" class="api-namespace-section">
+                <h2>Callbacks</h2>
+                <p class="namespace-description">
+                    The Callbacks namespace provides functions for handling asynchronous events and messages. 
+                    These functions are particularly useful for managing communication between different parts of the application.
+                </p>
+
+                <div id="callbacks-onservermessage" class="api-method">
+                    <h3>
+                        window.onServerMessage
+                    </h3>
+                    <div class="method-signature"><code>window.onServerMessage = async (message: any) => { ... }</code></div>
+                    <p class="method-description">
+                        Handles messages received from the server. This function is called whenever a message is received, and the message is passed as an argument.
+                    </p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">message</span>
+                                <span class="param-type">any</span>
+                                <span class="param-description">- The message received from the server</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void</span> - This function does not return a value</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.onServerMessage = async (message) => {
+    await Log.debug("Received message:", message);
+};</code></pre>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+        
+    <footer class="footer">
+        <p>&copy; 2025 RenWeb Engine | <a href="https://github.com/spur27/RenWeb-Engine/blob/main/LICENSE" target="_blank">Boost Software License 1.0</a> | <a href="https://github.com/spur27/RenWeb-Engine" target="_blank">GitHub</a></p>
+    </footer>
+    
+    <script src="script.js"></script>
+    <script>
+        // Run highlight.js if available
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+    </script>
+</body>
+</html>

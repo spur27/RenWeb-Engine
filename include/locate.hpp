@@ -10,6 +10,7 @@
 
 #include <stdexcept>
 #include <filesystem>
+#include <cstdlib>
 
 extern "C" {
 
@@ -87,6 +88,25 @@ namespace RenWeb {
         }
         inline std::filesystem::path currentDirectory() {
             return executable().parent_path();
+        }
+        inline std::filesystem::path tempDirectory() {
+        #if defined(_WIN32)
+          char* temp = nullptr;
+          size_t len = 0;
+          if (_dupenv_s(&temp, &len, "TEMP") == 0 && temp) {
+            std::filesystem::path path(temp);
+            std::free(temp);
+            return path;
+          }
+          if (_dupenv_s(&temp, &len, "TMP") == 0 && temp) {
+            std::filesystem::path path(temp);
+            std::free(temp);
+            return path;
+          }
+          return std::filesystem::path("C:\\Windows\\Temp");
+        #else
+          return std::filesystem::path("/tmp");
+        #endif
         }
     }
 }

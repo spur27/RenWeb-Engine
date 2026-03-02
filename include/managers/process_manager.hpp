@@ -1,26 +1,1398 @@
 #pragma once
 
-#include "daemon_manager.hpp"
-#include <memory>
+#include "../interfaces/Ilogger.hpp"
+#include "../interfaces/Iprocess_manager.hpp"
+#include "../app.hpp"
+#include "../file.hpp"
+#include "../locate.hpp"
+#if __has_include(<boost/process/v1/child.hpp>)
+    #include <boost/process/v1/child.hpp>
+    #include <boost/process/v1/io.hpp>
+    #define BOOST_PROCESS_V1_NAMESPACE ::boost::process::v1
+#else
+    #include <boost/process/child.hpp>
+    #include <boost/process/io.hpp>
+    #define BOOST_PROCESS_V1_NAMESPACE ::boost::process
+#endif
+#include <boost/json.hpp>
+#include <boost/asio/signal_set.hpp>
+#include <boost/asio/io_context.hpp>
+#include <csignal>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <map>
+#include <deque>
+#include <future>
+
+#if defined(_WIN32)
+    #include <windows.h>
+    #include <tlhelp32.h>
+    #include <psapi.h>
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <iphlpapi.h>
+    #if __has_include(<boost/process/v1/windows.hpp>)
+        #include <boost/process/v1/windows.hpp>
+    #else
+        #include <boost/process/windows.hpp>
+    #endif
+    #pragma comment(lib, "iphlpapi.lib")
+    #pragma comment(lib, "ws2_32.lib")
+#elif defined(__APPLE__)
+    #include <sys/sysctl.h>
+    #include <libproc.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+#elif defined(__linux__)
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+#endif
+
+namespace json = boost::json;
+using File = RenWeb::File;
+using Child = BOOST_PROCESS_V1_NAMESPACE::child;
+
+typedef int32_t Pid;
+typedef uint16_t Port;
+typedef uint64_t MemoryKB;
+
+/* ========== Process Info ==========
+*   Pid pid, 
+*   Pid ppid, 
+*   const std::string& name,
+*   const std::string& path, 
+*   const std::vector<std::string>& args,
+*   bool is_background_process,
+*   bool is_running,
+*   bool is_child,
+*   int exit_code,
+*   const std::string& started_at,
+*   MemoryKB memory_kb, 
+*   int32_t threads,
+*   const std::string& url,
+*   const std::string& page,
+*   bool renweb
+=================================== */
 
 namespace RenWeb {
-    template <typename Key>
-    class ProcessManager : public DaemonManager<Key> {
+    struct Process {
+        Child process; 
+        bool is_detachable;
+        bool is_renweb;
+        File out_file;
+    };
+    class ProcessManager : public IProcessManager {
+        private:
+            std::shared_ptr<ILogger> logger;
+            App* app;
+            mutable std::map<Pid, Process> child_processes;
+            std::unique_ptr<boost::asio::io_context> signal_io_context;
+            std::unique_ptr<boost::asio::signal_set> signals;
+            std::thread signal_thread;
+            
+            static std::filesystem::path getRegistryPath();
+            static std::filesystem::path getProcessOutputDir(Pid pid);
+            static bool isProcessAlive(Pid pid);
+            static json::array readRegistryFile();
+            static bool writeRegistryFile(const json::array& entries);
+            static void cleanStaleEntries();
+            std::filesystem::path searchExecutableInPath(const std::string& executable);
+            void setupSignalHandler();
+
+            json::object buildProcessInfo(
+                Pid pid, 
+                Pid ppid, 
+                const std::string& name,
+                const std::string& path, 
+                const std::vector<std::string>& args,
+                bool is_background_process,
+                bool is_running,
+                bool is_child,
+                int exit_code,
+                const std::string& started_at,
+                MemoryKB memory_kb, 
+                int32_t threads,
+                const std::string& url,
+                const std::string& page,
+                bool renweb
+            ) const;
+
+            json::object dumpSystemProcess(Pid pid) const;
+            json::object dumpRenWebProcess(Pid pid) const;
+            json::object createChildProcess(
+                const std::vector<std::string>& args, 
+                bool is_detachable, 
+                bool is_renweb,
+                bool share_stdio
+            );
         public:
-            ProcessManager(std::shared_ptr<ILogger> logger) : DaemonManager<Key>(logger) {};
-            ~ProcessManager() {
-                std::vector<Key> keys;
-                keys.reserve(this->processes.size());
-                for (const auto& [key, _] : this->processes) {
-                    keys.push_back(key);
-                }
-                
-                for (const auto& key : keys) {
-                    if (this->hasRunning(key)) {
-                        this->kill(key);
-                    }
-                }
-                this->processes.clear();
-            };
+            ProcessManager(std::shared_ptr<ILogger> logger, App* app);
+            ~ProcessManager() override;
+
+            json::object dumpProcess(Pid pid) const override;
+            json::object dumpCurrentProcess() const override;
+            json::array dumpSystemProcesses() const override;
+            json::array dumpRenWebProcesses() const override;
+            json::array dumpChildProcesses() const override;
+            json::object createSystemProcess(
+                const std::vector<std::string>& args, 
+                bool is_detachable,
+                bool share_stdio
+            ) override;
+            json::object createRenWebProcess(
+                const std::vector<std::string>& pages, 
+                std::vector<std::string> args,
+                bool is_detachable,
+                bool include_current_args,
+                bool share_stdio
+            ) override;
+            Pid getPid() const override;
+            void kill(Pid pid, int32_t signal = SIGTERM) override;
+            void detach(Pid pid) override;
+            void send(Pid pid, const json::value& message) override;
+            std::vector<std::string> listen(Pid pid, int64_t lines = INT64_MAX, bool tail = false) const override;
+            void wait(Pid pid) override;
+            void waitAll() override;
+
+            void registerProcess() const override;
+            void unregisterProcess() const;
     };
 };
+
+using PM = RenWeb::ProcessManager;
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ std::filesystem::path PM::getRegistryPath() {
+    std::filesystem::path temp_dir = Locate::tempDirectory();
+    std::filesystem::path renweb_dir = temp_dir / ".renweb";
+    
+    if (!std::filesystem::exists(renweb_dir)) {
+        std::filesystem::create_directories(renweb_dir);
+    }
+    
+    return renweb_dir / "proc.json";
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ std::filesystem::path PM::getProcessOutputDir(Pid pid) {
+    std::filesystem::path temp_dir = Locate::tempDirectory();
+    std::filesystem::path pid_dir = temp_dir / ".renweb" / "proc" / std::to_string(pid);
+    
+    std::error_code ec;
+    if (!std::filesystem::exists(pid_dir)) {
+        std::filesystem::create_directories(pid_dir);
+    }
+    
+    return pid_dir;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ bool PM::isProcessAlive(Pid pid) {
+#if defined(_WIN32)
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (hProcess) {
+        DWORD exitCode;
+        if (GetExitCodeProcess(hProcess, &exitCode)) {
+            CloseHandle(hProcess);
+            return exitCode == STILL_ACTIVE;
+        }
+        CloseHandle(hProcess);
+    }
+    return false;
+#else
+    return ::kill(pid, 0) == 0;
+#endif
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ json::array PM::readRegistryFile() {
+    std::filesystem::path registry_path = PM::getRegistryPath();
+    if (!std::filesystem::exists(registry_path)) {
+        return json::array();
+    }
+    
+    try {
+        std::ifstream file(registry_path);
+        if (!file.is_open()) return json::array();
+        
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+        
+        if (content.empty()) return json::array();
+        
+        boost::system::error_code ec;
+        json::value parsed = json::parse(content, ec);
+        if (ec || !parsed.is_array()) {
+            return json::array();
+        }
+        
+        return parsed.as_array();
+    } catch (const std::exception&) {
+        return json::array();
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ bool PM::writeRegistryFile(const json::array& entries) {
+    try {
+        const std::filesystem::path& registry_path = PM::getRegistryPath();
+        std::ofstream out_file(registry_path, std::ios::trunc);
+        if (!out_file.is_open()) return false;
+        
+        out_file << json::serialize(entries);
+        out_file.close();
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline /*static*/ void PM::cleanStaleEntries() {
+ // Registry File
+    std::filesystem::path temp_dir = Locate::tempDirectory();
+    std::filesystem::path renweb_dir = temp_dir / ".renweb";
+    
+    json::array entries = readRegistryFile();
+    if (!entries.empty()) {
+        json::array valid_entries;
+        
+        for (const auto& entry : entries) {
+            if (!entry.is_object()) continue;
+            
+            const auto& obj = entry.as_object();
+            if (!obj.contains("pid")) continue;
+            
+            Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
+            if (isProcessAlive(pid)) {
+                valid_entries.push_back(entry);
+            }
+        }
+        
+        if (valid_entries.size() != entries.size()) {
+            writeRegistryFile(valid_entries);
+        }
+    }
+    
+ // PID directories
+    try {
+        std::filesystem::path proc_dir = renweb_dir / "proc";
+        if (!std::filesystem::exists(proc_dir)) return;
+        
+        for (const auto& entry : std::filesystem::directory_iterator(proc_dir)) {
+            if (!entry.is_directory()) continue;
+            
+            std::string dir_name = entry.path().filename().string();
+            if (dir_name.empty() || !std::all_of(dir_name.begin(), dir_name.end(), ::isdigit)) {
+                continue;
+            }
+            
+            try {
+                Pid pid = static_cast<Pid>(std::stoll(dir_name));
+                if (!isProcessAlive(pid)) {
+                    std::error_code ec;
+                    std::filesystem::remove_all(entry.path(), ec);
+                }
+            } catch (...) { }
+        }
+    } catch (const std::exception&) { }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::buildProcessInfo(
+    Pid pid, 
+    Pid ppid, 
+    const std::string& name,
+    const std::string& path, 
+    const std::vector<std::string>& args,
+    bool is_background_process,
+    bool is_running,
+    bool is_child,
+    int exit_code,
+    const std::string& started_at,
+    MemoryKB memory_kb, 
+    int32_t threads,
+    const std::string& url,
+    const std::string& page,
+    bool renweb
+) const {
+    json::object obj;
+    obj["pid"] = pid;
+    obj["ppid"] = ppid;
+    obj["name"] = name;
+    obj["path"] = path;
+    obj["args"] = json::array(args.begin(), args.end());
+    obj["is_background_process"] = is_background_process;
+    obj["is_running"] = is_running;
+    obj["is_child"] = is_child;
+    obj["exit_code"] = exit_code;
+    obj["started_at"] = started_at;
+    obj["memory_kb"] = memory_kb;
+    obj["threads"] = threads;
+    obj["url"] = url;
+    obj["page"] = page;
+    obj["renweb"] = renweb;
+    return obj;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::dumpSystemProcess(Pid pid) const {
+#if defined(_WIN32)
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (!hProcess) return json::object();
+    
+    // Get memory info
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (!GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+        CloseHandle(hProcess);
+        return json::object();
+    }
+    MemoryKB memory_kb = static_cast<MemoryKB>(pmc.WorkingSetSize / 1024);
+    
+    // Get process creation time
+    FILETIME createTime, exitTime, kernelTime, userTime;
+    std::string started_at;
+    if (GetProcessTimes(hProcess, &createTime, &exitTime, &kernelTime, &userTime)) {
+        ULARGE_INTEGER uli;
+        uli.LowPart = createTime.dwLowDateTime;
+        uli.HighPart = createTime.dwHighDateTime;
+        started_at = std::to_string(uli.QuadPart);
+    }
+    
+    // Get exe path while handle is open
+    wchar_t path_buffer[MAX_PATH];
+    std::string exe_path;
+    DWORD path_len = MAX_PATH;
+    if (QueryFullProcessImageNameW(hProcess, 0, path_buffer, &path_len)) {
+        char narrow[MAX_PATH];
+        WideCharToMultiByte(CP_UTF8, 0, path_buffer, -1, narrow, MAX_PATH, NULL, NULL);
+        exe_path = narrow;
+    }
+    
+    CloseHandle(hProcess);
+    
+    // Check if background process: try to attach to parent console
+    // If FreeConsole + AttachConsole(ATTACH_PARENT_PROCESS) fails, it's a background process
+    // This is safer than checking GetConsoleWindow() which may not exist initially
+    bool is_background = (GetConsoleWindow() == NULL);
+    
+    // Get parent PID, threads, and name from snapshot
+    Pid parent_pid = 0;
+    std::string name;
+    int32_t threads = 0;
+    
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot != INVALID_HANDLE_VALUE) {
+        PROCESSENTRY32W pe32;
+        pe32.dwSize = sizeof(PROCESSENTRY32W);
+        if (Process32FirstW(snapshot, &pe32)) {
+            do {
+                if (pe32.th32ProcessID == static_cast<DWORD>(pid)) {
+                    parent_pid = static_cast<Pid>(pe32.th32ParentProcessID);
+                    threads = static_cast<int32_t>(pe32.cntThreads);
+                    
+                    char narrow[MAX_PATH];
+                    WideCharToMultiByte(CP_UTF8, 0, pe32.szExeFile, -1, narrow, MAX_PATH, NULL, NULL);
+                    name = narrow;
+                    break;
+                }
+            } while (Process32NextW(snapshot, &pe32));
+        }
+        CloseHandle(snapshot);
+    }
+    
+    // Build args vector
+    std::vector<std::string> args;
+    if (!exe_path.empty()) {
+        args.push_back(exe_path);
+    } else if (!name.empty()) {
+        args.push_back(name);
+    }
+        
+    // Check if this is a managed child process and get actual running state
+    bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
+    
+    return buildProcessInfo(pid, parent_pid, name, exe_path, args,
+                           is_background,
+                           is_running,
+                           is_child,
+                           0,      // exit_code - N/A for running process
+                           started_at,
+                           memory_kb, threads, "", "", false);
+    
+#elif defined(__APPLE__)
+    struct proc_bsdinfo proc_info;
+    if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &proc_info, sizeof(proc_info)) <= 0) {
+        return json::object();
+    }
+    
+    std::string name = proc_info.pbi_name;
+    Pid ppid = proc_info.pbi_ppid;
+    
+    // Get process path
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE];
+    std::string exe_path;
+    if (proc_pidpath(pid, pathbuf, sizeof(pathbuf)) > 0) {
+        exe_path = pathbuf;
+    }
+    
+    // Get memory and thread info
+    struct proc_taskinfo task_info;
+    MemoryKB memory_kb = 0;
+    int32_t threads = 0;
+    if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task_info, sizeof(task_info)) > 0) {
+        memory_kb = static_cast<MemoryKB>(task_info.pti_resident_size / 1024);
+        threads = static_cast<int32_t>(task_info.pti_threadnum);
+    }
+    
+    // Process start time from BSD info
+    std::string started_at = std::to_string(proc_info.pbi_start_tvsec);
+    
+    // Check if background process (no controlling terminal)
+    bool is_background = ((proc_info.pbi_flags & PROC_FLAG_CONTROLT) == 0);
+    
+    // Build args
+    std::vector<std::string> args;
+    if (!exe_path.empty()) {
+        args.push_back(exe_path);
+    } else if (!name.empty()) {
+        args.push_back(name);
+    }
+        
+    // Check if this is a managed child process and get actual running state
+    bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
+    
+    return buildProcessInfo(pid, ppid, name, exe_path, args,
+                           is_background,
+                           is_running,
+                           is_child,
+                           0,      // exit_code
+                           started_at,
+                           memory_kb, threads, "", "", false);
+    
+#elif defined(__linux__)
+    std::string proc_path = "/proc/" + std::to_string(pid);
+    if (!std::filesystem::exists(proc_path)) {
+        return json::object();
+    }
+    
+    Pid ppid = 0;
+    int32_t threads = 0;
+    MemoryKB memory_kb = 0;
+    std::string name, exe_path, started_at;
+    std::vector<std::string> args;
+    bool is_background = false;
+
+ // Check /proc/<pid>/stat
+    std::ifstream stat_file(proc_path + "/stat");
+    if (stat_file.is_open()) {
+        std::string line;
+        std::getline(stat_file, line);
+        
+        size_t first_paren = line.find('(');
+        size_t last_paren = line.rfind(')');
+        
+        if (first_paren != std::string::npos && last_paren != std::string::npos) {
+            name = line.substr(first_paren + 1, last_paren - first_paren - 1);
+            
+            std::istringstream iss(line.substr(last_paren + 2));
+            int32_t ppid_temp;
+            int64_t pgrp, session, tty_nr, tpgid;
+            uint64_t flags, minflt, cminflt, majflt, cmajflt, utime, stime;
+            int64_t cutime, cstime, priority, nice, threads_temp, itrealvalue, starttime_val;
+            char state_char;
+            
+            iss >> state_char >> ppid_temp >> pgrp >> session >> tty_nr >> tpgid >> flags
+                >> minflt >> cminflt >> majflt >> cmajflt
+                >> utime >> stime >> cutime >> cstime
+                >> priority >> nice >> threads_temp >> itrealvalue >> starttime_val;
+            
+            ppid = static_cast<Pid>(ppid_temp);
+            threads = static_cast<int32_t>(threads_temp);
+            started_at = std::to_string(starttime_val);
+            is_background = (tty_nr == 0);
+        }
+    }
+    
+ // Check /proc/<pid>/status
+    std::ifstream status_file(proc_path + "/status");
+    if (status_file.is_open()) {
+        std::string line;
+        while (std::getline(status_file, line)) {
+            if (line.rfind("VmRSS:", 0) == 0) {
+                std::istringstream iss(line.substr(6));
+                uint64_t memory_kb_temp;
+                iss >> memory_kb_temp;
+                memory_kb = static_cast<MemoryKB>(memory_kb_temp);
+                break;
+            }
+        }
+    }
+    
+ // Check /proc/<pid>/exe
+    std::error_code ec;
+    auto exe_link = std::filesystem::read_symlink(proc_path + "/exe", ec);
+    if (!ec) {
+        exe_path = exe_link.string();
+    }
+    
+ // Check /proc/<pid>/cmdline
+    std::ifstream cmdline_file(proc_path + "/cmdline");
+    if (cmdline_file.is_open()) {
+        std::string cmdline_content;
+        std::getline(cmdline_file, cmdline_content, '\0');
+        
+        for (size_t start = 0, i = 0; i <= cmdline_content.length(); i++) {
+            if (i == cmdline_content.length() || cmdline_content[i] == '\0') {
+                if (i > start) {
+                    args.push_back(cmdline_content.substr(start, i - start));
+                }
+                start = i + 1;
+            }
+        }
+    }
+    
+    if (args.empty()) {
+        args.push_back(name);
+    }
+    
+ // check if child
+    bool is_child = (this->child_processes.find(pid) != this->child_processes.end());
+    bool is_running = true;
+    if (is_child) {
+        is_running = this->child_processes.at(pid).process.running();
+    }
+    
+    return buildProcessInfo(pid, ppid, name, exe_path, args,
+                           is_background,
+                           is_running,
+                           is_child,
+                           0,
+                           started_at,
+                           memory_kb, threads, "", "", false);
+#endif
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::dumpRenWebProcess(Pid pid) const {
+    if (pid == this->getPid()) {
+        return this->dumpCurrentProcess();
+    }
+    
+    if (!this->app || !this->app->ws) {
+        this->logger->error("[proc] App and/or Webserver are null. Cannot get renweb process info for PID " + std::to_string(pid));
+        return json::object();
+    }
+    
+    json::array registry = PM::readRegistryFile();
+    for (const auto& entry : registry) {
+        if (!entry.is_object()) continue;
+        
+        const auto& obj = entry.as_object();
+        if (!obj.contains("pid") || !obj.contains("url")) continue;
+        
+        Pid entry_pid = static_cast<Pid>(obj.at("pid").as_int64());
+        if (entry_pid != pid) continue;
+        
+        std::string url = obj.at("url").as_string().c_str();
+        json::object proc_info = this->app->ws->whoAreYou(url);
+        
+        if (!proc_info.empty()) {
+            proc_info["is_child"] = (this->child_processes.find(pid) != this->child_processes.end());
+            return proc_info;
+        }
+        
+        break;
+    }
+    
+    return json::object();
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline PM::ProcessManager(std::shared_ptr<ILogger> logger, App* app) 
+  : logger(logger), app(app) 
+{
+    PM::cleanStaleEntries();
+    this->setupSignalHandler();
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline PM::~ProcessManager() {
+    if (this->signal_io_context) {
+        this->signal_io_context->stop();
+    }
+    if (this->signal_thread.joinable()) {
+        this->signal_thread.join();
+    }
+    
+    this->unregisterProcess();
+    
+    for (auto& [pid, child_info] : this->child_processes) {
+        if (child_info.process.running()) {
+            if (child_info.is_detachable) {
+                child_info.process.detach();
+                this->logger->debug("[proc] Detached background process PID " + std::to_string(pid) + " during destruction");
+            } else {
+                this->kill(pid);
+                child_info.process.wait();
+                this->logger->debug("[proc] Terminated child process PID " + std::to_string(pid) + " during destruction");
+            }
+        }
+    }
+    
+    std::error_code ec;
+    std::filesystem::path pid_dir = getProcessOutputDir(this->getPid());
+    std::filesystem::remove_all(pid_dir, ec);
+    if (ec) {
+        this->logger->warn("[proc] Failed to remove PID directory during destruction: " + ec.message());
+    }
+
+    PM::cleanStaleEntries();
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::dumpProcess(Pid pid) const {
+    if (pid == this->getPid()) {
+        return dumpCurrentProcess();
+    } else if (this->child_processes.find(pid) != this->child_processes.end()) {
+        const auto& child = this->child_processes.at(pid);
+        if (child.is_renweb) {
+            return dumpRenWebProcess(pid);
+        } else {
+            return dumpSystemProcess(pid);
+        }
+    }
+    
+    json::object process = dumpRenWebProcess(pid);
+    if (!process.empty()) {
+        return process;
+    }
+    
+    return dumpSystemProcess(pid);
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::dumpCurrentProcess() const {
+    json::object proc = dumpSystemProcess(this->getPid());
+    
+    if (this->app && this->app->ws) {
+        proc["args"] = json::array(this->app->orig_args.begin(), this->app->orig_args.end());
+        proc["renweb"] = true;
+        proc["url"] = this->app->ws->getURL();
+        if (this->app->config) {
+            proc["page"] = this->app->config->current_page;
+        }
+    } else {
+        this->logger->error("[proc] App and/or Webserver are null. Cannot get current process info");
+    }
+        
+    return proc;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::array PM::dumpRenWebProcesses() const {
+    this->logger->debug("[proc] dumpRenWebProcesses() called");
+    
+    if (!this->app || !this->app->ws) {
+        this->logger->error("[proc] App and/or Webserver are null. Cannot get renweb processes info");
+        return json::array();
+    }
+    
+    json::array registry = PM::readRegistryFile();
+    this->logger->debug("[proc] Found " + std::to_string(registry.size()) + " RenWeb processes in registry");
+    
+    json::array processes;
+    std::vector<std::future<json::object>> futures;
+    futures.reserve(registry.size());
+    
+    for (const auto& entry : registry) {
+        if (!entry.is_object()) continue;
+        
+        const auto& obj = entry.as_object();
+        if (!obj.contains("pid") || !obj.contains("url")) continue;
+        
+        Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
+        std::string url = obj.at("url").as_string().c_str();
+        
+        if (pid == this->getPid()) {
+            processes.push_back(this->dumpCurrentProcess());
+            continue;
+        }
+        
+        this->logger->trace("[proc] Querying " + url + " for PID " + std::to_string(pid));
+        
+        futures.push_back(std::async(std::launch::async, [this, url, pid]() -> json::object {
+            json::object proc_info = this->app->ws->whoAreYou(url);
+            
+            if (!proc_info.empty()) {
+                this->logger->debug("[proc] Got details from " + url);
+                proc_info["is_child"] = (this->child_processes.find(pid) != this->child_processes.end());
+                return proc_info;
+            } else {
+                this->logger->trace("[proc] No response from " + url);
+            }
+            return json::object();
+        }));
+    }
+    
+    for (auto& future : futures) {
+        json::object result = future.get();
+        if (!result.empty()) {
+            processes.push_back(result);
+        }
+    }
+    
+    this->logger->info("[proc] Found " + std::to_string(processes.size()) + " RenWeb processes");
+    return processes;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::array PM::dumpChildProcesses() const {
+    json::array children;
+    for (auto& [pid, child] : this->child_processes) {
+        if (child.is_renweb && child.process.running()) {
+            children.push_back(this->dumpRenWebProcess(pid));
+        } else {
+            children.push_back(this->dumpSystemProcess(pid));
+        }
+    }
+    return children;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::array PM::dumpSystemProcesses() const {
+    json::array system_processes;
+#if defined(_WIN32)
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) return system_processes;
+    
+    PROCESSENTRY32W pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32W);
+    
+    if (Process32FirstW(snapshot, &pe32)) {
+        do {
+            Pid pid = static_cast<Pid>(pe32.th32ProcessID);
+            json::object proc = dumpSystemProcess(pid);
+            if (!proc.empty()) {
+                system_processes.push_back(proc);
+            }
+        } while (Process32NextW(snapshot, &pe32));
+    }
+    
+    CloseHandle(snapshot);
+    
+#elif defined(__APPLE__)
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size;
+    
+    if (sysctl(mib, 4, nullptr, &size, nullptr, 0) != 0) return system_processes;
+    
+    size_t num_procs = size / sizeof(struct kinfo_proc);
+    std::vector<struct kinfo_proc> proc_list(num_procs);
+    
+    if (sysctl(mib, 4, proc_list.data(), &size, nullptr, 0) != 0) return system_processes;
+    
+    num_procs = size / sizeof(struct kinfo_proc);
+    
+    for (size_t i = 0; i < num_procs; i++) {
+        Pid pid = proc_list[i].kp_proc.p_pid;
+        json::object proc = dumpSystemProcess(pid);
+        if (!proc.empty()) {
+            system_processes.push_back(proc);
+        }
+    }
+    
+#elif defined(__linux__)
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator("/proc")) {
+            if (!entry.is_directory()) continue;
+            
+            std::string dir_name = entry.path().filename().string();
+            if (dir_name.empty() || !std::all_of(dir_name.begin(), dir_name.end(), ::isdigit)) {
+                continue;
+            }
+            
+            Pid pid = std::stoll(dir_name);
+            json::object proc = dumpSystemProcess(pid);
+            if (!proc.empty()) {
+                system_processes.push_back(proc);
+            }
+        }
+    } catch (...) {}
+#endif
+    return system_processes;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::createChildProcess(const std::vector<std::string>& args, bool is_detachable, bool is_renweb, bool share_stdio) {
+    if (args.empty()) {
+        this->logger->error("[proc] can't create process with no arguments");
+        return json::object();
+    }
+    
+    try {
+        std::filesystem::path proc_dir = getProcessOutputDir(this->getPid());
+        
+        std::string executable = args[0];
+        if (!std::filesystem::path(executable).is_absolute()) {
+            auto found_path = searchExecutableInPath(executable);
+            if (found_path.empty()) {
+                throw std::runtime_error("Executable '" + executable + "' not found in PATH");
+            }
+            executable = found_path.string();
+            this->logger->debug("[proc] Resolved '" + args[0] + "' to '" + executable + "'");
+        }
+        
+        std::vector<std::string> resolved_args = args;
+        resolved_args[0] = executable;
+        
+        Child proc;
+        Pid pid;
+        File out_file;
+
+        if (share_stdio) {
+            proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+            pid = static_cast<Pid>(proc.id());
+            out_file = File("");
+        } else {
+            std::string temp_filename = "temp_" + 
+                std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".txt";
+            std::filesystem::path temp_path = proc_dir / temp_filename;
+            
+            std::ofstream test_file(temp_path);
+            if (!test_file.is_open()) {
+                throw std::runtime_error("Failed to create output file: " + temp_path.string());
+            }
+            test_file.close();
+            
+            proc = Child(resolved_args,
+                        BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
+                        BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
+                        BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+            pid = static_cast<Pid>(proc.id());
+            
+            std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
+            std::error_code rename_ec;
+            std::filesystem::rename(temp_path, final_path, rename_ec);
+            if (rename_ec) {
+                this->logger->warn("[proc] Failed to rename output file: " + rename_ec.message() + 
+                                 ", keeping temp file: " + temp_path.string());
+                out_file = File(temp_path.string());
+            } else {
+                out_file = File(final_path.string());
+            }
+        }
+        
+        this->child_processes.emplace(pid, Process{
+            std::move(proc), 
+            is_detachable, 
+            is_renweb,
+            std::move(out_file)
+        });
+        
+        json::object info = is_renweb ? dumpRenWebProcess(pid) : dumpSystemProcess(pid);
+        
+        this->logger->info("[proc] Created " + std::string(is_detachable ? "detachable" : "foreground") + 
+                         (is_renweb ? " renweb" : "") + " process '" + args[0] + "' at PID " + std::to_string(pid));
+        
+        return info;
+    } catch (const std::exception& e) {
+        this->logger->error("[proc] Failed to create process: " + std::string(e.what()));
+        return json::object();
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::createSystemProcess(const std::vector<std::string>& args, bool is_detachable, bool share_stdio) {
+    return createChildProcess(args, is_detachable, false, share_stdio);
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline json::object PM::createRenWebProcess(
+    const std::vector<std::string>& pages,
+    std::vector<std::string> args,
+    bool is_detachable,
+    bool include_current_args,
+    bool share_stdio) 
+{
+    if (include_current_args) {
+        if (!this->app) {
+            this->logger->error("[proc] App is null. Cannot include current arguments for new RenWeb process");
+        } else if (this->app->orig_args.size() > 1) {
+            const std::vector<std::string> copyable_orig_args = {this->app->orig_args.begin() + 1, this->app->orig_args.end()}; 
+            bool page_skip_flag = false;
+            for (const auto& arg : copyable_orig_args) {
+                if (page_skip_flag) {
+                    page_skip_flag = false;
+                    continue;
+                }
+                bool is_empty = arg.empty();
+                bool is_whitespace = std::all_of(arg.begin(), arg.end(), [](unsigned char c) { return std::isspace(c); });
+                bool is_page = arg.rfind("-p", 0) == 0 || arg.rfind("--page=", 0) == 0;
+                if (arg.rfind("--page", 0) == 0 && !is_page) {
+                    is_page = true;
+                    page_skip_flag = true;
+                }
+                if (!is_empty && !is_whitespace && !is_page) {
+                    args.push_back(arg);
+                }
+            }
+        }
+    }
+    for (const auto& page : pages) {
+        args.push_back("-p" + page);
+    }
+    if (std::find(args.begin(), args.end(), "-b") == args.end()) {
+        args.push_back("-b");
+    }
+    args.insert(args.begin(), Locate::executable().string());
+    return createChildProcess(args, is_detachable, true, share_stdio);
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline Pid PM::getPid() const {
+#if defined(_WIN32)
+    Pid current_pid = GetCurrentProcessId();
+#else
+    Pid current_pid = getpid();
+#endif
+    return current_pid;
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::kill(Pid pid, int32_t sig) {
+#if defined(_WIN32)
+    #ifndef SIGKILL
+        #define SIGKILL 9
+    #endif
+    
+    switch (sig) {
+        case SIGINT:
+            if (GenerateConsoleCtrlEvent(CTRL_C_EVENT, static_cast<DWORD>(pid))) {
+                this->logger->info("[proc] Sent Ctrl+C (SIGINT) to PID " + std::to_string(pid));
+            } else {
+                this->logger->error("[proc] Failed to send Ctrl+C to PID " + std::to_string(pid) + 
+                                  " (Error: " + std::to_string(GetLastError()) + ")");
+            }
+            break;
+        case SIGBREAK:
+            if (GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, static_cast<DWORD>(pid))) {
+                this->logger->info("[proc] Sent Ctrl+Break (SIGBREAK) to PID " + std::to_string(pid));
+            } else {
+                this->logger->error("[proc] Failed to send Ctrl+Break to PID " + std::to_string(pid) + 
+                                  " (Error: " + std::to_string(GetLastError()) + ")");
+            }
+            break;
+        case SIGTERM:
+        case SIGKILL: {
+            std::error_code ec;
+            auto it = this->child_processes.find(pid);
+            if (it == this->child_processes.end()) {
+                this->logger->warn("[proc] kill: PID " + std::to_string(pid) + " is not a managed child process");
+                return;
+            }
+            auto& proc = it->second.process;
+            proc.terminate(ec);
+            if (ec) {
+                this->logger->error("[proc] Failed to kill PID " + std::to_string(pid) + ": " + ec.message());
+            } else {
+                this->logger->info("[proc] Forcefully killed process PID " + std::to_string(pid) + " (SIGKILL)");
+            }
+            break;
+        }
+        default:
+            this->logger->error("[proc] Signal " + std::to_string(sig) + " is not supported on Windows. " +
+                              "Supported signals: SIGINT (Ctrl+C), SIGBREAK (Ctrl+Break), SIGTERM, SIGKILL");
+            break;
+    }
+#else
+    if (::kill(pid, sig) == 0) {
+        this->logger->info("[proc] Sent signal " + std::to_string(sig) + " to process PID " + std::to_string(pid));
+    } else {
+        this->logger->error("[proc] Failed to send signal " + std::to_string(sig) + " to PID " + std::to_string(pid) + 
+                          ": " + std::string(strerror(errno)));
+    }
+#endif
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::detach(Pid pid) {
+    auto it = this->child_processes.find(pid);
+    if (it == this->child_processes.end()) {
+        this->logger->warn("[proc] detach: PID " + std::to_string(pid) + " is not a managed child process");
+        return;
+    }
+    
+    auto& proc = it->second.process;
+    if (proc.running()) {
+        proc.detach();
+        this->logger->info("[proc] Detached from child process PID " + std::to_string(pid));
+    }
+    
+    this->child_processes.erase(it);
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::send(Pid pid, const json::value& message) {
+    json::object proc = dumpRenWebProcess(pid);
+    if (proc.empty() || !proc.contains("url") || !proc["url"].is_string()) {
+        this->logger->warn("[proc] send: PID " + std::to_string(pid) + " is not a RenWeb process or has no URL");
+        return;
+    }
+    if (this->app && this->app->ws) {
+        this->app->ws->sendMessage(proc["url"].as_string().c_str(), message);
+    } else {
+        this->logger->error("[proc] App and/or Webserver are null. Cannot send message to PID " + std::to_string(pid));
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline std::vector<std::string> PM::listen(Pid pid, int64_t lines, bool tail) const {
+    std::filesystem::path file_path = (this->getPid() == pid) 
+        ? Locate::currentDirectory() / "log.txt" 
+        : getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
+    
+    auto process_head = [](std::istream& stream, size_t max_lines) {
+        std::vector<std::string> result;
+        std::string line;
+        while (std::getline(stream, line) && result.size() < max_lines) {
+            result.push_back(line);
+        }
+        return result;
+    };
+    
+    auto process_tail = [](std::istream& stream, size_t max_lines) {
+        std::deque<std::string> tail_buffer;
+        std::string line;
+        while (std::getline(stream, line)) {
+            tail_buffer.push_back(line);
+            if (tail_buffer.size() > max_lines) tail_buffer.pop_front();
+        }
+        return std::vector<std::string>(tail_buffer.begin(), tail_buffer.end());
+    };
+    
+    auto process_all = [](std::istream& stream) {
+        std::vector<std::string> result;
+        std::string line;
+        while (std::getline(stream, line)) {
+            result.push_back(line);
+        }
+        return result;
+    };
+    
+#if defined(_WIN32)
+    HANDLE hFile = CreateFileW(file_path.wstring().c_str(), GENERIC_READ,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    
+    if (hFile == INVALID_HANDLE_VALUE) {
+        this->logger->error("[proc] listen: Failed to open output file for PID " + std::to_string(pid));
+        return {};
+    }
+    
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx(hFile, &file_size)) {
+        CloseHandle(hFile);
+        return {};
+    }
+    
+    std::vector<char> buffer(static_cast<size_t>(file_size.QuadPart) + 1);
+    DWORD bytes_read;
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(file_size.QuadPart), &bytes_read, NULL)) {
+        CloseHandle(hFile);
+        this->logger->error("[proc] listen: Failed to read output file for PID " + std::to_string(pid));
+        return {};
+    }
+    buffer[bytes_read] = '\0';
+    CloseHandle(hFile);
+    
+    std::istringstream stream(buffer.data());
+#else
+    std::ifstream file(file_path, std::ios::binary);
+    if (!file.is_open()) {
+        this->logger->error("[proc] listen: Failed to open output file for PID " + std::to_string(pid));
+        return {};
+    }
+    std::istream& stream = file;
+#endif
+    
+    // Determine processing mode and execute
+    if (lines <= 0) return process_all(stream);
+    return tail ? process_tail(stream, static_cast<size_t>(lines)) 
+                : process_head(stream, static_cast<size_t>(lines));
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::wait(Pid pid) {
+    auto it = this->child_processes.find(pid);
+    if (it != this->child_processes.end()) {
+        auto& proc = it->second.process;
+        if (proc.running()) {
+            this->logger->info("[proc] Waiting for child process PID " + std::to_string(pid));
+            proc.wait();
+        }
+        return;
+    }
+    
+#if defined(_WIN32)
+    HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+    if (hProcess) {
+        this->logger->info("[proc] Waiting for external process PID " + std::to_string(pid));
+        WaitForSingleObject(hProcess, INFINITE);
+        CloseHandle(hProcess);
+    } else {
+        this->logger->warn("[proc] wait: Cannot wait for PID " + std::to_string(pid) + " (not accessible or already terminated)");
+    }
+#else
+    this->logger->info("[proc] Polling for external process PID " + std::to_string(pid));
+    while (::kill(pid, 0) == 0) {
+        usleep(50000); // 50ms
+    }
+    this->logger->info("[proc] External process PID " + std::to_string(pid) + " has terminated");
+#endif
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::waitAll() {
+    for (auto& [pid, child] : this->child_processes) {
+        if (child.process.running()) {
+            this->wait(pid);
+        }
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::registerProcess() const /*override*/ {
+    if (!this->app || !this->app->ws) {
+        this->logger->warn("[proc] Cannot register process: app/webserver not initialized");
+        return;
+    }
+        
+    try {
+        json::array entries = PM::readRegistryFile();
+        
+        json::object entry;
+        entry["pid"] = this->getPid();
+        entry["url"] = this->app->ws->getURL();
+        entry["timestamp"] = std::chrono::system_clock::now().time_since_epoch().count();
+        
+        json::array new_entries;
+        Pid current_pid = this->getPid();
+        for (const auto& existing : entries) {
+            if (existing.is_object() && existing.as_object().contains("pid")) {
+                if (existing.as_object().at("pid").as_int64() != current_pid) {
+                    new_entries.push_back(existing);
+                }
+            }
+        }
+        new_entries.push_back(entry);
+        
+        if (PM::writeRegistryFile(new_entries)) {
+            this->logger->debug("[proc] Registered process PID " + std::to_string(current_pid) + " at " + this->app->ws->getURL());
+        } else {
+            this->logger->error("[proc] Failed to write registry file");
+        }
+    } catch (const std::exception& e) {
+        this->logger->error("[proc] Error registering process: " + std::string(e.what()));
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::unregisterProcess() const {
+    std::filesystem::path registry_path = getRegistryPath();
+    
+    try {
+        json::array entries = PM::readRegistryFile();
+        if (entries.empty()) return;
+        
+        json::array remaining;
+        Pid current_pid = this->getPid();
+        
+        for (const auto& entry : entries) {
+            if (!entry.is_object()) continue;
+            
+            const auto& obj = entry.as_object();
+            if (!obj.contains("pid")) continue;
+            
+            Pid pid = static_cast<Pid>(obj.at("pid").as_int64());
+            if (pid != current_pid) {
+                remaining.push_back(entry);
+            }
+        }
+        
+        if (PM::writeRegistryFile(remaining)) {
+            this->logger->debug("[proc] Unregistered process PID " + std::to_string(current_pid));
+        }
+    } catch (const std::exception& e) {
+        this->logger->error("[proc] Error unregistering process: " + std::string(e.what()));
+    }
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline void PM::setupSignalHandler() {
+    this->signal_io_context = std::make_unique<boost::asio::io_context>();
+    this->signals = std::make_unique<boost::asio::signal_set>(*this->signal_io_context, SIGINT, SIGTERM);
+    
+#if defined(_WIN32)
+    this->signals->add(SIGBREAK);
+#endif
+
+    this->signals->async_wait([this](const boost::system::error_code& error, int signal_number) {
+        if (!error) {
+            this->logger->info("[proc] Received signal " + std::to_string(signal_number) + ", terminating application");
+            if (this->app && this->app->w) {
+                this->app->w->terminate();
+            }
+        }
+    });
+    
+    this->signal_thread = std::thread([this]() {
+        this->signal_io_context->run();
+    });
+    
+    this->logger->debug("[proc] Signal handler initialized for SIGINT, SIGTERM" +
+#if defined(_WIN32)
+        std::string(", SIGBREAK")
+#else
+        std::string("")
+#endif
+    );
+}
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+// ----------------------------------------------------------
+
+inline std::filesystem::path PM::searchExecutableInPath(const std::string& executable) {
+#if defined(_WIN32)
+    char buffer[MAX_PATH];
+    DWORD len = SearchPathA(nullptr, executable.c_str(), ".exe", MAX_PATH, buffer, nullptr);
+    return (len > 0 && len < MAX_PATH) ? std::filesystem::path(buffer) : std::filesystem::path();
+#else
+    const char* path_env = std::getenv("PATH");
+    if (!path_env || *path_env == '\0') { // fallback to standard unix application paths
+        path_env = "/usr/local/bin:/usr/bin:/bin";
+    }
+    
+    const char* start = path_env;
+    const char* end;
+    
+    while (*start) {
+        end = std::strchr(start, ':');
+        if (!end) end = start + std::strlen(start);
+        
+        if (end > start) {
+            std::filesystem::path full_path(std::string(start, end - start));
+            full_path /= executable;
+            if (access(full_path.c_str(), X_OK) == 0) {
+                return full_path;
+            }
+        }
+        
+        start = (*end == ':') ? end + 1 : end;
+    }
+    
+    return std::filesystem::path();
+#endif
+}

@@ -21,6 +21,9 @@ namespace RenWeb {
                 webview_impl->run();
             }
             void terminate() override {
+                try {
+                    webview_impl->eval("if (typeof window.onTerminate === 'function') { window.onTerminate(); }");
+                } catch (...) { }
                 webview_impl->terminate();
             }
             void navigate(const std::string& url) override {
@@ -38,11 +41,17 @@ namespace RenWeb {
             void set_title(const std::string& title) override {
                 webview_impl->set_title(title);
             }
-            void set_size(int width, int height) override {
+            void set_size(int64_t width, int64_t height) override {
                 webview_impl->set_size(width, height, WEBVIEW_HINT_NONE);
+            }
+            void set_html(const std::string& html) override {
+                webview_impl->set_html(html);
             }
             void eval(const std::string& js) override {
                 webview_impl->eval(js);
+            }
+            void init(const std::string& js) override {
+                webview_impl->init(js);
             }
             
             std::optional<void*> window() override {

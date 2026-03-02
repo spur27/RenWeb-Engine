@@ -5,6 +5,7 @@
 #include "file.hpp"
 #include "json.hpp"
 #include "locate.hpp"
+#include "spdlog/common.h"
 #include "spdlog/logger.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -22,6 +23,7 @@ namespace RenWeb {
         bool log_silent = false;
         spdlog::level::level_enum log_level = spdlog::level::trace;
         bool log_clear = false;
+        bool log_boring = false;
     };
     class FakeLogger : public RenWeb::ILogger {
         public:
@@ -45,16 +47,9 @@ namespace RenWeb {
             )
             : flags(std::move(flags))
             { 
-                auto info_file = RenWeb::Info::getInfoFile();
-                auto info_packaging_obj = JSON::peek(info_file.get(), "packaging");
-                if (info_packaging_obj.is_object() && info_packaging_obj.as_object()["log_path"].is_string()) {
-                    std::filesystem::path log_path = (info_packaging_obj.as_object()["log_path"].as_string().c_str());
-                    if (!log_path.is_absolute()) {
-                        log_path = RenWeb::Locate::currentDirectory() / log_path;
-                    }
-                    this->file = std::shared_ptr<File>(new File(log_path));
-                } else {
-                    this->file = std::shared_ptr<File>(new File(Locate::currentDirectory() / "log.txt"));
+                this->file = std::make_shared<File>(Locate::currentDirectory() / "log.txt");
+                if (this->flags->log_clear) {
+                    this->file->clear();
                 }
                 this->refresh({});
             };
@@ -65,8 +60,13 @@ namespace RenWeb {
             : flags(std::move(flags)),
               file(file)
             { 
+                if (this->flags->log_clear) {
+                    this->file->clear();
+                }
                 this->refresh({});
             };
+            ~Logger() override = default;
+            
             void trace(const std::string& msg) override {
                 this->logger->trace(msg);
             }
@@ -106,7 +106,11 @@ namespace RenWeb {
                             << msg_str;
                 auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
                 console_sink->set_level(this->flags->log_level);
-                console_sink->set_pattern(colored_log_str.str());
+                if (this->flags->log_boring) {
+                    console_sink->set_pattern(boring_log_str.str());
+                } else {
+                    console_sink->set_pattern(colored_log_str.str());
+                }
 
                 auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
                 file_sink->set_level(spdlog::level::trace);
@@ -119,6 +123,11 @@ namespace RenWeb {
                 
                 this->logger.reset(new spdlog::logger("default", begin(log_sinks), end(log_sinks)));
                 this->logger->set_level(spdlog::level::trace);
+                if (this->flags->log_level < spdlog::level::info) {
+                    this->logger->flush_on(spdlog::level::trace);
+                } else {
+                    this->logger->flush_on(spdlog::level::err);
+                }
 
                 #if defined(_WIN32)
                     HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);

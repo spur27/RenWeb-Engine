@@ -2,31 +2,41 @@
 
 using File = RenWeb::File;
 
+File::File() 
+    : file_path("") 
+{ };
+
 File::File(std::filesystem::path file_path) 
     : file_path(std::move(file_path)) 
 { };
-// ~File() { }
-/*virtual*/ const std::filesystem::path File::getName() const {
+
+const std::filesystem::path File::getName() const {
     return this->file_path.filename();
 };
-/*virtual*/ const std::filesystem::path File::getExtension() const {
+
+const std::filesystem::path File::getExtension() const {
     return this->file_path.extension();
 };
-/*virtual*/ std::filesystem::path File::getDir() const {
+
+std::filesystem::path File::getDir() const {
     return this->file_path.parent_path();
 };
-/*virtual*/ const std::filesystem::path& File::getPath() const {
+
+const std::filesystem::path& File::getPath() const {
     return this->file_path;
 };
-/*virtual*/ void File::clear() const {
+
+void File::clear() const {
     if (std::filesystem::exists(this->getPath())) {
         std::filesystem::resize_file(this->getPath(), 0);
     }
 };
-/*virtual*/ bool File::exists() const {
+
+bool File::exists() const {
     return std::filesystem::exists(this->getPath());
 };
-/*virtual*/ std::shared_ptr<std::string> File::read() const {
+
+std::shared_ptr<std::string> File::read() const {
     if (!this->exists()) {
         throw std::runtime_error("File not found at '" + this->getPath().string() + "'. Could not attempt read.");
     }
@@ -43,7 +53,8 @@ File::File(std::filesystem::path file_path)
     }
     return contents;
 };
-/*virtual*/ void File::write(const std::string& data) const {
+
+void File::write(const std::string& data) const {
     std::ofstream file_stream(this->getPath(), std::ios::out | std::ios::binary);
     if (file_stream) {
         file_stream.write(data.c_str(), data.size());

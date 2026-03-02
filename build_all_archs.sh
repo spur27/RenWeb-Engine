@@ -5,9 +5,22 @@
 # =============================================================================
 # This script builds the RenWeb executable for all supported architectures
 # based on the detected operating system and available cross-compilers.
+#
+# Usage:
+#   ./build_all_archs.sh [--bundle]
+#
+# Options:
+#   --bundle    Bundle runtime libraries for portable deployment
 # =============================================================================
 
 set -e  # Exit on error
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+# Bundle libraries flag
+ENABLE_BUNDLE=false
 
 # Color codes for output
 RESET='\033[0m'
@@ -79,8 +92,14 @@ build_for_toolchain() {
     
     print_building "$arch_name" "$toolchain"
     
+    # Set BUNDLE parameter if enabled
+    local bundle_flag=""
+    if [ "$ENABLE_BUNDLE" = true ]; then
+        bundle_flag="BUNDLE=true"
+    fi
+    
     if make clear TOOLCHAIN="$toolchain" TARGET=release; then
-        if make TOOLCHAIN="$toolchain" TARGET=release -j$(nproc 2>/dev/null || echo 4); then
+        if make TOOLCHAIN="$toolchain" TARGET=release $bundle_flag -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built for $arch_name successfully"
             return 0
         else
@@ -99,8 +118,14 @@ build_native() {
     
     print_building "$arch_name" "native"
     
+    # Set BUNDLE parameter if enabled
+    local bundle_flag=""
+    if [ "$ENABLE_BUNDLE" = true ]; then
+        bundle_flag="BUNDLE=true"
+    fi
+    
     if make clear TARGET=release; then
-        if make TARGET=release -j$(nproc 2>/dev/null || echo 4); then
+        if make TARGET=release $bundle_flag -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built native for $arch_name successfully"
             return 0
         else
@@ -161,6 +186,9 @@ build_linux() {
     
     print_header "Building for Linux - All Architectures (13 total)"
     print_info "Host architecture: $HOST_ARCH"
+    if [ "$ENABLE_BUNDLE" = true ]; then
+        print_info "Bundling enabled: Libraries will be bundled with each build"
+    fi
     echo ""
     
     # Map host architecture to toolchain name to skip it later
@@ -233,6 +261,9 @@ build_macos() {
     
     print_header "Building for macOS - Multiple Architectures"
     print_info "Host architecture: $HOST_ARCH"
+    if [ "$ENABLE_BUNDLE" = true ]; then
+        print_info "Bundling enabled: Libraries will be bundled with each build"
+    fi
     echo ""
     
     if ! command_exists "clang++"; then
@@ -272,9 +303,15 @@ build_macos() {
         # Use 'make clear' which only removes objects, not executables
         make clear >/dev/null 2>&1
         
+        # Set BUNDLE parameter if enabled
+        local bundle_flag=""
+        if [ "$ENABLE_BUNDLE" = true ]; then
+            bundle_flag="BUNDLE=true"
+        fi
+        
         # Pass ARCH to makefile for filename and ARCH_FLAGS for compilation
         # The makefile will use ARCH in the output name and append ARCH_FLAGS to CXXFLAGS/LDFLAGS
-        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release -j$ncpu 2>&1; then
+        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release $bundle_flag -j$ncpu 2>&1; then
             print_success "Built for $arch successfully"
             success_count=$((success_count + 1))
         else
@@ -289,13 +326,13 @@ build_macos() {
         print_info "Creating universal binary (arm64 + x86_64)..."
         
         # Find the two binaries
-        local arm64_bin=$(ls ./build/renweb-*-apple-arm64 2>/dev/null | head -1)
-        local x86_64_bin=$(ls ./build/renweb-*-apple-x86_64 2>/dev/null | head -1)
+        local arm64_bin=$(ls ./build/renweb-*-macos-arm64 2>/dev/null | head -1)
+        local x86_64_bin=$(ls ./build/renweb-*-macos-x86_64 2>/dev/null | head -1)
         
         if [ -n "$arm64_bin" ] && [ -n "$x86_64_bin" ]; then
             # Extract version from info.json
             local version=$(grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4)
-            local universal_bin="./build/renweb-${version}-apple-universal"
+            local universal_bin="./build/renweb-${version}-macos-universal"
             
             if lipo -create "$arm64_bin" "$x86_64_bin" -output "$universal_bin" 2>/dev/null; then
                 print_success "Universal binary created: $universal_bin"
@@ -320,7 +357,7 @@ build_macos() {
     
     if [ $success_count -gt 0 ]; then
         print_info "Built executables are located in: ./build/"
-        ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-apple-" || true
+        ls -lh ./build/ 2>/dev/null | grep -E "renweb-.*-macos-" || true
     fi
 }
 
@@ -331,6 +368,9 @@ build_windows() {
     
     print_header "Building for Windows - All Architectures (3 total)"
     print_info "Detected Windows environment"
+    if [ "$ENABLE_BUNDLE" = true ]; then
+        print_warning "Bundling not yet implemented for Windows"
+    fi
     echo ""
     
     # Find Visual Studio installation
@@ -429,20 +469,30 @@ main() {
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --bundle)
+                ENABLE_BUNDLE=true
+                shift
+                ;;
             --help|-h)
-                echo "Usage: $0"
+                echo "Usage: $0 [--bundle]"
                 echo ""
                 echo "Description:"
                 echo "  Automatically detects your operating system and builds release"
                 echo "  versions for all supported architectures on that platform."
                 echo ""
+                echo "Options:"
+                echo "  --bundle    Bundle runtime libraries for portable deployment"
+                echo ""
                 echo "Supported platforms:"
-                echo "  - Linux:   13 architectures (x86_64, i686, ARM, MIPS, PowerPC, RISC-V, S390x, SPARC)"
+                echo "  - Linux:   13 architectures"
+                echo "             x86_64, x86_32, arm64, arm32, mips32, mips32el, mips64,"
+                echo "             mips64el, powerpc32, powerpc64, riscv64, s390x, sparc64"
                 echo "  - macOS:   2 architectures (x86_64, arm64)"
-                echo "  - Windows: 3 architectures (x64, x86, arm64)"
+                echo "  - Windows: 3 architectures (x86_64, x86_32, arm64)"
                 echo ""
                 echo "Example:"
-                echo "  $0    # Build all architectures for current OS"
+                echo "  $0            # Build all architectures for current OS"
+                echo "  $0 --bundle   # Build with bundled libraries for portability"
                 exit 0
                 ;;
             *)

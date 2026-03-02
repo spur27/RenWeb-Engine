@@ -1,0 +1,700 @@
+#!/usr/bin/env bash
+# =============================================================================
+# build_for_release.sh - Automated release build script for RenWeb
+# =============================================================================
+# Creates a complete release with example archives, executables, and bundles
+# =============================================================================
+
+set -e  # Exit on error
+
+# =============================================================================
+# Color codes for output
+# =============================================================================
+RESET='\033[0m'
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+MAGENTA='\033[35m'
+CYAN='\033[36m'
+BOLD='\033[1m'
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+print_header() {
+    echo -e "${CYAN}${BOLD}========================================${RESET}"
+    echo -e "${CYAN}${BOLD}$1${RESET}"
+    echo -e "${CYAN}${BOLD}========================================${RESET}"
+}
+
+print_info() {
+    echo -e "${GREEN}${BOLD}[INFO]${RESET} $1"
+}
+
+print_error() {
+    echo -e "${RED}${BOLD}[ERROR]${RESET} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}${BOLD}[WARN]${RESET} $1"
+}
+
+print_step() {
+    echo -e "${BLUE}${BOLD}[STEP]${RESET} $1"
+}
+
+# Detect operating system
+detect_os() {
+    case "$(uname -s)" in
+        Linux*) OS_NAME="Linux" ;;
+        Darwin*) OS_NAME="macOS" ;;
+        CYGWIN*|MINGW*|MSYS*) OS_NAME="Windows" ;;
+        *) OS_NAME="Unknown" ;;
+    esac
+}
+
+# Convert a POSIX path to a Windows path (fallback when cygpath is unavailable)
+to_windows_path() {
+    local p=$1
+    if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+        local drive=${BASH_REMATCH[1]^^}
+        local rest=${BASH_REMATCH[2]//\//\\}
+        echo "${drive}:\\${rest}"
+    else
+        echo "$p"
+    fi
+}
+
+# Create a zip archive (falls back to PowerShell on Windows)
+zip_dir() {
+    local src_dir=$1
+    local dest_zip=$2
+
+    local abs_src
+    local abs_dest
+    if command -v realpath >/dev/null 2>&1; then
+        abs_src=$(realpath "$src_dir")
+        abs_dest=$(realpath "$(dirname "$dest_zip")")/$(basename "$dest_zip")
+    else
+        abs_src="$(cd "$src_dir" && pwd)"
+        abs_dest="$(cd "$(dirname "$dest_zip")" && pwd)/$(basename "$dest_zip")"
+    fi
+
+    if command -v zip >/dev/null 2>&1; then
+        (cd "$abs_src" && zip -q -r "$abs_dest" .)
+        return $?
+    fi
+
+    if [ "$OS_NAME" = "Windows" ]; then
+        local ps_src
+        local ps_dest
+        if command -v cygpath >/dev/null 2>&1; then
+            ps_src="$(cygpath -w "$abs_src")\\*"
+            ps_dest="$(cygpath -w "$abs_dest")"
+        else
+            ps_src="$(to_windows_path "$abs_src")\\*"
+            ps_dest="$(to_windows_path "$abs_dest")"
+        fi
+        powershell.exe -NoProfile -Command "Compress-Archive -Path \"$ps_src\" -DestinationPath \"$ps_dest\" -Force" >/dev/null
+        return $?
+    fi
+
+    print_error "zip not found and no Windows fallback available"
+    return 1
+}
+
+# Create a tar.gz archive
+tar_dir() {
+    local src_dir=$1
+    local dest_tar=$2
+
+    local abs_src
+    local abs_dest
+    if command -v realpath >/dev/null 2>&1; then
+        abs_src=$(realpath "$src_dir")
+        abs_dest=$(realpath "$(dirname "$dest_tar")")/$(basename "$dest_tar")
+    else
+        abs_src="$(cd "$src_dir" && pwd)"
+        abs_dest="$(cd "$(dirname "$dest_tar")" && pwd)/$(basename "$dest_tar")"
+    fi
+
+    if command -v tar >/dev/null 2>&1; then
+        tar -czf "$abs_dest" -C "$abs_src" .
+        return $?
+    fi
+
+    print_error "tar not found; cannot create $dest_tar"
+    return 1
+}
+
+# Get version from info.json
+get_version() {
+    grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4 | xargs
+}
+
+# Get exe name from info.json
+get_exe_name() {
+    sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs
+}
+
+# Generate bundle_exec script for a specific executable
+generate_bundle_exec() {
+    local exe_name=$1
+    local version=$2
+    local os_name=$3
+    local output_file=$4
+    local bundle_type=${5:-loader}  # loader | bootstrap | full
+
+    if [ "$os_name" = "windows" ]; then
+        if [ "$bundle_type" = "bootstrap" ]; then
+            # Bootstrap bat: check registry for WebView2, run installer if missing
+            cat > "$output_file" <<'EOF'
+@echo off
+setlocal
+
+:: Get the directory where this batch file is located
+set "SCRIPT_DIR=%~dp0"
+
+:: Add the lib folder to PATH so WebView2Loader.dll is found
+if exist "%SCRIPT_DIR%lib" (
+    set "PATH=%SCRIPT_DIR%lib;%PATH%"
+)
+
+:: Check if WebView2 runtime is installed (system-wide or per-user)
+set "WV2_INSTALLED=0"
+for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+    if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
+)
+if "%WV2_INSTALLED%"=="0" (
+    for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+        if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
+    )
+)
+
+:: If not installed, run the bootstrapper
+if "%WV2_INSTALLED%"=="0" (
+    echo WebView2 runtime not found. Installing...
+    for %%f in ("%SCRIPT_DIR%lib\MicrosoftEdgeWebView2RuntimeInstaller*.exe") do (
+        "%%f" /silent /install
+    )
+    echo Installation complete.
+)
+
+:: Run the RenWeb executable with all passed arguments
+"%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
+
+endlocal
+EOF
+        else
+            # Standard bat: just add lib to PATH and launch
+            cat > "$output_file" <<'EOF'
+@echo off
+setlocal
+
+:: Get the directory where this batch file is located
+set "SCRIPT_DIR=%~dp0"
+
+:: Add the lib folder to PATH if it exists
+if exist "%SCRIPT_DIR%lib" (
+    set "PATH=%SCRIPT_DIR%lib;%PATH%"
+)
+
+:: Run the RenWeb executable with all passed arguments
+"%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
+
+endlocal
+EOF
+        fi
+    else
+        # Generate .sh file
+        cat > "$output_file" <<'EOF'
+#!/bin/bash
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Set library path based on OS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    if [ -d "$SCRIPT_DIR/lib" ]; then
+        export DYLD_LIBRARY_PATH="$SCRIPT_DIR/lib:$DYLD_LIBRARY_PATH"
+    fi
+else
+    # Linux
+    if [ -d "$SCRIPT_DIR/lib" ]; then
+        export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
+    fi
+fi
+
+# Run the RenWeb executable with all passed arguments
+"$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-"* "$@"
+EOF
+        chmod +x "$output_file"
+    fi
+    
+    # Replace placeholders
+    sed -i.bak "s/@EXE_NAME@/$exe_name/g" "$output_file"
+    sed -i.bak "s/@EXE_VERSION@/$version/g" "$output_file"
+    sed -i.bak "s/@OS_NAME@/$os_name/g" "$output_file"
+    rm -f "${output_file}.bak"
+}
+
+# Copy WebView2 loader DLL into a bundle lib directory
+copy_webview2_loader() {
+    local arch=$1
+    local lib_dir=$2
+
+    local runtime_dir=""
+    case "$arch" in
+        x86_64|x64) runtime_dir="win-x64" ;;
+        x86|x86_32) runtime_dir="win-x86" ;;
+        arm64) runtime_dir="win-arm64" ;;
+        arm) runtime_dir="win-arm" ;;
+        *) runtime_dir="" ;;
+    esac
+
+    local dll_src=""
+    if [ -n "$runtime_dir" ]; then
+        if [ -f "./external/webview2_sdk/runtimes/$runtime_dir/native/WebView2Loader.dll" ]; then
+            dll_src="./external/webview2_sdk/runtimes/$runtime_dir/native/WebView2Loader.dll"
+        elif [ -f "./external/webview2_sdk/runtimes/$runtime_dir/native_uap/WebView2Loader.dll" ]; then
+            dll_src="./external/webview2_sdk/runtimes/$runtime_dir/native_uap/WebView2Loader.dll"
+        fi
+    fi
+
+    if [ -z "$dll_src" ] && [ -f "./external/webview2_sdk/build/native/x64/WebView2Loader.dll" ]; then
+        dll_src="./external/webview2_sdk/build/native/x64/WebView2Loader.dll"
+    fi
+
+    if [ -n "$dll_src" ]; then
+        mkdir -p "$lib_dir"
+        cp "$dll_src" "$lib_dir/"
+        print_info "  ✓ Bundled WebView2Loader.dll"
+        return 0
+    fi
+
+    print_warning "  ⚠ WebView2Loader.dll not found to bundle"
+    return 1
+}
+
+# Copy pre-extracted WebView2 fixed runtime from external/webview2_runtimes into lib-<arch>/WebView2Runtime
+copy_webview2_fixed_runtime() {
+    local arch=$1
+    local lib_dir=$2
+
+    local local_root="./external/webview2_runtimes/lib-${arch}"
+    if [ ! -d "$local_root" ]; then
+        print_warning "  ⚠ No local WebView2 runtime found at $local_root"
+        return 1
+    fi
+
+    mkdir -p "$lib_dir/WebView2Runtime"
+    cp -r "$local_root/." "$lib_dir/WebView2Runtime/"
+    print_info "  ✓ Copied WebView2Runtime for $arch from external/webview2_runtimes"
+    return 0
+}
+
+# Copy evergreen WebView2 bootstrapper installer into the bundle lib directory.
+# The bootstrapper (~1.5 MB) installs the evergreen runtime on the end-user machine
+# when run. Sourced from external/webview2_bootstraps/lib-<arch>/.
+copy_webview2_bootstrapper() {
+    local arch=$1
+    local lib_dir=$2
+
+    local local_root="./external/webview2_bootstraps/lib-${arch}"
+    if [ ! -d "$local_root" ]; then
+        print_warning "  ⚠ No WebView2 bootstrapper found at $local_root"
+        return 1
+    fi
+
+    local installer
+    installer=$(ls "$local_root"/*.exe 2>/dev/null | head -n1 || true)
+    if [ -z "$installer" ]; then
+        print_warning "  ⚠ No .exe found in $local_root"
+        return 1
+    fi
+
+    mkdir -p "$lib_dir"
+    cp "$installer" "$lib_dir/"
+    print_info "  ✓ Copied WebView2 bootstrapper ($(basename "$installer")) for $arch"
+    return 0
+}
+
+# =============================================================================
+# Main Script
+# =============================================================================
+
+main() {
+    print_header "RenWeb Release Build Script"
+
+    detect_os
+    
+    # Verify we're in the right directory
+    if [ ! -f "info.json" ]; then
+        print_error "info.json not found. Please run this script from the project root."
+        exit 1
+    fi
+    
+    # Get version and exe name
+    VERSION=$(get_version)
+    EXE_NAME=$(get_exe_name)
+    
+    if [ -z "$VERSION" ]; then
+        print_error "Could not extract version from info.json"
+        exit 1
+    fi
+    
+    print_info "Project: $EXE_NAME"
+    print_info "Version: $VERSION"
+    print_info "OS: $OS_NAME"
+    echo ""
+    
+    # ==========================================================================
+    # Step 1: Prepare release directory
+    # ==========================================================================
+    print_step "1. Preparing release directory"
+    if [ -d "./release" ]; then
+        print_info "Clearing existing release directory"
+        rm -rf ./release
+    fi
+    mkdir -p ./release
+    print_info "Created: ./release"
+    echo ""
+    
+    # ==========================================================================
+    # Step 2: Clear build directory
+    # ==========================================================================
+    print_step "2. Clearing build directory"
+    if [ -d "./build" ]; then
+        print_info "Removing existing build contents"
+        rm -rf ./build/*
+    else
+        mkdir -p ./build
+    fi
+    print_info "Build directory cleared"
+    echo ""
+    
+    # ==========================================================================
+    # Step 3: Create build/content directory
+    # ==========================================================================
+    print_step "3. Creating build/content directory"
+    mkdir -p ./build/content
+    print_info "Created: ./build/content"
+    echo ""
+    
+    # ==========================================================================
+    # Step 4: Copy example pages
+    # ==========================================================================
+    print_step "4. Copying example pages from web/example/pages"
+    if [ -d "./web/example/pages" ]; then
+        page_count=0
+        for page_dir in ./web/example/pages/*; do
+            if [ -d "$page_dir" ]; then
+                page_name=$(basename "$page_dir")
+                print_info "Copying page: $page_name"
+                cp -r "$page_dir" "./build/content/$page_name"
+                page_count=$((page_count + 1))
+            fi
+        done
+        print_info "Copied $page_count pages"
+    else
+        print_error "web/example/pages directory not found"
+        exit 1
+    fi
+    echo ""
+    
+    # ==========================================================================
+    # Step 5: Copy API files to each page directory
+    # ==========================================================================
+    print_step "5. Copying API files (index.js, index.js.map, index.d.ts) to each page"
+    if [ ! -d "./web/api" ]; then
+        print_warning "web/api directory not found, skipping API files"
+    else
+        for page_dir in ./build/content/*; do
+            if [ -d "$page_dir" ]; then
+                page_name=$(basename "$page_dir")
+                copied=0
+                for file in index.js index.js.map index.d.ts; do
+                    if [ -f "./web/api/$file" ]; then
+                        cp "./web/api/$file" "$page_dir/"
+                        copied=$((copied + 1))
+                    fi
+                done
+                print_info "$page_name: copied $copied API files"
+            fi
+        done
+    fi
+    echo ""
+    
+    # ==========================================================================
+    # Step 6: Copy directories and files to build
+    # ==========================================================================
+    print_step "6. Copying resources to build directory"
+    
+    if [ -d "./licenses" ]; then
+        print_info "Copying: ./licenses → ./build/licenses"
+        cp -r ./licenses ./build/
+    else
+        print_warning "licenses directory not found"
+    fi
+    
+    if [ -d "./resource" ]; then
+        print_info "Copying: ./resource → ./build/resource"
+        cp -r ./resource ./build/
+    else
+        print_warning "resource directory not found"
+    fi
+    
+    if [ -d "./web/example/assets" ]; then
+        print_info "Copying: ./web/example/assets → ./build/assets"
+        cp -r ./web/example/assets ./build/assets
+    else
+        print_warning "web/example/assets directory not found"
+    fi
+    
+    if [ -f "./config.json" ]; then
+        print_info "Copying: ./config.json"
+        cp ./config.json ./build/
+    else
+        print_warning "config.json not found"
+    fi
+    
+    if [ -f "./info.json" ]; then
+        print_info "Copying: ./info.json"
+        cp ./info.json ./build/
+    else
+        print_error "info.json not found"
+        exit 1
+    fi
+    echo ""
+    
+    # ==========================================================================
+    # Step 7: Create empty directories
+    # ==========================================================================
+    print_step "7. Creating empty directories"
+    mkdir -p ./build/custom
+    mkdir -p ./build/backup
+    mkdir -p ./build/plugins
+    mkdir -p ./build/lib
+    print_info "Created: custom, backup, plugins, lib"
+    echo ""
+    
+    # ==========================================================================
+    # Step 8: Compress build directory to example archives
+    # ==========================================================================
+    print_step "8. Creating example archives"
+    
+    print_info "Creating: example-${VERSION}.zip"
+    zip_dir "./build" "./release/example-${VERSION}.zip"
+    
+    print_info "Creating: example-${VERSION}.tar.gz"
+    tar_dir "./build" "./release/example-${VERSION}.tar.gz"
+    
+    print_info "Example archives created successfully"
+    echo ""
+    
+    # ==========================================================================
+    # Step 9: Build all architectures with bundling
+    # ==========================================================================
+    print_step "9. Building all architectures (this may take a while)"
+    print_warning "Running: ./build_all_archs.sh --bundle"
+    echo ""
+    
+    if [ ! -f "./build_all_archs.sh" ]; then
+        print_error "build_all_archs.sh not found"
+        exit 1
+    fi
+    
+    if [ "$OS_NAME" = "Windows" ]; then
+        if ! bash ./build_all_archs.sh --bundle; then
+            print_error "Build failed - check output above"
+            exit 1
+        fi
+    elif ! ./build_all_archs.sh --bundle; then
+        print_error "Build failed - check output above"
+        exit 1
+    fi
+    
+    echo ""
+    print_info "All executables built successfully"
+    echo ""
+
+    # ==========================================================================
+    # Step 10: Copy executables to release
+    # ==========================================================================
+    print_step "10. Copying executables to release directory"
+    
+    exe_count=0
+    for exe in ./build/${EXE_NAME}-*; do
+        if [ -f "$exe" ] && [ ! -d "$exe" ]; then
+            # Exclude directories like lib-x86_64
+            exe_name=$(basename "$exe")
+            # Make sure it's an executable, not a library directory
+            if [[ "$exe_name" == "${EXE_NAME}-"* ]]; then
+                print_info "Copying: $exe_name"
+                cp "$exe" "./release/"
+                exe_count=$((exe_count + 1))
+            fi
+        fi
+    done
+    
+    if [ $exe_count -eq 0 ]; then
+        print_error "No executables found in ./build"
+        exit 1
+    fi
+    
+    print_info "Copied $exe_count executables"
+    echo ""
+    
+    # ==========================================================================
+    # Step 11: Create bundle archives for each executable
+    # Windows: generates three bundles per arch:
+    #   bundle-<v>-windows-<arch>           full fixed WebView2 runtime (~280 MB)
+    #   bundle-bootstrap-<v>-windows-<arch> loader DLL + evergreen installer (~3 MB)
+    #   bundle-loader-<v>-windows-<arch>    loader DLL only (~1 MB)
+    # Other platforms: one bundle per arch.
+    # ==========================================================================
+    print_step "11. Creating bundle archives for each executable"
+    echo ""
+
+    # Internal helper: build one archive pair from ./build/tmp
+    _make_bundle() {
+        local bname=$1
+        print_info "  → ${bname}.zip / .tar.gz"
+        zip_dir "./build/tmp" "./release/${bname}.zip"
+        tar_dir "./build/tmp" "./release/${bname}.tar.gz"
+        bundle_count=$((bundle_count + 1))
+    }
+
+    bundle_count=0
+    for exe in ./build/${EXE_NAME}-*; do
+        if [ -f "$exe" ] && [ ! -d "$exe" ]; then
+            exe_name=$(basename "$exe")
+            if [[ "$exe_name" != "${EXE_NAME}-"* ]]; then
+                continue
+            fi
+
+            print_info "Processing: $exe_name"
+
+            name_without_prefix="${exe_name#${EXE_NAME}-}"
+            name_without_prefix="${name_without_prefix#${VERSION}-}"
+            name_without_ext="${name_without_prefix%.exe}"
+            os="${name_without_ext%%-*}"
+            arch="${name_without_ext##*-}"
+            print_info "  Detected: OS=$os, Arch=$arch"
+
+            if [ "$os" = "macos" ]; then
+                print_info "  ⊘ Skipping bundle for macOS (not needed)"
+                echo ""
+                continue
+            fi
+
+            if [ "$os" = "windows" ]; then
+
+                # ------------------------------------------------------------------
+                # bundle-loader: WebView2Loader.dll only
+                # ------------------------------------------------------------------
+                print_info "  [bundle-loader]"
+                mkdir -p ./build/tmp
+                cp "$exe" "./build/tmp/$exe_name"
+                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "loader"
+                copy_webview2_loader "$arch" "./build/tmp/lib"
+                _make_bundle "bundle-loader-${VERSION}-${os}-${arch}"
+                rm -rf ./build/tmp
+
+                # ------------------------------------------------------------------
+                # bundle-bootstrap: loader DLL + evergreen installer
+                # ------------------------------------------------------------------
+                print_info "  [bundle-bootstrap]"
+                mkdir -p ./build/tmp
+                cp "$exe" "./build/tmp/$exe_name"
+                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "bootstrap"
+                copy_webview2_loader "$arch" "./build/tmp/lib"
+                copy_webview2_bootstrapper "$arch" "./build/tmp/lib"
+                _make_bundle "bundle-bootstrap-${VERSION}-${os}-${arch}"
+                rm -rf ./build/tmp
+
+                # ------------------------------------------------------------------
+                # bundle: full fixed WebView2 runtime
+                # ------------------------------------------------------------------
+                print_info "  [bundle]"
+                mkdir -p ./build/tmp
+                cp "$exe" "./build/tmp/$exe_name"
+                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "full"
+                copy_webview2_fixed_runtime "$arch" "./build/tmp/lib"
+                _make_bundle "bundle-${VERSION}-${os}-${arch}"
+                rm -rf ./build/tmp
+
+            else
+                # Non-Windows: single bundle
+                mkdir -p ./build/tmp
+                cp "$exe" "./build/tmp/$exe_name"
+                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.sh"
+                _make_bundle "bundle-${VERSION}-${os}-${arch}"
+                rm -rf ./build/tmp
+            fi
+
+            print_info "  ✓ Done"
+            echo ""
+        fi
+    done
+
+    if [ $bundle_count -eq 0 ]; then
+        print_warning "No bundle archives created"
+    else
+        print_info "Created $bundle_count bundle archives (each as .zip and .tar.gz)"
+    fi
+    echo ""
+    
+    # ==========================================================================
+    # Summary
+    # ==========================================================================
+    print_header "Release Build Complete!"
+    
+    print_info "Release directory: ./release"
+    print_info ""
+    print_info "Contents:"
+    print_info "  • Example archives: example-${VERSION}.{zip,tar.gz}"
+    print_info "  • Executables: ${exe_count} files"
+    print_info "  • Bundle archives: ${bundle_count} bundles × 2 formats (zip + tar.gz) = $((bundle_count * 2)) files"
+    echo ""
+    
+    # Display release directory size
+    if command -v du >/dev/null 2>&1; then
+        release_size=$(du -sh ./release 2>/dev/null | cut -f1)
+        print_info "Total release size: $release_size"
+    fi
+    
+    echo ""
+    print_info "Release files:"
+    ls -lh ./release 2>/dev/null || ls ./release
+}
+
+# =============================================================================
+# Script Entry Point
+# =============================================================================
+
+# Handle help flag
+if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+    echo "Usage: $0"
+    echo ""
+    echo "Description:"
+    echo "  Automated release build script for RenWeb that creates:"
+    echo "  - Example content archives (zip + tar.gz)"
+    echo "  - Executables for all supported architectures"
+    echo "  - Bundle archives with libraries for each architecture"
+    echo ""
+    echo "Requirements:"
+    echo "  - build_all_archs.sh script"
+    echo "  - zip and tar utilities"
+    echo "  - Cross-compilers for target architectures"
+    echo ""
+    echo "Output:"
+    echo "  All release artifacts are placed in ./release/"
+    exit 0
+fi
+
+# Run main function
+main "$@"

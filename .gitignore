@@ -1,9 +1,11 @@
 .sconsign.dblite
+.vscode
 compile_commands.json
 *.o
 *.d
 build
 .build
+release
 .cache
 libs.log
 node_modules
@@ -18,3 +20,5 @@ lib/*
 programs
 .DS_Store
 external/webview2_sdk
+external/webview2_runtimes
+external/webview2_bootstraps

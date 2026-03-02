@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en" class="iframe-page-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugin API - RenWeb Engine</title>
+    <link rel="stylesheet" href="style.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+</head>
+<body class="iframe-page">
+    <canvas id="starfield"></canvas>
+    
+    <div class="container">
+        <main class="main-content">
+            <section id="plugin-overview" class="card api-tree-card">
+                <h2 class="api-tree-heading">RenWeb::Plugin API Tree</h2>
+                <div id="api-tree" class="api-tree"></div>
+            </section>
+
+            <!-- Constructor -->
+            <section id="constructor" class="api-namespace-section">
+                <h2 class="namespace-title">Constructor</h2>
+
+                <div id="plugin-constructor" class="api-method">
+                    <h3>
+                        <span class="method-name">Plugin</span>
+                        <span class="method-tag static">constructor</span>
+                    </h3>
+                    <div class="method-signature"><code>Plugin(const std::string& name, const std::string& internal_name, const std::string& version, const std::string& description, const std::string& repository_url, std::shared_ptr&lt;ILogger&gt; logger)</code></div>
+                    <p class="method-description">Constructs a new Plugin instance with the specified metadata and logger.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">name</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">Display name of the plugin</span>
+                            </li>
+                            <li>
+                                <span class="param-name">internal_name</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">Internal identifier used for calling functions (lowercase, no spaces)</span>
+                            </li>
+                            <li>
+                                <span class="param-name">version</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">Plugin version (e.g., "1.0.0")</span>
+                            </li>
+                            <li>
+                                <span class="param-name">description</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">Brief description of the plugin's functionality</span>
+                            </li>
+                            <li>
+                                <span class="param-name">repository_url</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">URL to the plugin's repository or homepage</span>
+                            </li>
+                            <li>
+                                <span class="param-name">logger</span>
+                                <span class="param-type">std::shared_ptr&lt;ILogger&gt;</span>
+                                <span class="param-desc">Shared pointer to the logger instance</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">class ExamplePlugin : public RenWeb::Plugin {
+public:
+    ExamplePlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger)
+        : RenWeb::Plugin(
+            "ExamplePlugin",           // name
+            "example",                  // internal_name
+            "1.0.0",                    // version
+            "Example plugin",           // description
+            "https://github.com/...",   // repository_url
+            logger)                     // logger
+    {
+        logger->info("[example_plugin] Initializing...");
+        registerFunctions();
+    }
+};</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Protected Members -->
+            <section id="protected-members" class="api-namespace-section">
+                <h2 class="namespace-title">Protected Members</h2>
+
+                <div id="plugin-name" class="api-method">
+                    <h3>
+                        <span class="method-name">name</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::string name</code></div>
+                    <p class="method-description">Display name of the plugin.</p>
+                </div>
+
+                <div id="plugin-internal-name" class="api-method">
+                    <h3>
+                        <span class="method-name">internal_name</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::string internal_name</code></div>
+                    <p class="method-description">Internal identifier used when calling plugin functions from JavaScript (lowercase, no spaces).</p>
+                </div>
+
+                <div id="plugin-version" class="api-method">
+                    <h3>
+                        <span class="method-name">version</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::string version</code></div>
+                    <p class="method-description">Plugin version string (e.g., "1.0.0").</p>
+                </div>
+
+                <div id="plugin-description" class="api-method">
+                    <h3>
+                        <span class="method-name">description</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::string description</code></div>
+                    <p class="method-description">Brief description of the plugin's functionality.</p>
+                </div>
+
+                <div id="plugin-repository-url" class="api-method">
+                    <h3>
+                        <span class="method-name">repository_url</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::string repository_url</code></div>
+                    <p class="method-description">URL to the plugin's repository or homepage.</p>
+                </div>
+
+                <div id="plugin-logger" class="api-method">
+                    <h3>
+                        <span class="method-name">logger</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>std::shared_ptr&lt;ILogger&gt; logger</code></div>
+                    <p class="method-description">Shared pointer to the logger instance. Use this to log messages at various levels.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">logger->info("[my_plugin] Processing request...");
+logger->warn("[my_plugin] Deprecated function called");
+logger->error("[my_plugin] Operation failed: " + error_msg);</code></pre>
+                    </div>
+                </div>
+
+                <div id="plugin-functions" class="api-method">
+                    <h3>
+                        <span class="method-name">functions</span>
+                        <span class="method-tag attribute">attribute</span>
+                    </h3>
+                    <div class="method-signature"><code>std::map&lt;std::string, std::function&lt;json::value(const json::value&)&gt;&gt; functions</code></div>
+                    <p class="method-description">Map of function names to their handler implementations. Register your plugin's functions in this map.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">// In constructor or registerFunctions() method:
+functions["square"] = [this](const json::value& req) -> json::value {
+    const json::value param = req.as_array()[0];
+    if (param.is_int64()) {
+        return json::value(param.as_int64() * param.as_int64());
+    }
+    return json::value(nullptr);
+};
+
+functions["reverse_string"] = [this](const json::value& req) -> json::value {
+    const json::value param = req.as_array()[0];
+    const std::string input = this->processInput(param).as_string().c_str();
+    std::string reversed(input.rbegin(), input.rend());
+    return this->formatOutput(json::value(reversed));
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="plugin-processinput-string" class="api-method">
+                    <h3>
+                        <span class="method-name">processInput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value processInput(const std::string& input)</code></div>
+                    <p class="method-description">Parses a JSON string and decodes any base64-encoded values.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">input</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">JSON string to parse</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Parsed and decoded JSON value</p>
+                    </div>
+                </div>
+
+                <div id="plugin-processinput-value" class="api-method">
+                    <h3>
+                        <span class="method-name">processInput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value processInput(const json::value& input)</code></div>
+                    <p class="method-description">Recursively decodes base64-encoded strings in a JSON value. Handles objects, arrays, and primitives.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">input</span>
+                                <span class="param-type">const json::value&</span>
+                                <span class="param-desc">JSON value to decode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Decoded JSON value with strings converted from base64</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">// JavaScript calls: renweb.call("example", "reverse_string", { text: "Hello" })
+// Input arrives as: { text: { __encoding_type__: "base64", __val__: [72,101,108,108,111] } }
+
+functions["reverse_string"] = [this](const json::value& req) -> json::value {
+    const json::value param = req.as_array()[0];
+    // Decode the base64-encoded string
+    const std::string input = this->processInput(param).as_string().c_str();
+    // input now contains: "Hello"
+    std::string reversed(input.rbegin(), input.rend());
+    return this->formatOutput(json::value(reversed));
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="plugin-processinput-object" class="api-method">
+                    <h3>
+                        <span class="method-name">processInput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value processInput(const json::object& input)</code></div>
+                    <p class="method-description">Decodes base64-encoded strings in a JSON object. If the object has __encoding_type__ and __val__ keys, decodes it as base64. Otherwise, recursively processes all properties.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">input</span>
+                                <span class="param-type">const json::object&</span>
+                                <span class="param-desc">JSON object to decode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Decoded JSON value (string if encoded, otherwise processed object)</p>
+                    </div>
+                </div>
+
+                <div id="plugin-processinput-array" class="api-method">
+                    <h3>
+                        <span class="method-name">processInput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value processInput(const json::array& input)</code></div>
+                    <p class="method-description">Recursively decodes base64-encoded strings in all array elements.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">input</span>
+                                <span class="param-type">const json::array&</span>
+                                <span class="param-desc">JSON array to decode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Array with all base64 strings decoded</p>
+                    </div>
+                </div>
+
+                <div id="plugin-formatoutput-value" class="api-method">
+                    <h3>
+                        <span class="method-name">formatOutput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value formatOutput(const json::value& output)</code></div>
+                    <p class="method-description">Recursively encodes strings in a JSON value to base64 format. Numbers, booleans, and null pass through unchanged.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">output</span>
+                                <span class="param-type">const json::value&</span>
+                                <span class="param-desc">JSON value to encode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Encoded JSON value with strings converted to base64</p>
+                    </div>
+                </div>
+
+                <div id="plugin-formatoutput-string" class="api-method">
+                    <h3>
+                        <span class="method-name">formatOutput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::value formatOutput(const std::string& output)</code></div>
+                    <p class="method-description">Encodes a string to base64 format for transmission to JavaScript.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">output</span>
+                                <span class="param-type">const std::string&</span>
+                                <span class="param-desc">String to encode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Object with __encoding_type__ and __val__ properties</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">// Return a string result
+std::string result = "Hello World";
+return this->formatOutput(result);
+// Returns: { __encoding_type__: "base64", __val__: [72,101,108,108,111,32,87,111,114,108,100] }
+// JavaScript receives: "Hello World" (automatically decoded)</code></pre>
+                    </div>
+                </div>
+
+                <div id="plugin-formatoutput-template" class="api-method">
+                    <h3>
+                        <span class="method-name">formatOutput</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>template &lt;typename T&gt; json::value formatOutput(const T& output)</code></div>
+                    <p class="method-description">Template method for encoding various types. Converts to json::value and applies encoding.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul class="param-list">
+                            <li>
+                                <span class="param-name">output</span>
+                                <span class="param-type">const T&</span>
+                                <span class="param-desc">Value to encode</span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::value</span> - Encoded value</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Public Methods -->
+            <section id="public-methods" class="api-namespace-section">
+                <h2 class="namespace-title">Public Methods</h2>
+
+                <div id="plugin-getname" class="api-method">
+                    <h3>
+                        <span class="method-name">getName</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>std::string getName() const</code></div>
+                    <p class="method-description">Returns the display name of the plugin.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">std::string</span> - Plugin display name</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getinternalname" class="api-method">
+                    <h3>
+                        <span class="method-name">getInternalName</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>std::string getInternalName() const</code></div>
+                    <p class="method-description">Returns the internal identifier used when calling plugin functions from JavaScript.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">std::string</span> - Internal name (lowercase, no spaces)</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getversion" class="api-method">
+                    <h3>
+                        <span class="method-name">getVersion</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>std::string getVersion() const</code></div>
+                    <p class="method-description">Returns the plugin version string.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">std::string</span> - Version (e.g., "1.0.0")</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getdescription" class="api-method">
+                    <h3>
+                        <span class="method-name">getDescription</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>std::string getDescription() const</code></div>
+                    <p class="method-description">Returns the plugin description.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">std::string</span> - Description text</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getrepositoryurl" class="api-method">
+                    <h3>
+                        <span class="method-name">getRepositoryUrl</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>std::string getRepositoryUrl() const</code></div>
+                    <p class="method-description">Returns the plugin's repository or homepage URL.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">std::string</span> - Repository URL</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getfunctions" class="api-method">
+                    <h3>
+                        <span class="method-name">getFunctions</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>const std::map&lt;std::string, std::function&lt;json::value(const json::value&)&gt;&gt;& getFunctions() const</code></div>
+                    <p class="method-description">Returns a const reference to the registered functions map.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">const std::map&lt;std::string, function&gt;&</span> - Map of function names to handlers</p>
+                    </div>
+                </div>
+
+                <div id="plugin-getmetadata" class="api-method">
+                    <h3>
+                        <span class="method-name">getMetadata</span>
+                        <span class="method-tag instance">instance</span>
+                    </h3>
+                    <div class="method-signature"><code>json::object getMetadata() const</code></div>
+                    <p class="method-description">Returns a JSON object containing all plugin metadata.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">json::object</span> - Object with name, internal_name, version, description, and repository_url</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-cpp">json::object metadata = this->getMetadata();
+// Returns:
+// {
+//   "name": "ExamplePlugin",
+//   "internal_name": "example",
+//   "version": "1.0.0",
+//   "description": "Example plugin with math functions",
+//   "repository_url": "https://github.com/..."
+// }</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Complete Example -->
+            <section id="complete-example" class="api-namespace-section">
+                <h2 class="namespace-title">Complete Example</h2>
+
+                <div id="example-full-plugin" class="api-method">
+                    <h3>
+                        <span class="method-name">Complete Plugin Implementation</span>
+                    </h3>
+                    <p class="method-description">This example demonstrates a complete plugin with multiple functions, proper error handling, and input/output processing.</p>
+                    <div class="method-example">
+                        <h4>C++ Plugin Implementation</h4>
+                        <pre><code class="language-cpp">// Define BOOST_JSON_SOURCE and include src.hpp in ONE .cpp file to enable header-only mode
+#define BOOST_JSON_SOURCE
+#include &lt;boost/json/src.hpp&gt;
+
+#include "./plugin.hpp"
+
+#if defined(_WIN32) || defined(_WIN64)
+    #define PLUGIN_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+    #define PLUGIN_EXPORT __attribute__((visibility("default")))
+#else
+    #define PLUGIN_EXPORT
+#endif
+
+namespace json = boost::json;
+
+class ExamplePlugin : public RenWeb::Plugin {
+public:
+    ExamplePlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger)
+        : RenWeb::Plugin(
+            "ExamplePlugin", 
+            "example", 
+            "1.0.0", 
+            "Example plugin with math and utility functions", 
+            "https://github.com/example/example_plugin", 
+            logger) 
+    {
+        logger->info("[example_plugin] Initializing plugin...");
+        registerFunctions();
+        logger->info("[example_plugin] Plugin initialized successfully!");
+    }
+
+    ~ExamplePlugin() override { }
+
+private:
+    void registerFunctions() {
+        // Square a number
+        functions["square"] = [this](const json::value& req) -> json::value {
+            try {
+                const json::value param = req.as_array()[0];
+                if (param.is_int64()) {
+                    return json::value(param.as_int64() * param.as_int64());
+                } else if (param.is_uint64()) {
+                    return json::value(param.as_uint64() * param.as_uint64());
+                } else if (param.is_double()) {
+                    return json::value(param.as_double() * param.as_double());
+                } else {
+                    throw std::runtime_error("Invalid parameter type. Expected number.");
+                }
+            } catch (const std::exception& e) {
+                this->logger->error(e.what());
+                return json::value(nullptr);
+            }
+        };
+
+        // Calculate factorial using gamma function
+        functions["factorial"] = [this](const json::value& req) -> json::value {
+            try {
+                const json::value param = req.as_array()[0];
+                if (param.is_int64()) {
+                    return json::value(std::tgamma(param.as_int64()));
+                } else if (param.is_uint64()) {
+                    return json::value(std::tgamma(param.as_uint64()));
+                } else if (param.is_double()) {
+                    return json::value(std::tgamma(param.as_double()));
+                } else {
+                    throw std::runtime_error("Invalid parameter type. Expected number.");
+                }
+            } catch (const std::exception& e) {
+                this->logger->error(e.what());
+                return json::value(nullptr);
+            }
+        };
+
+        // Reverse a string
+        functions["reverse_string"] = [this](const json::value& req) -> json::value {
+            try {
+                const json::value param = req.as_array()[0];
+                // Decode base64-encoded input string
+                const std::string input = this->processInput(param).as_string().c_str();
+                // Reverse the string
+                std::string reversed(input.rbegin(), input.rend());
+                // Encode output string to base64
+                return this->formatOutput(json::value(reversed));
+            } catch (const std::exception& e) {
+                this->logger->error(e.what());
+                return json::value(nullptr);
+            }
+        };
+    }
+};
+
+extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger) {
+    return new ExamplePlugin(logger);
+}</code></pre>
+                    </div>
+                    <div class="method-example">
+                        <h4>JavaScript Usage</h4>
+                        <pre><code class="language-javascript">/* ================== Important Notes ==================
+* NOTE: It's up to you to create a Typescript module for the plugins you make! 
+* NOTE: plugins are named as BIND_plugin_[internal_name]_[function_name] in the JS engine.
+*       see below for examples
+ ======================================================= */
+
+// Square a number
+const square = await BIND_plugin_example_square(7);
+await Log.debug(square); // 49
+
+// Calculate factorial
+const fact = await BIND_plugin_example_factorial(5);
+await Log.debug(fact); // 120 (gamma of 5)
+
+// Reverse a string (automatic encoding/decoding)
+const reversed = await BIND_plugin_example_reverse_string(Utils.encode("Hello")); // strings need encoding
+await Log.debug(reversed); // "olleH"
+
+// Get list of all plugins
+const plugins = await Plugins.getPluginsList();
+const examplePlugin = plugins.find(p => p.internal_name === "example");
+await Log.debug(examplePlugin.name, examplePlugin.version);
+await Log.debug("Available functions:", examplePlugin.functions);</code></pre>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Template  -->
+            <section id="plugin-template" class="api-namespace-section">
+                <h2 class="namespace-title">Template</h2>
+
+                <div id="example-full-plugin" class="api-method">
+                    <p class="method-description">This template uses <a href="https://github.com/boostorg/json" target="_blank">Boost.JSON</a> in header-only mode for easy distribution without library dependencies. Download the <a href="../include/plugin.hpp">plugin.hpp</a> parent class to your project directory, then copy and paste this template to get started.</p>
+                    <div class="method-example">
+                        <h4>C++ Plugin Implementation</h4>
+                        <pre><code class="language-cpp">// Define BOOST_JSON_SOURCE and include src.hpp in ONE .cpp file to enable header-only mode
+#define BOOST_JSON_SOURCE
+#include &lt;boost/json/src.hpp&gt;
+
+#include "./plugin.hpp"
+
+#if defined(_WIN32) || defined(_WIN64)
+    #define PLUGIN_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+    #define PLUGIN_EXPORT __attribute__((visibility("default")))
+#else
+    #define PLUGIN_EXPORT
+#endif
+
+namespace json = boost::json;
+
+/* ================== Important Notes ==================
+* - Plugin functions in the JS engine are named as such:
+*      - BIND_plugin_[internal_name]_[function_name]
+* - The logger will be passed using dependency injection into the constructor.
+*      - The logger can log trace, debug, info, warn, error, and critical messages.  
+* - Boost.JSON is used in header-only mode (no separate library linking required).
+*      - Define BOOST_JSON_SOURCE and include <boost/json/src.hpp> in ONE .cpp file
+*      - See: https://github.com/boostorg/json for Boost.JSON documentation and source
+* - Compilation commands (header-only, no library linking needed):
+*      - Linux:     g++ -std=c++17 -fPIC -shared custom_plugin.cpp -o libcustom_plugin.so -I./include -I/path/to/boost/include
+*      - Windows:   cl /std:c++20 /utf-8 /bigobj /LD /EHsc /O2 /MT /I.\include /I\path\to\boost custom_plugin.cpp /link /DLL /out:custom_plugin.dll
+*      - MacOS:     clang++ -std=c++17 -fPIC -shared -undefined dynamic_lookup -mmacosx-version-min=10.15 custom_plugin.cpp -o libcustom_plugin.dylib -I./include -I/path/to/boost/include
+ ======================================================= */
+
+class CustomPlugin : public RenWeb::Plugin {
+public:
+    CustomPlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger)
+        : RenWeb::Plugin(
+            "CustomPlugin", 
+            "custom",
+            "0.0.0", 
+            "Description about your plugin", 
+            "https://github.com/your-repo", 
+            logger) 
+    {
+        logger->info("[custom_plugin] Initializing plugin...");
+        registerFunctions();
+        logger->info("[custom_plugin] Plugin initialized successfully!");
+    }
+
+    ~CustomPlugin() override { }
+
+private:
+    void registerFunctions() {
+        // Square a number
+        functions["square"] = [this](const json::value& req) -> json::value {
+            try {
+                const json::array params = req.as_array(); // req will ALWAYS be an array.
+                const json::value param1 = this->processInput(params[0]); // use processInput to decode in case using strings. If not, it'll just return the value as-is.
+                const json::value param2 = this->processInput(params[1]); // you can have as many params as you'd like
+
+                const json::value result = /* do something with param1 and param2 */;
+
+                return this->formatOutput(result); // use formatOutput to encode the result, especially if it's a string. If not, it'll just return the value as-is.
+                    // NOTE: both processInput and formatOutput will recursively encode/decode any json objects, arrays, and values.
+                    // NOTE: formatOutput can also format std::strings in addition boost::json types.
+            } catch (const std::exception& e) {
+                this->logger->error(e.what());
+                return json::value(nullptr);
+            }
+        };
+    }
+};
+
+// THIS IS CRITICAL!! Keep this exact function signature at the end of your plugin implementation file so the RenWeb engine can load your plugin!!
+extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger) {
+    return new ExamplePlugin(logger);
+}</code></pre>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+    
+    <footer class="footer">
+        RenWeb Engine &copy; 2025 | <a href="https://github.com/spur27/RenWeb-Engine">GitHub</a>
+    </footer>
+    
+    <script src="script.js"></script>
+    <script>
+        // Initialize syntax highlighting
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+    </script>
+</body>
+</html>

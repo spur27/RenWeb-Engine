@@ -1,19 +1,17 @@
 #include "../include/args.hpp"
 
-#include "../include/json.hpp"
-#include "../include/locate.hpp"
-#include "../include/managers/callback_manager.hpp"
-#include "../include/managers/process_manager.hpp"
 #include "../include/app.hpp"
 #include "../include/info.hpp"
+#include "../include/json.hpp"
 #include "../include/logger.hpp"
+#include "../include/managers/callback_manager.hpp"
+#include "../include/managers/process_manager.hpp"
 #include <boost/json.hpp>
 #include <iostream>
 #include <memory>
 
 using namespace RenWeb;
 using ArgsCM = RenWeb::CallbackManager<std::string, void, boost::any>;
-using PM = RenWeb::ProcessManager<int>;
 namespace json = boost::json;
 
 Args::Args(int argc, char** argv)
@@ -64,6 +62,7 @@ Args* Args::addDefaults() {
                 if (!info->exists()) {
                     std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
                     std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                    App::showErrorPopup("info.json not found at: " + info->getPath().string() + "\nCannot proceed without file.");
                     exit(2);
                 }
                 json::value title = JSON::peek(info.get(), "title");
@@ -86,6 +85,14 @@ Args* Args::addDefaults() {
             this->opts["log_silent"] = boost::any_cast<bool>(log_silent) ? "true" : "false";
         })
     ->add(
+        "log-boring,b",
+        boost::program_options::bool_switch()->default_value(false),
+        "Sets whether log prints with color or not",
+        [this](boost::any log_boring)
+        {
+            this->opts["log_boring"] = boost::any_cast<bool>(log_boring) ? "true" : "false";
+        })
+    ->add(
         "log-level,l",
         boost::program_options::value<unsigned int>()->default_value(2, "2 (info)"),
         "Sets log level (n>=0)",
@@ -102,56 +109,17 @@ Args* Args::addDefaults() {
             this->opts["log_clear"] = boost::any_cast<bool>(bool_switch) ? "true" : "false";
         })
     ->add(
-        "pages,p",
+        "page,p",
         boost::program_options::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>{}, "Starting Page(s)"),
         "List of pages to open",
         [this](boost::any pages)
         {
             std::vector<std::string>& pages_vec(boost::any_cast<std::vector<std::string>&>(pages));
-            
-            if (pages_vec.size() > 1) {
-                auto pm = std::make_unique<PM>(std::make_shared<FakeLogger>());
-                std::vector<std::string> args;
-                for (int arg_num = 0; arg_num < this->argc; arg_num++) {
-                    std::string arg = this->argv[arg_num];
-                    if (arg.rfind("-p", 0) != 0) {
-                        args.emplace_back(std::move(arg));
-                    }
-                }
-                for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
-                    std::vector<std::string> updated_args = args;
-                    updated_args.emplace_back("-p" + pages_vec[page_num]);
-                    pm->add(page_num, updated_args);
-                }
-                pm->waitAll();
-                exit(0);
-            } else if (pages_vec.empty() || pages_vec[0] == "_") {
-                pages_vec.clear();
-                auto info = Info::getInfoFile();
-                if (!info->exists()) {
-                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
-                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
-                    exit(2);
-                }
-                json::value starting_pages = JSON::peek(info.get(), "starting_pages");
-                if (starting_pages.is_string()) {
-                    pages_vec.emplace_back(starting_pages.as_string());
-                } else if (starting_pages.is_array()) {
-                    for (const auto& item : starting_pages.as_array()) {
-                        if (item.is_string()) {
-                            pages_vec.emplace_back(item.as_string());
-                        }
-                    }
-                    if (pages_vec.empty()) {
-                        std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is empty or malformed!" << std::endl;
-                        exit(3);
-                    }
-                } else {
-                    std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is missing or isn't a string or string[]!" << std::endl;
-                    exit(3);
-                }
+            bool valid_page_scenario = false;
+            while (!valid_page_scenario) {
                 if (pages_vec.size() > 1) {
-                    auto pm = std::make_unique<PM>(std::make_shared<FakeLogger>());
+                    valid_page_scenario = true;
+                    auto pm = std::make_unique<ProcessManager>(std::make_shared<FakeLogger>(), nullptr);
                     std::vector<std::string> args;
                     for (int arg_num = 0; arg_num < this->argc; arg_num++) {
                         std::string arg = this->argv[arg_num];
@@ -159,23 +127,50 @@ Args* Args::addDefaults() {
                             args.emplace_back(std::move(arg));
                         }
                     }
-                    for (int page_num = 0; page_num < (int)pages_vec.size(); page_num++) {
-                        std::vector<std::string> updated_args = args;
-                        updated_args.emplace_back("-p" + pages_vec[page_num]);
-                        pm->add(page_num, updated_args);
+                    for (const auto& page : pages_vec) {
+                        pm->createRenWebProcess(std::vector<std::string>{page}, args, false, false, true);
                     }
                     pm->waitAll();
-                    exit(0);
-                }
-            }
-            
-            this->opts["page"] = pages_vec[0];
-            std::unique_ptr<App> app = AppBuilder(this->opts, this->argc, this->argv).build();
-            app->run();
+                    return;
+                } else if (pages_vec.empty() || pages_vec[0] == "_") {
+                    pages_vec.clear();
+                    auto info = Info::getInfoFile();
+                    if (!info->exists()) {
+                        std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
+                        std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                        App::showErrorPopup("info.json not found at: " + info->getPath().string() + "\nCannot proceed without file.");
+                        exit(2);
+                    }
+                    json::value starting_pages = JSON::peek(info.get(), "starting_pages");
+                    if (starting_pages.is_string()) {
+                        pages_vec.emplace_back(starting_pages.as_string());
+                    } else if (starting_pages.is_array()) {
+                        for (const auto& item : starting_pages.as_array()) {
+                            if (item.is_string()) {
+                                pages_vec.emplace_back(item.as_string());
+                            }
+                        }
+                        if (pages_vec.empty()) {
+                            std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is empty or malformed!" << std::endl;
+                            App::showErrorPopup("'starting_pages' property in '" + info->getPath().string() + "' is empty or malformed!");
+                            exit(3);
+                        }
+                    } else {
+                        std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is missing or isn't a string or string[]!" << std::endl;
+                        App::showErrorPopup("'starting_pages' property in '" + info->getPath().string() + "' is missing or isn't a string or string[]!");
+                        exit(3);
+                    }
+                } else { // pages_vec.size() == 1
+                    valid_page_scenario = true;
+                    this->opts["page"] = pages_vec[0];
+                    std::unique_ptr<App> app = AppBuilder(this->opts, this->argc, this->argv).build();
+                    app->run();
+                }   
+            }     
         });
 }
 
-void Args::run() /*override*/ {
+void Args::run() {
     boost::program_options::variables_map vm;
     try {
         boost::program_options::store(boost::program_options::parse_command_line(argc, argv, this->desc), vm);
@@ -187,6 +182,7 @@ void Args::run() /*override*/ {
         }
     } catch (const std::exception& e) {
         std::cerr << "\x1b[31m[ERROR]\x1b[0m [args] " << e.what() << std::endl;
+        App::showErrorPopup(e.what());
         throw;
     }
 }
