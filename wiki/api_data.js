@@ -151,7 +151,7 @@ window.apiData = {
         {name: 'serialize', signature: 'serialize(obj)', description: 'Serialize an object to JSON'}
     ],
     'Callbacks': [
-        {name: 'onServerMessage', signature: 'onServerMessage = async (message) => {...}', description: 'Handles messages received from the server.'},
+        {name: 'window.onServerMessage', signature: 'window.onServerMessage = async (message) => {...}', description: 'Handles messages received from the server.'},
     ],
     'Plugin': [
         // Constructor

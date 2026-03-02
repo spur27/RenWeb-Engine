@@ -632,6 +632,15 @@ main() {
                 mkdir -p ./build/tmp
                 cp "$exe" "./build/tmp/$exe_name"
                 generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.sh"
+                # Copy bundled .so libraries produced by make BUNDLE=true
+                if [ -d "./build/lib-${arch}" ]; then
+                    mkdir -p "./build/tmp/lib"
+                    cp -r "./build/lib-${arch}/." "./build/tmp/lib/"
+                    lib_count=$(ls -1 "./build/tmp/lib/"*.so* 2>/dev/null | wc -l || echo 0)
+                    print_info "  ✓ Bundled $lib_count .so files from ./build/lib-${arch}"
+                else
+                    print_warning "  ⚠ No bundled libraries found at ./build/lib-${arch} (was BUNDLE=true used?)"
+                fi
                 _make_bundle "bundle-${VERSION}-${os}-${arch}"
                 rm -rf ./build/tmp
             fi
