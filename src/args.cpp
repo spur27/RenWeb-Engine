@@ -62,6 +62,7 @@ Args* Args::addDefaults() {
                 if (!info->exists()) {
                     std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
                     std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                    App::showErrorPopup("info.json not found at: " + info->getPath().string() + "\nCannot proceed without file.");
                     exit(2);
                 }
                 json::value title = JSON::peek(info.get(), "title");
@@ -137,6 +138,7 @@ Args* Args::addDefaults() {
                     if (!info->exists()) {
                         std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'info.json' not found at: " << info->getPath().string() << std::endl;
                         std::cerr << "\033[31m[ERROR]\033[0m [ARGS] Cannot proceed without file." << std::endl;
+                        App::showErrorPopup("info.json not found at: " + info->getPath().string() + "\nCannot proceed without file.");
                         exit(2);
                     }
                     json::value starting_pages = JSON::peek(info.get(), "starting_pages");
@@ -150,10 +152,12 @@ Args* Args::addDefaults() {
                         }
                         if (pages_vec.empty()) {
                             std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is empty or malformed!" << std::endl;
+                            App::showErrorPopup("'starting_pages' property in '" + info->getPath().string() + "' is empty or malformed!");
                             exit(3);
                         }
                     } else {
                         std::cerr << "\033[31m[ERROR]\033[0m [ARGS] 'starting_pages' property in '" << info->getPath().string() << "' is missing or isn't a string or string[]!" << std::endl;
+                        App::showErrorPopup("'starting_pages' property in '" + info->getPath().string() + "' is missing or isn't a string or string[]!");
                         exit(3);
                     }
                 } else { // pages_vec.size() == 1
