@@ -31,7 +31,7 @@
 #include "../include/app.hpp"
 #include "../include/json.hpp"
 #include "../include/config.hpp"
-#include "boost/json/serialize.hpp"
+#include <boost/json/serialize.hpp>
 #include <exception>
 
 #ifdef _WIN32

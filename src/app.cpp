@@ -35,7 +35,7 @@
 #include "../include/web_server.hpp"
 #include "../include/webview.hpp"
 #include "../include/interfaces/Iprocess_manager.hpp"
-#include "managers/plugin_manager.hpp"
+#include "../include/managers/plugin_manager.hpp"
 #include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
@@ -50,7 +50,10 @@ using JSON = RenWeb::JSON;
 
 void App::showErrorPopup(const std::string& message) {
 #if defined(_WIN32)
-    MessageBoxA(nullptr, message.c_str(), "RenWeb \xe2\x80\x93 Error", MB_OK | MB_ICONERROR);
+    int len = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, nullptr, 0);
+    std::wstring wmsg(len, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, wmsg.data(), len);
+    MessageBoxW(nullptr, wmsg.c_str(), L"RenWeb \u2013 Error", MB_OK | MB_ICONERROR);
 #elif defined(__APPLE__)
     std::string escaped = message;
     size_t pos = 0;

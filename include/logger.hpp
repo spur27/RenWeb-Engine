@@ -37,14 +37,9 @@
 #include "spdlog/logger.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
+#include "spdlog/sinks/stdout_sinks.h"
 #include <memory>
 #include <filesystem>
-#if defined(_WIN32)
-  #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
-    #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
-  #endif
-#  include <windows.h>
-#endif
 
 namespace RenWeb {
     struct LogFlags {
@@ -132,13 +127,19 @@ namespace RenWeb {
                             << " [" << thread_str << "] "
                             << "[" << log_type_str << "] "
                             << msg_str;
-                auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-                console_sink->set_level(this->flags->log_level);
+                const std::string& console_pattern = this->flags->log_boring ? boring_log_str.str() : colored_log_str.str();
+#if defined(_WIN32)
+                spdlog::sink_ptr console_sink;
                 if (this->flags->log_boring) {
-                    console_sink->set_pattern(boring_log_str.str());
+                    console_sink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
                 } else {
-                    console_sink->set_pattern(colored_log_str.str());
+                    console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
                 }
+#else
+                spdlog::sink_ptr console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+#endif
+                console_sink->set_level(this->flags->log_level);
+                console_sink->set_pattern(console_pattern);
 
                 auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
                 file_sink->set_level(spdlog::level::trace);
@@ -156,30 +157,6 @@ namespace RenWeb {
                 } else {
                     this->logger->flush_on(spdlog::level::err);
                 }
-
-                #if defined(_WIN32)
-                    HANDLE console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-                    DWORD mode = 0;
-                    BOOL have_console = (console_handle != NULL && console_handle != INVALID_HANDLE_VALUE
-                        && GetConsoleMode(console_handle, &mode));
-
-                    if (have_console) {
-                        if (!(mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
-                            DWORD new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-                            SetConsoleMode(console_handle, new_mode);
-                        }
-                    } else if (this->flags->log_level < spdlog::level::info) {
-                        if (AllocConsole()) {
-                            console_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-                            if (console_handle != NULL && console_handle != INVALID_HANDLE_VALUE) {
-                                if (GetConsoleMode(console_handle, &mode)) {
-                                    DWORD new_mode = mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-                                    SetConsoleMode(console_handle, new_mode);
-                                }
-                            }
-                        }
-                    }
-                #endif
             };
     };
 }

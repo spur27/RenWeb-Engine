@@ -115,6 +115,9 @@ namespace RenWeb {
         bool is_detachable;
         bool is_renweb;
         File out_file;
+#if defined(_WIN32)
+        HANDLE job_handle = NULL;
+#endif
     };
     class ProcessManager : public IProcessManager {
         private:
@@ -707,10 +710,31 @@ inline PM::~ProcessManager() {
         if (child_info.process.running()) {
             if (child_info.is_detachable) {
                 child_info.process.detach();
+#if defined(_WIN32)
+                if (child_info.job_handle) {
+                    // Clear JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so the detached
+                    // process tree keeps running after we release the handle.
+                    JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {};
+                    jeli.BasicLimitInformation.LimitFlags = 0;
+                    SetInformationJobObject(child_info.job_handle, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+                    CloseHandle(child_info.job_handle);
+                    child_info.job_handle = NULL;
+                }
+#endif
                 this->logger->debug("[proc] Detached background process PID " + std::to_string(pid) + " during destruction");
             } else {
+                // Closing the job handle kills the entire process tree on Windows.
+                // On non-Windows, send SIGTERM.
+#if defined(_WIN32)
+                if (child_info.job_handle) {
+                    CloseHandle(child_info.job_handle);
+                    child_info.job_handle = NULL;
+                }
+                child_info.process.wait();
+#else
                 this->kill(pid);
                 child_info.process.wait();
+#endif
                 this->logger->debug("[proc] Terminated child process PID " + std::to_string(pid) + " during destruction");
             }
         }
@@ -918,6 +942,37 @@ inline json::array PM::dumpSystemProcesses() const {
 // ----------------------------------------------------------
 
 inline json::object PM::createChildProcess(const std::vector<std::string>& args, bool is_detachable, bool is_renweb, bool share_stdio) {
+#if defined(_WIN32)
+    // Build a properly-quoted Windows command line from a vector of UTF-8 arguments.
+    // Follows the CommandLineToArgvW quoting rules.
+    auto buildCmdLine = [](const std::vector<std::string>& a) -> std::wstring {
+        std::wstring result;
+        for (size_t i = 0; i < a.size(); i++) {
+            if (i > 0) result += L' ';
+            int wlen = MultiByteToWideChar(CP_UTF8, 0, a[i].c_str(), -1, nullptr, 0);
+            std::wstring w(wlen > 0 ? wlen - 1 : 0, L'\0');
+            if (wlen > 0) MultiByteToWideChar(CP_UTF8, 0, a[i].c_str(), -1, w.data(), wlen);
+            bool needs_quote = w.empty() || w.find_first_of(L" \t\n\v\"") != std::wstring::npos;
+            if (!needs_quote) { result += w; continue; }
+            result += L'"';
+            for (size_t j = 0; j < w.size(); ) {
+                size_t bs = 0;
+                while (j < w.size() && w[j] == L'\\') { ++j; ++bs; }
+                if (j == w.size()) {
+                    for (size_t k = 0; k < bs * 2; k++) result += L'\\';
+                } else if (w[j] == L'"') {
+                    for (size_t k = 0; k < bs * 2 + 1; k++) result += L'\\';
+                    result += L'"'; ++j;
+                } else {
+                    for (size_t k = 0; k < bs; k++) result += L'\\';
+                    result += w[j++];
+                }
+            }
+            result += L'"';
+        }
+        return result;
+    };
+#endif
     if (args.empty()) {
         this->logger->error("[proc] can't create process with no arguments");
         return json::object();
@@ -948,40 +1003,115 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
             pid = static_cast<Pid>(proc.id());
             out_file = File("");
         } else {
-            std::string temp_filename = "temp_" + 
+#if defined(_WIN32)
+            // On Windows, boost::process opens the output file without FILE_SHARE_DELETE,
+            // which prevents renaming the file while the child has it open.
+            // Instead, create the file ourselves with FILE_SHARE_DELETE and an inheritable
+            // handle, spawn via CreateProcessW, then rename to {pid}.txt.
+            std::filesystem::path temp_path = proc_dir /
+                ("temp_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".txt");
+
+            SECURITY_ATTRIBUTES sa = {};
+            sa.nLength = sizeof(sa);
+            sa.bInheritHandle = TRUE;
+            HANDLE hOut = CreateFileW(
+                temp_path.wstring().c_str(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL
+            );
+            if (hOut == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("Failed to create output file: " + temp_path.string() +
+                                         " (error " + std::to_string(GetLastError()) + ")");
+
+            std::wstring cmd_line = buildCmdLine(resolved_args);
+            STARTUPINFOW si = {};
+            si.cb = sizeof(si);
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdOutput = hOut;
+            si.hStdError  = hOut;
+            si.hStdInput  = INVALID_HANDLE_VALUE;
+
+            PROCESS_INFORMATION pi = {};
+            BOOL ok = CreateProcessW(nullptr, cmd_line.data(),
+                                     nullptr, nullptr, TRUE, 0,
+                                     nullptr, nullptr, &si, &pi);
+            CloseHandle(hOut); // child inherited its own copy with FILE_SHARE_DELETE
+            if (!ok) {
+                std::filesystem::remove(temp_path);
+                throw std::runtime_error("Failed to create process (error " +
+                                         std::to_string(GetLastError()) + ")");
+            }
+
+            pid = static_cast<Pid>(pi.dwProcessId);
+            CloseHandle(pi.hThread);
+
+            // Rename to the final {pid}.txt — works because the child's handle has FILE_SHARE_DELETE
+            std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
+            if (!MoveFileExW(temp_path.wstring().c_str(), final_path.wstring().c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                this->logger->warn("[proc] MoveFileExW failed (error " + std::to_string(GetLastError()) +
+                                   "), keeping temp path: " + temp_path.string());
+                out_file = File(temp_path.string());
+            } else {
+                out_file = File(final_path.string());
+            }
+
+            // Construct Child from the native DWORD pid so the pid_t overload is
+            // selected instead of the variadic template launch constructor.
+            proc = Child(pi.dwProcessId);
+            CloseHandle(pi.hProcess);
+#else
+            std::string temp_filename = "temp_" +
                 std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".txt";
             std::filesystem::path temp_path = proc_dir / temp_filename;
-            
+
             std::ofstream test_file(temp_path);
-            if (!test_file.is_open()) {
+            if (!test_file.is_open())
                 throw std::runtime_error("Failed to create output file: " + temp_path.string());
-            }
             test_file.close();
-            
+
             proc = Child(resolved_args,
                         BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
                         BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
                         BOOST_PROCESS_V1_NAMESPACE::std_in.close());
             pid = static_cast<Pid>(proc.id());
-            
+
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
             std::error_code rename_ec;
             std::filesystem::rename(temp_path, final_path, rename_ec);
             if (rename_ec) {
-                this->logger->warn("[proc] Failed to rename output file: " + rename_ec.message() + 
-                                 ", keeping temp file: " + temp_path.string());
+                this->logger->warn("[proc] Failed to rename output file: " + rename_ec.message() +
+                                   ", keeping temp file: " + temp_path.string());
                 out_file = File(temp_path.string());
             } else {
                 out_file = File(final_path.string());
             }
+#endif
         }
-        
+
         this->child_processes.emplace(pid, Process{
-            std::move(proc), 
-            is_detachable, 
+            std::move(proc),
+            is_detachable,
             is_renweb,
             std::move(out_file)
         });
+
+#if defined(_WIN32)
+        {
+            HANDLE hJob = CreateJobObjectW(nullptr, nullptr);
+            if (hJob) {
+                JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {};
+                jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+                HANDLE hProc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, static_cast<DWORD>(pid));
+                if (hProc) {
+                    AssignProcessToJobObject(hJob, hProc);
+                    CloseHandle(hProc);
+                }
+                this->child_processes.at(pid).job_handle = hJob;
+            }
+        }
+#endif
         
         json::object info = is_renweb ? dumpRenWebProcess(pid) : dumpSystemProcess(pid);
         
@@ -1070,44 +1200,57 @@ inline void PM::kill(Pid pid, int32_t sig) {
     #ifndef SIGKILL
         #define SIGKILL 9
     #endif
-    
+
+    auto it = this->child_processes.find(pid);
+    const bool is_managed = (it != this->child_processes.end());
+
     switch (sig) {
         case SIGINT:
-            if (GenerateConsoleCtrlEvent(CTRL_C_EVENT, static_cast<DWORD>(pid))) {
-                this->logger->info("[proc] Sent Ctrl+C (SIGINT) to PID " + std::to_string(pid));
-            } else {
-                this->logger->error("[proc] Failed to send Ctrl+C to PID " + std::to_string(pid) + 
-                                  " (Error: " + std::to_string(GetLastError()) + ")");
+        case SIGBREAK: {
+            DWORD event = (sig == SIGINT) ? CTRL_C_EVENT : CTRL_BREAK_EVENT;
+            const char* sig_name = (sig == SIGINT) ? "SIGINT" : "SIGBREAK";
+            if (GenerateConsoleCtrlEvent(event, static_cast<DWORD>(pid))) {
+                this->logger->info("[proc] Sent " + std::string(sig_name) + " to PID " + std::to_string(pid));
+                break;
             }
-            break;
-        case SIGBREAK:
-            if (GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, static_cast<DWORD>(pid))) {
-                this->logger->info("[proc] Sent Ctrl+Break (SIGBREAK) to PID " + std::to_string(pid));
-            } else {
-                this->logger->error("[proc] Failed to send Ctrl+Break to PID " + std::to_string(pid) + 
-                                  " (Error: " + std::to_string(GetLastError()) + ")");
-            }
-            break;
+            this->logger->warn("[proc] GenerateConsoleCtrlEvent failed for PID " + std::to_string(pid) +
+                               " (no shared console) — falling through to terminate");
+            [[fallthrough]];
+        }
         case SIGTERM:
         case SIGKILL: {
-            std::error_code ec;
-            auto it = this->child_processes.find(pid);
-            if (it == this->child_processes.end()) {
-                this->logger->warn("[proc] kill: PID " + std::to_string(pid) + " is not a managed child process");
-                return;
-            }
-            auto& proc = it->second.process;
-            proc.terminate(ec);
-            if (ec) {
-                this->logger->error("[proc] Failed to kill PID " + std::to_string(pid) + ": " + ec.message());
+            if (is_managed && it->second.job_handle) {
+                CloseHandle(it->second.job_handle);
+                it->second.job_handle = NULL;
+                this->logger->info("[proc] Terminated PID " + std::to_string(pid) + " via job object");
+            } else if (is_managed) {
+                std::error_code ec;
+                it->second.process.terminate(ec);
+                if (ec) {
+                    this->logger->error("[proc] Failed to terminate PID " + std::to_string(pid) + ": " + ec.message());
+                } else {
+                    this->logger->info("[proc] Terminated PID " + std::to_string(pid));
+                }
             } else {
-                this->logger->info("[proc] Forcefully killed process PID " + std::to_string(pid) + " (SIGKILL)");
+                HANDLE hProc = OpenProcess(PROCESS_TERMINATE, FALSE, static_cast<DWORD>(pid));
+                if (hProc) {
+                    if (TerminateProcess(hProc, 1)) {
+                        this->logger->info("[proc] Terminated external process PID " + std::to_string(pid));
+                    } else {
+                        this->logger->error("[proc] TerminateProcess failed for PID " + std::to_string(pid) +
+                                            " (error " + std::to_string(GetLastError()) + ")");
+                    }
+                    CloseHandle(hProc);
+                } else {
+                    this->logger->error("[proc] OpenProcess failed for PID " + std::to_string(pid) +
+                                        " (error " + std::to_string(GetLastError()) + ")");
+                }
             }
             break;
         }
         default:
             this->logger->error("[proc] Signal " + std::to_string(sig) + " is not supported on Windows. " +
-                              "Supported signals: SIGINT (Ctrl+C), SIGBREAK (Ctrl+Break), SIGTERM, SIGKILL");
+                              "Supported: SIGINT, SIGBREAK, SIGTERM, SIGKILL");
             break;
     }
 #else
@@ -1136,7 +1279,15 @@ inline void PM::detach(Pid pid) {
         proc.detach();
         this->logger->info("[proc] Detached from child process PID " + std::to_string(pid));
     }
-    
+#if defined(_WIN32)
+    if (it->second.job_handle) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {};
+        jeli.BasicLimitInformation.LimitFlags = 0;
+        SetInformationJobObject(it->second.job_handle, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+        CloseHandle(it->second.job_handle);
+        it->second.job_handle = NULL;
+    }
+#endif
     this->child_processes.erase(it);
 }
 
@@ -1162,9 +1313,17 @@ inline void PM::send(Pid pid, const json::value& message) {
 // ----------------------------------------------------------
 
 inline std::vector<std::string> PM::listen(Pid pid, int64_t lines, bool tail) const {
-    std::filesystem::path file_path = (this->getPid() == pid) 
-        ? Locate::currentDirectory() / "log.txt" 
-        : getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
+    std::filesystem::path file_path;
+    if (this->getPid() == pid) {
+        file_path = Locate::currentDirectory() / "log.txt";
+    } else {
+        auto it = this->child_processes.find(pid);
+        if (it != this->child_processes.end() && !it->second.out_file.getPath().empty()) {
+            file_path = it->second.out_file.getPath();
+        } else {
+            file_path = getProcessOutputDir(this->getPid()) / (std::to_string(pid) + ".txt");
+        }
+    }
     
     auto process_head = [](std::istream& stream, size_t max_lines) {
         std::vector<std::string> result;

@@ -215,8 +215,9 @@ public:
     }
     LPWSTR uri;
     args->get_Uri(&uri);
-    std::wstring wide_uri(uri);
-    std::string url(wide_uri.begin(), wide_uri.end());
+    int len = WideCharToMultiByte(CP_UTF8, 0, uri, -1, nullptr, 0, nullptr, nullptr);
+    std::string url(len > 0 ? len - 1 : 0, '\0');
+    if (len > 0) WideCharToMultiByte(CP_UTF8, 0, uri, -1, url.data(), len, nullptr, nullptr);
     CoTaskMemFree(uri);
     
     bool allowed = m_nav_cb(url);

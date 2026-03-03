@@ -32,7 +32,7 @@
 #include "../include/info.hpp"
 #include "../include/json.hpp"
 #include "../include/locate.hpp"
-#include "boost/json/serialize.hpp"
+#include <boost/json/serialize.hpp>
 #include <memory>
 
 using Config = RenWeb::Config;

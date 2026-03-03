@@ -32,11 +32,36 @@
 #if defined (_WIN32)
 #include <windows.h>
 #include <shellapi.h>
+#include <io.h>
+#include <fcntl.h>
 #endif
 
 #if defined(_WIN32)
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nCmdShow) {
     (void)hInst; (void)hPrevInst; (void)lpCmdLine; (void)nCmdShow;
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
+    DWORD outType = (hOut && hOut != INVALID_HANDLE_VALUE) ? GetFileType(hOut) : FILE_TYPE_UNKNOWN;
+    if (outType == FILE_TYPE_DISK || outType == FILE_TYPE_PIPE) {
+        int fdOut = _open_osfhandle(reinterpret_cast<intptr_t>(hOut), _O_WRONLY | _O_BINARY);
+        if (fdOut != -1) {
+            _dup2(fdOut, _fileno(stdout));
+            if (hErr == hOut) {
+                _dup2(fdOut, _fileno(stderr));
+            } else {
+                int fdErr = _open_osfhandle(reinterpret_cast<intptr_t>(hErr), _O_WRONLY | _O_BINARY);
+                if (fdErr != -1) _dup2(fdErr, _fileno(stderr));
+            }
+        }
+    } else if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        FILE* f;
+        freopen_s(&f, "CONOUT$", "w", stdout);
+        freopen_s(&f, "CONOUT$", "w", stderr);
+        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        if (h != NULL && h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode))
+            SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
     auto args = std::make_unique<RenWeb::Args>(__argc, __argv);
 #else
 int main(int argc, char** argv) {
