@@ -447,11 +447,35 @@ endif
 
 # -----------------------------------------------------------------------------
 # RULE: Compile Windows resource file
+# Template tokens (@RC_*@) are filled from info.json before rc.exe is invoked.
 # -----------------------------------------------------------------------------
 ifeq ($(OS_NAME), windows)
-$(RES_FILE): resource/app.rc resource/app.ico resource/app.manifest | $(OBJ_PATH)
+$(RES_FILE): resource/app.rc resource/app.ico resource/app.manifest info.json | $(OBJ_PATH)
 	$(call step,Compiling Resource File,$@)
-	$(RC) /fo $@ /I resource resource/app.rc
+	@INFO=./info.json; \
+	 RC_TITLE=$$(sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
+	 RC_TITLE=$${RC_TITLE:-}; \
+	 RC_AUTHOR=$$(sed -n 's/.*"author"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
+	 RC_AUTHOR=$${RC_AUTHOR:-}; \
+	 RC_DESCRIPTION=$$(sed -n 's/.*"description"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
+	 RC_DESCRIPTION=$${RC_DESCRIPTION:-}; \
+	 RC_COPYRIGHT=$$(sed -n 's/.*"copyright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
+	 RC_COPYRIGHT=$${RC_COPYRIGHT:-}; \
+	 RC_VERSION_CSV=$$(echo "$(EXE_VERSION)" | awk -F. 'NF>=3{printf "%s,%s,%s,0",$$1,$$2,$$3} NF<3{print "0,0,0,0"}' 2>/dev/null); \
+	 RC_VERSION_CSV=$${RC_VERSION_CSV:-0,0,0,0}; \
+	 RC_VERSION_STR=$$([ -n "$(EXE_VERSION)" ] && echo "$(EXE_VERSION).0" || echo "0.0.0.0"); \
+	 RC_EXE_FILENAME=$${EXE:-$(EXE)}; \
+	 RC_EXE_FILENAME=$${RC_EXE_FILENAME:-unknown.exe}; \
+	 { printf '\xEF\xBB\xBF'; sed \
+	     -e "s|@RC_TITLE@|$$RC_TITLE|g" \
+	     -e "s|@RC_AUTHOR@|$$RC_AUTHOR|g" \
+	     -e "s|@RC_DESCRIPTION@|$$RC_DESCRIPTION|g" \
+	     -e "s|@RC_COPYRIGHT@|$$RC_COPYRIGHT|g" \
+	     -e "s|@RC_VERSION_CSV@|$$RC_VERSION_CSV|g" \
+	     -e "s|@RC_VERSION_STR@|$$RC_VERSION_STR|g" \
+	     -e "s|@RC_EXE_FILENAME@|$$RC_EXE_FILENAME|g" \
+	     resource/app.rc; } > $(OBJ_PATH)/app_filled.rc
+	$(RC) /fo $@ /I resource $(OBJ_PATH)/app_filled.rc
 	$(call step,Compiling Resource File [DONE],$@)
 endif
 # -----------------------------------------------------------------------------
