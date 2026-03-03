@@ -787,25 +787,25 @@ function formatSignature(name, details) {
     
     // Detect user's OS and auto-select the appropriate tab
     function detectAndSelectOS() {
-        const osTabsContainer = document.querySelector('.os-tabs');
-        if (!osTabsContainer) return;
-        
+        const osTabsContainers = document.querySelectorAll('.os-tabs');
+        if (!osTabsContainers.length) return;
+
         const userAgent = navigator.userAgent.toLowerCase();
         const platform = navigator.platform.toLowerCase();
-        
-        let targetOS = 'linux-compile'; // default
-        
+
+        let osKeyword = 'linux';
         if (userAgent.includes('win') || platform.includes('win')) {
-            targetOS = 'windows-compile';
+            osKeyword = 'windows';
         } else if (userAgent.includes('mac') || platform.includes('mac')) {
-            targetOS = 'macos-compile';
+            osKeyword = 'macos';
         }
-        
-        // Find and click the appropriate tab button
-        const targetButton = osTabsContainer.querySelector(`[data-target="${targetOS}"]`);
-        if (targetButton && !targetButton.classList.contains('active')) {
-            targetButton.click();
-        }
+
+        osTabsContainers.forEach(container => {
+            const targetButton = container.querySelector(`[data-target*="${osKeyword}"]`);
+            if (targetButton && !targetButton.classList.contains('active')) {
+                targetButton.click();
+            }
+        });
     }
     
     // Main content tabs (OS tabs)
