@@ -33,7 +33,7 @@
 # Creates a complete release with example archives, executables, and bundles
 # =============================================================================
 
-set -e  # Exit on error
+set -e
 
 # =============================================================================
 # Color codes for output
@@ -173,19 +173,19 @@ generate_bundle_exec() {
     local version=$2
     local os_name=$3
     local output_file=$4
-    local bundle_type=${5:-loader}  # loader | bootstrap | full
+    local bundle_type=${5:-bootstrap}  # bootstrap | full
 
     if [ "$os_name" = "windows" ]; then
         if [ "$bundle_type" = "bootstrap" ]; then
-            # Bootstrap bat: check registry for WebView2, run installer if missing
+            # Bootstrap bat: check registry for WebView2, run installer if missing,
+            # then delete the installer once installation is confirmed via registry.
             cat > "$output_file" <<'EOF'
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
-:: Get the directory where this batch file is located
 set "SCRIPT_DIR=%~dp0"
 
-:: Add the lib folder to PATH so WebView2Loader.dll is found
+:: Add lib folder to PATH
 if exist "%SCRIPT_DIR%lib" (
     set "PATH=%SCRIPT_DIR%lib;%PATH%"
 )
@@ -195,22 +195,39 @@ set "WV2_INSTALLED=0"
 for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
     if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
 )
-if "%WV2_INSTALLED%"=="0" (
+if "!WV2_INSTALLED!"=="0" (
     for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
         if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
     )
 )
 
 :: If not installed, run the bootstrapper
-if "%WV2_INSTALLED%"=="0" (
+if "!WV2_INSTALLED!"=="0" (
     echo WebView2 runtime not found. Installing...
-    for %%f in ("%SCRIPT_DIR%lib\MicrosoftEdgeWebView2RuntimeInstaller*.exe") do (
+    set "INSTALLER_PATH="
+    for %%f in ("!SCRIPT_DIR!lib\MicrosoftEdgeWebView2RuntimeInstaller*.exe") do (
+        set "INSTALLER_PATH=%%f"
         "%%f" /silent /install
+    )
+    :: Re-check registry to confirm the runtime is now present
+    set "WV2_NOW_INSTALLED=0"
+    for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+        if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
+    )
+    if "!WV2_NOW_INSTALLED!"=="0" (
+        for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+            if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
+        )
+    )
+    if "!WV2_NOW_INSTALLED!"=="1" (
+        echo Installation verified. Removing installer to free space...
+        if defined INSTALLER_PATH del /f /q "!INSTALLER_PATH!" 2>nul
+    ) else (
+        echo Warning: WebView2 installation could not be verified. Installer kept.
     )
     echo Installation complete.
 )
 
-:: Run the RenWeb executable with all passed arguments
 "%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
 
 endlocal
@@ -221,48 +238,38 @@ EOF
 @echo off
 setlocal
 
-:: Get the directory where this batch file is located
 set "SCRIPT_DIR=%~dp0"
 
-:: Add the lib folder to PATH if it exists
 if exist "%SCRIPT_DIR%lib" (
     set "PATH=%SCRIPT_DIR%lib;%PATH%"
 )
 
-:: Run the RenWeb executable with all passed arguments
 "%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
 
 endlocal
 EOF
         fi
     else
-        # Generate .sh file
         cat > "$output_file" <<'EOF'
 #!/bin/bash
 
-# Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Set library path based on OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS
     if [ -d "$SCRIPT_DIR/lib" ]; then
         export DYLD_LIBRARY_PATH="$SCRIPT_DIR/lib:$DYLD_LIBRARY_PATH"
     fi
 else
-    # Linux
     if [ -d "$SCRIPT_DIR/lib" ]; then
         export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
     fi
 fi
 
-# Run the RenWeb executable with all passed arguments
 "$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-"* "$@"
 EOF
         chmod +x "$output_file"
     fi
     
-    # Replace placeholders
     sed -i.bak "s/@EXE_NAME@/$exe_name/g" "$output_file"
     sed -i.bak "s/@EXE_VERSION@/$version/g" "$output_file"
     sed -i.bak "s/@OS_NAME@/$os_name/g" "$output_file"
@@ -578,10 +585,9 @@ main() {
     
     # ==========================================================================
     # Step 11: Create bundle archives for each executable
-    # Windows: generates three bundles per arch:
+    # Windows: generates two bundles per arch:
     #   bundle-<v>-windows-<arch>           full fixed WebView2 runtime (~280 MB)
-    #   bundle-bootstrap-<v>-windows-<arch> loader DLL + evergreen installer (~3 MB)
-    #   bundle-loader-<v>-windows-<arch>    loader DLL only (~1 MB)
+    #   bundle-bootstrap-<v>-windows-<arch> bootstrapper installer (~3 MB)
     # Other platforms: one bundle per arch.
     # ==========================================================================
     print_step "11. Creating bundle archives for each executable"
@@ -622,18 +628,7 @@ main() {
             if [ "$os" = "windows" ]; then
 
                 # ------------------------------------------------------------------
-                # bundle-loader: WebView2Loader.dll only
-                # ------------------------------------------------------------------
-                print_info "  [bundle-loader]"
-                mkdir -p ./build/tmp
-                cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "loader"
-                copy_webview2_loader "$arch" "./build/tmp/lib"
-                _make_bundle "bundle-loader-${VERSION}-${os}-${arch}"
-                rm -rf ./build/tmp
-
-                # ------------------------------------------------------------------
-                # bundle-bootstrap: loader DLL + evergreen installer
+                # bundle-bootstrap: bootstrapper installer
                 # ------------------------------------------------------------------
                 print_info "  [bundle-bootstrap]"
                 mkdir -p ./build/tmp

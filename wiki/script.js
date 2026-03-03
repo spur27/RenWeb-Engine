@@ -2091,6 +2091,16 @@ function categorizeAssets(assets) {
  * @param {string} archiveExt - Archive extension to filter by
  * @returns {Object} Categorized bundles
  */
+/**
+ * Detect bundle type from filename
+ * @param {string} filename - Lowercase filename
+ * @returns {'bootstrap'|'standard'}
+ */
+function getBundleType(filename) {
+    if (filename.startsWith('bundle-bootstrap-')) return 'bootstrap';
+    return 'standard';
+}
+
 function categorizeBundles(assets, archiveExt) {
     const categories = {
         linux: [],
@@ -2109,7 +2119,7 @@ function categorizeBundles(assets, archiveExt) {
         
         const os = getOSFromFilename(name);
         if (os) {
-            categories[os].push(asset);
+            categories[os].push({ ...asset, bundleType: getBundleType(name) });
         }
     });
     
@@ -2273,10 +2283,42 @@ function updateBundles(release, archiveExt) {
         if (!element) return;
         
         if (categories[os].length > 0) {
-            const sorted = sortByArchitecture(categories[os]);
-            const html = sorted.map(asset => 
-                `<a href="${asset.browser_download_url}" class="download-btn" download="${asset.name}" style="margin-right: 0.5rem; margin-bottom: 0.5rem; display: inline-block;">${getArchitecture(asset.name)}</a>`
-            ).join('');
+            // Group by bundle type: standard first, then bootstrap
+            const typeOrder = ['standard', 'bootstrap'];
+            const typeLabels = {
+                standard: 'Full Bundle',
+                bootstrap: 'Bootstrap Bundle'
+            };
+            const typeDescriptions = {
+                standard: 'Includes a fixed build of all runtime dependencies.',
+                bootstrap: 'Includes a bootstrapper to install the runtime on first run.'
+            };
+
+            const groups = typeOrder
+                .map(type => ({
+                    type,
+                    assets: sortByArchitecture(categories[os].filter(a => a.bundleType === type))
+                }))
+                .filter(g => g.assets.length > 0);
+
+            const html = groups.map(({ type, assets }) => {
+                const items = assets.map(asset => `
+                    <div class="arch-item arch-item--bundle-${type}">
+                        <strong>${getArchitecture(asset.name)}</strong>
+                        <small>${(asset.size / 1024 / 1024).toFixed(1)} MB</small>
+                        ${createDownloadButton(asset.browser_download_url, asset.name)}
+                    </div>
+                `).join('');
+                return `
+                    <div class="bundle-type-group">
+                        <div class="bundle-type-header bundle-type-header--${type}">
+                            <span class="bundle-type-badge bundle-type-badge--${type}">${typeLabels[type]}</span>
+                            <span class="bundle-type-desc">${typeDescriptions[type]}</span>
+                        </div>
+                        <div class="arch-grid">${items}</div>
+                    </div>
+                `;
+            }).join('');
             element.innerHTML = html;
         } else {
             element.innerHTML = createNoItemsMessage('bundles');

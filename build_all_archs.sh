@@ -41,13 +41,12 @@
 #   --bundle    Bundle runtime libraries for portable deployment
 # =============================================================================
 
-set -e  # Exit on error
+set -e
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-# Bundle libraries flag
 ENABLE_BUNDLE=false
 
 # Color codes for output
@@ -67,10 +66,7 @@ BOLD='\033[1m'
 # Linux toolchains (simple list - bash 3.2 compatible)
 LINUX_TOOLCHAINS="x86_64-linux-gnu i686-linux-gnu aarch64-linux-gnu arm-linux-gnueabihf mips-linux-gnu mipsel-linux-gnu mips64-linux-gnuabi64 mips64el-linux-gnuabi64 powerpc-linux-gnu powerpc64-linux-gnu riscv64-linux-gnu s390x-linux-gnu sparc64-linux-gnu"
 
-# macOS architectures
 MACOS_ARCHITECTURES="arm64 x86_64"
-
-# Windows architectures  
 WINDOWS_ARCHITECTURES="x64 x86 arm64 arm"
 
 # =============================================================================
@@ -103,24 +99,20 @@ print_building() {
     echo -e "${MAGENTA}${BOLD}[BUILD]${RESET} Building for ${CYAN}$1${RESET} (${YELLOW}$2${RESET})"
 }
 
-# Check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Check if a cross-compiler toolchain exists
 toolchain_exists() {
     command_exists "$1-gcc" && command_exists "$1-g++"
 }
 
-# Build for a specific toolchain
 build_for_toolchain() {
     local toolchain=$1
     local arch_name=$2
     
     print_building "$arch_name" "$toolchain"
     
-    # Set BUNDLE parameter if enabled
     local bundle_flag=""
     if [ "$ENABLE_BUNDLE" = true ]; then
         bundle_flag="BUNDLE=true"
@@ -140,13 +132,11 @@ build_for_toolchain() {
     fi
 }
 
-# Build native (no cross-compilation)
 build_native() {
     local arch_name=$1
     
     print_building "$arch_name" "native"
     
-    # Set BUNDLE parameter if enabled
     local bundle_flag=""
     if [ "$ENABLE_BUNDLE" = true ]; then
         bundle_flag="BUNDLE=true"
@@ -182,7 +172,6 @@ detect_os() {
             ;;
         CYGWIN*|MINGW*|MSYS*)
             OS_NAME="Windows"
-            # On Windows, detect architecture from environment or processor
             if [ -n "$VSCMD_ARG_TGT_ARCH" ]; then
                 HOST_ARCH="$VSCMD_ARG_TGT_ARCH"
             elif [ -n "$PROCESSOR_ARCHITECTURE" ]; then
@@ -193,7 +182,7 @@ detect_os() {
                     *) HOST_ARCH="$PROCESSOR_ARCHITECTURE" ;;
                 esac
             else
-                HOST_ARCH="x86_64"  # Default assumption
+                HOST_ARCH="x86_64"
             fi
             ;;
         *)
@@ -237,7 +226,6 @@ build_linux() {
         sparc64) host_toolchain="sparc64-linux-gnu" ;;
     esac
     
-    # First, try to build native (host architecture)
     print_info "Building native (host architecture: $HOST_ARCH)..."
     total_count=$((total_count + 1))
     if build_native "native ($HOST_ARCH)"; then
@@ -247,9 +235,7 @@ build_linux() {
     fi
     echo ""
     
-    # Build for each available cross-compiler toolchain (skip host toolchain)
     for toolchain in $LINUX_TOOLCHAINS; do
-        # Skip the host toolchain since we already built it natively
         if [ "$toolchain" = "$host_toolchain" ]; then
             print_info "Skipping $toolchain (already built natively)"
             continue
@@ -270,7 +256,6 @@ build_linux() {
         echo ""
     done
     
-    # Print summary
     print_header "Build Summary"
     echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
     echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
@@ -311,34 +296,24 @@ build_macos() {
     
     local ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
     
-    # Supported macOS architectures for cross-compilation
-    # arm64: Apple Silicon (M1, M2, M3, etc.)
-    # x86_64: Intel 64-bit
-    # Both can be cross-compiled with Xcode SDK
     local SUPPORTED_ARCHS="arm64 x86_64"
     
     print_info "Supported architectures: $SUPPORTED_ARCHS"
     print_info "Note: macOS cross-compilation uses -arch flag with Xcode SDK"
     echo ""
     
-    # Build for each supported architecture
     for arch in $SUPPORTED_ARCHS; do
         total_count=$((total_count + 1))
         
         print_building "$arch" "clang++ -arch $arch"
         
-        # Clear object files but keep binaries from previous arch builds
-        # Use 'make clear' which only removes objects, not executables
         make clear >/dev/null 2>&1
         
-        # Set BUNDLE parameter if enabled
         local bundle_flag=""
         if [ "$ENABLE_BUNDLE" = true ]; then
             bundle_flag="BUNDLE=true"
         fi
         
-        # Pass ARCH to makefile for filename and ARCH_FLAGS for compilation
-        # The makefile will use ARCH in the output name and append ARCH_FLAGS to CXXFLAGS/LDFLAGS
         if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release $bundle_flag -j$ncpu 2>&1; then
             print_success "Built for $arch successfully"
             success_count=$((success_count + 1))
@@ -349,16 +324,13 @@ build_macos() {
         echo ""
     done
     
-    # If we built both architectures successfully, offer to create universal binary
     if [ $success_count -eq 2 ]; then
         print_info "Creating universal binary (arm64 + x86_64)..."
         
-        # Find the two binaries
         local arm64_bin=$(ls ./build/renweb-*-macos-arm64 2>/dev/null | head -1)
         local x86_64_bin=$(ls ./build/renweb-*-macos-x86_64 2>/dev/null | head -1)
         
         if [ -n "$arm64_bin" ] && [ -n "$x86_64_bin" ]; then
-            # Extract version from info.json
             local version=$(grep -o '"version"[^"]*"[^"]*"' info.json | cut -d'"' -f4)
             local universal_bin="./build/renweb-${version}-macos-universal"
             
@@ -366,7 +338,6 @@ build_macos() {
                 print_success "Universal binary created: $universal_bin"
                 success_count=$((success_count + 1))
                 
-                # Verify the universal binary contains both architectures
                 print_info "Universal binary architectures:"
                 lipo -info "$universal_bin"
             else
@@ -377,7 +348,6 @@ build_macos() {
         fi
     fi
     
-    # Print summary
     print_header "Build Summary"
     echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
     echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
@@ -396,12 +366,8 @@ build_windows() {
     
     print_header "Building for Windows - All Architectures (3 total)"
     print_info "Detected Windows environment"
-    if [ "$ENABLE_BUNDLE" = true ]; then
-        print_warning "Bundling not yet implemented for Windows"
-    fi
     echo ""
     
-    # Find Visual Studio installation
     local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
     if [ ! -f "$vswhere" ]; then
         vswhere="/c/Program Files/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -413,7 +379,6 @@ build_windows() {
     fi
     
     if [ -z "$vs_path" ]; then
-        # Try common locations
         if [ -d "/c/Program Files/Microsoft Visual Studio/2022/Community" ]; then
             vs_path="/c/Program Files/Microsoft Visual Studio/2022/Community"
         elif [ -d "/c/Program Files/Microsoft Visual Studio/2022/Professional" ]; then
@@ -435,7 +400,6 @@ build_windows() {
         return 1
     fi
     
-    # Build each architecture
     local architectures="x64:x86_64:vcvars64.bat x86:x86_32:vcvars32.bat arm64:arm64:vcvarsamd64_arm64.bat"
     
     for arch_spec in $architectures; do
@@ -447,7 +411,6 @@ build_windows() {
         # Convert paths for Windows cmd
         local vcvars_win=$(cygpath -w "$vcvars_path/$vcvars" 2>/dev/null || echo "$vcvars_path\\$vcvars")
         
-        # Create a temporary batch file for this build
         local temp_bat=$(mktemp --suffix=.bat)
         cat > "$temp_bat" <<EOF
 @echo off
@@ -458,7 +421,6 @@ if errorlevel 1 exit /b 1
 make ARCH=$make_arch TARGET=release -j4
 EOF
         
-        # Run the batch file
         if cmd //c "$(cygpath -w "$temp_bat" 2>/dev/null || echo "$temp_bat")" 2>&1; then
             print_success "Built $win_arch successfully"
             success_count=$((success_count + 1))
@@ -467,11 +429,9 @@ EOF
             fail_count=$((fail_count + 1))
         fi
         
-        # Clean up temp file
         rm -f "$temp_bat"
     done
     
-    # Print summary
     echo ""
     print_header "Build Summary"
     echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
@@ -494,7 +454,6 @@ EOF
 # =============================================================================
 
 main() {
-    # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
             --bundle)
@@ -531,7 +490,6 @@ main() {
         esac
     done
     
-    # Detect OS and architecture
     detect_os
     
     print_header "RenWeb Multi-Architecture Build Script"
@@ -550,7 +508,6 @@ main() {
         exit 1
     fi
     
-    # Build based on detected OS
     case "$OS_NAME" in
         Linux)
             build_linux
@@ -568,5 +525,4 @@ main() {
     esac
 }
 
-# Run main function with all arguments
 main "$@"
