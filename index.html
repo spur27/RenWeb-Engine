@@ -232,7 +232,12 @@
             
             updateNavbarHighlight(page);
             
-            iframe.src = `wiki/${page}.html${hash}`;
+            const iframeUrl = `wiki/${page}.html${hash}`;
+            try {
+                iframe.contentWindow.location.replace(iframeUrl);
+            } catch (e) {
+                iframe.src = iframeUrl;
+            }
             
             if (hash) {
                 iframe.addEventListener('load', function() {
