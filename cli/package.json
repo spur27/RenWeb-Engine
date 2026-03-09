@@ -1,0 +1,25 @@
+{
+  "name": "renweb-cli",
+  "version": "0.0.1",
+  "description": "RenWeb CLI tool — Docker-only Node.js CLI",
+  "bin": {
+    "renweb": "index.js"
+  },
+  "private": true,
+  "dependencies": {
+    "commander": "^11.0.0"
+  },
+  "scripts": {
+    "start":           "node index.js package -c --executable-only",
+    "package":         "node index.js package",
+    "link":            "npm link",
+    "unlink":          "npm unlink",
+    "clean":           "rm -rf release/",
+    "docker:build":    "docker build -t renweb-cli .",
+    "docker:rebuild":  "docker build --no-cache -t renweb-cli .",
+    "docker:kill":     "docker ps -q --filter ancestor=renweb-cli | xargs -r docker kill",
+    "docker:clean":    "docker rmi renweb-cli",
+    "docker:shell":    "docker run --rm -it -e IN_DOCKER=1 -v \"$(pwd):/work\" -w /work renweb-cli bash",
+    "bootstrap":       "npm install"
+  }
+}

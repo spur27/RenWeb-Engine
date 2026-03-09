@@ -39,6 +39,8 @@ const INFO_JSON = {
   "description": "Base RenWeb engine",
   "license": "BSL",
   "repository": "https://github.com/spur27/RenWeb-Engine",
+  "engine_repository": "https://github.com/spur27/RenWeb-Engine",
+  "plugin_repositories": [ ],
   "categories": ["Utility"],
   "copyright": "Copyright © 2025 Spur27",
   "app_id": "io.github.spur27.renweb-engine",
