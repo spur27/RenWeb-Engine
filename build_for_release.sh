@@ -164,7 +164,7 @@ get_version() {
 
 # Get exe name from info.json
 get_exe_name() {
-    sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs
+    sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]_]/-/g' | xargs
 }
 
 # Generate bundle_exec script for a specific executable

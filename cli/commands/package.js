@@ -57,6 +57,42 @@ const WEBVIEW2_BOOTSTRAPPER_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=212
 // appimagetool static binary path inside the Docker image
 const APPIMAGETOOL = '/opt/appimagetool';
 
+// ELF e_machine values for architectures we package.
+const ELF_MACHINE_FOR_APPIMAGE_ARCH = { x86_64: 0x3E, i686: 0x03, aarch64: 0xB7, armhf: 0x28 };
+
+/**
+ * Returns the ELF e_machine uint16 for a file, or null if it is not an ELF.
+ */
+function readElfMachine(filePath) {
+    try {
+        const buf = Buffer.alloc(20);
+        const fd  = fs.openSync(filePath, 'r');
+        const n   = fs.readSync(fd, buf, 0, 20, 0);
+        fs.closeSync(fd);
+        if (n >= 20 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46)
+            return buf.readUInt16LE(18);
+    } catch (_) {}
+    return null;
+}
+
+/**
+ * Recursively remove every ELF file inside dir whose e_machine does not match
+ * wantMachine.  Prevents appimagetool from aborting with
+ * "More than one architectures were found".
+ */
+function purgeForeignElfs(dir, wantMachine) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { purgeForeignElfs(full, wantMachine); continue; }
+        const machine = readElfMachine(full);
+        if (machine !== null && machine !== wantMachine) {
+            try { fs.rmSync(full, { force: true }); } catch (_) {}
+        }
+    }
+}
+
 // rcedit path inside the Docker image
 const RCEDIT_EXE = '/opt/rcedit-x64.exe';
 
@@ -336,10 +372,9 @@ function groupAssets(assets) {
  */
 function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pkgDir, tmpDir, homebrewBottles) {
     const { os: targetOs, arch: targetArch } = engineAsset;
-    const pkgId      = toSnake(info.title || 'app');
-    const pkgName    = toKebab(info.title || 'app');
+    const pkgId      = toKebab(info.title || 'app');
     const version    = (info.version || '0.0.1').trim();
-    const stem       = `${pkgName}-${version}-${targetOs}-${targetArch}`;
+    const stem       = `${pkgId}-${version}-${targetOs}-${targetArch}`;
     // Route output to the right subdirectory:
     //   bootstrap bundles  → package/{os}/bundle_bootstrap/
     //   regular bundles    → package/{os}/bundle/
@@ -382,6 +417,14 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
         makeExecutable(exeDest);
     }
 
+    // 4a. Patch Windows PE version info + icon immediately after the exe lands in
+    //     staging so that ALL outputs (tar.gz, zip, NSIS, MSI, MSIX, choco) contain
+    //     the patched binary.  Must happen before the step-5 archiving below.
+    if (targetOs === 'windows' || targetOs === 'win') {
+        const winExe = path.join(stagingDir, engineAsset.filename);
+        if (fs.existsSync(winExe)) patchWindowsExe(winExe, info);
+    }
+
     // 5. Archive outputs (tar.gz / zip) — raw files only, no wrapper scripts
     fs.mkdirSync(outDir, { recursive: true });
     const wantTarGz = opts.exts.size === 0 || opts.exts.has('tar.gz');
@@ -411,10 +454,6 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     }
 
     if (targetOs === 'windows' || targetOs === 'win') {
-        // Patch PE version info + icon into the .exe
-        const winExe = path.join(stagingDir, engineAsset.filename);
-        if (fs.existsSync(winExe)) patchWindowsExe(winExe, info);
-
         // NSIS installer
         const nsisOut = path.join(outDir, `${stem}-setup.exe`);
         buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, engineAsset.isBundle);
@@ -471,11 +510,10 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
  *                            runtime deps are declared.
  */
 function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, isBundle = false, exeFilename = '') {
-    const pkgId   = toSnake(info.title || 'app');
-    const pkgName = toKebab(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const version = (info.version || '0.0.1').trim();
     const desc    = info.description || '';
-    const license = info.license     || '';
+    const license = info.license     || 'BSL-1.0';
     const website = info.repository  || '';
 
     // Which fpm formats to produce (filtered by -e flag)
@@ -491,7 +529,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
     // Build system-layout staging tree
     // Include bundle flag in path so bare and bundle builds never share a directory.
-    const fpmRoot  = path.join(tmpDir, 'fpm-staging', `${pkgName}-${version}-${targetOs}-${targetArch}${isBundle ? '-bundle' : ''}`);
+    const fpmRoot  = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}${isBundle ? '-bundle' : ''}`);
     const appShare = path.join(fpmRoot, 'opt', pkgId);
     const appsDir  = path.join(fpmRoot, 'usr', 'share', 'applications');
     const iconsDir = path.join(fpmRoot, 'usr', 'share', 'icons', 'hicolor', '256x256', 'apps');
@@ -552,7 +590,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
     // Run fpm for each format
     for (const fmt of formats) {
-        const stem       = `${pkgName}-${version}-${targetOs}-${targetArch}`;
+        const stem       = `${pkgId}-${version}-${targetOs}-${targetArch}`;
         const outputFile = path.join(outDir, `${stem}${FPM_EXT[fmt]}`);
         // Give each fpm invocation its own isolated copy of the staging tree.
         // Some fpm backend/format combinations delete or rename the source
@@ -563,8 +601,8 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         // All package managers prefer hyphens over underscores in package names
         const fpmArgs    = [
             '-s', 'dir', '-t', fmt,
-            '-n', pkgName, '-v', version,
-            '--description', desc || pkgName,
+            '-n', pkgId, '-v', version,
+            '--description', desc || pkgId,
             '-p', outputFile,
             '-C', fmtRoot,
             '--prefix', '/',
@@ -585,12 +623,22 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
             `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
         makeExecutable(postInstallScript);
         fpmArgs.push('--after-install', postInstallScript);
+
+        // Post-remove: force-delete the install directory so dpkg/rpm don't
+        // leave it behind when the app has written runtime files (log.txt, etc.).
+        const postRemoveScript = path.join(os.tmpdir(), `_renweb-postremove-${pkgId}-${fmt}.sh`);
+        fs.writeFileSync(postRemoveScript,
+            `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
+        makeExecutable(postRemoveScript);
+        fpmArgs.push('--after-remove', postRemoveScript);
+
         fpmArgs.push('.');
 
         console.log(`  [fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
         try { fs.unlinkSync(outputFile); } catch (_) {} // remove stale file so fpm doesn't refuse to overwrite
         const r = spawnSync('fpm', fpmArgs, { stdio: 'inherit' });
         try { fs.unlinkSync(postInstallScript); } catch (_) {}
+        try { fs.unlinkSync(postRemoveScript); } catch (_) {}
         try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {} // free space immediately
         if (r.status !== 0) console.warn(`  ⚠ fpm failed for format: ${fmt}`);
     }
@@ -657,12 +705,32 @@ function patchWindowsExe(exePath, info) {
         console.warn('  \u26a0 No .ico found — executable icon will not be changed');
     }
 
-    // Use the pre-initialised Wine prefix from the Dockerfile (/root/.wine),
-    // which is chmod 777 so it is accessible when running as a non-root --user.
+    // Use the pre-initialised Wine prefix from /opt/wine.
+    // Wine refuses to use a prefix not owned by the current user, so when
+    // running as --user in Docker (where /opt/wine is root-owned), copy the
+    // prefix to a user-owned tmpdir and point WINEPREFIX there.
     console.log('  Patching Windows PE resources (rcedit via wine64)…');
+    const BASE_WINE_PREFIX = '/opt/wine';
+    let winePrefix = BASE_WINE_PREFIX;
+    const myUid = typeof process.getuid === 'function' ? process.getuid() : -1;
+    let prefixOwnedByUs = false;
+    try {
+        const st = fs.statSync(BASE_WINE_PREFIX);
+        prefixOwnedByUs = (myUid >= 0 && st.uid === myUid);
+    } catch (_) {}
+    if (!prefixOwnedByUs) {
+        const tmpPrefix = path.join(require('os').tmpdir(), `renweb-wine-${myUid >= 0 ? myUid : 'u'}`);
+        if (!fs.existsSync(tmpPrefix)) {
+            console.log('  Copying Wine prefix to user-owned tmpdir…');
+            fs.mkdirSync(tmpPrefix, { recursive: true });
+            // --no-preserve=ownership so copied files are owned by the current user.
+            spawnSync('cp', ['-a', '--no-preserve=ownership', BASE_WINE_PREFIX + '/.', tmpPrefix + '/'], { stdio: 'inherit' });
+        }
+        winePrefix = tmpPrefix;
+    }
     const r = spawnSync(wineBin, [RCEDIT_EXE, exePath, ...rcArgs], {
         stdio : 'inherit',
-        env   : { ...process.env, WINEDEBUG: '-all', WINEARCH: 'win64', WINEPREFIX: '/opt/wine' },
+        env   : { ...process.env, WINEDEBUG: '-all', WINEARCH: 'win64', WINEPREFIX: winePrefix },
     });
     if (r.status !== 0) console.warn('  \u26a0 rcedit returned non-zero — PE patch may have failed');
     else console.log('  PE resources patched: ProductName, FileDescription, CompanyName, version ' + winVer);
@@ -685,12 +753,11 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     const title   = info.title       || 'App';
     const version = (info.version    || '0.0.1').trim();
     const desc    = info.description || title;
-    const pkgId   = toSnake(info.title || 'app');
-    const pkgName = toKebab(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const author  = info.author      || title;
     const website = info.repository  || '';
     const winVer  = version.replace(/[^\d.]/g,'').split('.').concat(['0','0','0','0']).slice(0,4).join('.');
-    const exeName = pkgName + '-' + version + '-windows-' + arch + '.exe';
+    const exeName = pkgId + '-' + version + '-windows-' + arch + '.exe';
     const ukey    = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + pkgId;
 
     let iconLine = '';
@@ -791,7 +858,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
     const title       = info.title    || 'App';
     const version     = (info.version || '0.0.1').trim();
     const desc        = info.description || title;
-    const pkgId       = toSnake(info.title || 'app');
+    const pkgId       = toKebab(info.title || 'app');
     const author      = info.author   || title;
     const website     = info.repository || '';
     const productCode = hashToUuid(pkgId + '-product-' + version);
@@ -1012,11 +1079,10 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
     const title   = info.title    || 'App';
     const version = (info.version || '0.0.1').trim();
     const desc    = info.description || title;
-    const pkgId   = toSnake(info.title || 'app');
-    const pkgName = toKebab(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const author  = info.author   || title;
     const website = info.repository || '';
-    const exeFile = path.basename(nsisExePath || (pkgName + '-' + version + '-windows-' + arch + '-setup.exe'));
+    const exeFile = path.basename(nsisExePath || (pkgId + '-' + version + '-windows-' + arch + '-setup.exe'));
 
     const tmpBase  = path.join(os.tmpdir(), '_renweb-choco-' + pkgId + '-' + arch);
     const toolsDir = path.join(tmpBase, 'tools');
@@ -1029,7 +1095,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
     const installPs1 = [
         "$ErrorActionPreference = 'Stop'",
         '$packageArgs = @{',
-        "  packageName    = '" + pkgName + "'",
+        "  packageName    = '" + pkgId + "'",
         "  fileType       = 'exe'",
         "  file64         = Join-Path $PSScriptRoot '" + exeFile + "'",
         "  silentArgs     = '/S'",
@@ -1042,7 +1108,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
 
     const uninstallPs1 = [
         "$ErrorActionPreference = 'Stop'",
-        "Uninstall-ChocolateyPackage '" + pkgName + "' 'exe' '/S' " +
+        "Uninstall-ChocolateyPackage '" + pkgId + "' 'exe' '/S' " +
         "\"$(Get-ItemPropertyValue 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + pkgId + "' UninstallString)\"",
         '',
     ].join('\n');
@@ -1058,7 +1124,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
         '<?xml version="1.0"?>',
         '<package>',
         '  <metadata>',
-        '    <id>'      + pkgName + '</id>',
+        '    <id>'      + pkgId + '</id>',
         '    <version>' + version + '</version>',
         '    <title>'   + title   + '</title>',
         '    <authors>' + author  + '</authors>',
@@ -1070,9 +1136,9 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
         '</package>',
         '',
     ].filter(l => l !== '').join('\n');
-    fs.writeFileSync(path.join(tmpBase, pkgName + '.nuspec'), nuspec, 'utf8');
+    fs.writeFileSync(path.join(tmpBase, pkgId + '.nuspec'), nuspec, 'utf8');
 
-    const outFile = path.join(outDir, pkgName + '.' + version + '-' + arch + '.nupkg');
+    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
     console.log('  [choco] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
@@ -1090,11 +1156,10 @@ function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
     const title   = info.title    || 'App';
     const version = (info.version || '0.0.1').trim();
     const desc    = info.description || title;
-    const pkgId   = toSnake(info.title || 'app');
-    const pkgName = toKebab(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const author  = info.author   || title;
     const website = info.repository || '';
-    const license = info.license  || '';
+    const license = info.license  || 'BSL-1.0';
 
     const tmpBase = path.join(path.dirname(outDir), '_nuget-' + pkgId + '-' + arch);
     fs.mkdirSync(tmpBase, { recursive: true });
@@ -1111,7 +1176,7 @@ function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
         '<?xml version="1.0"?>',
         '<package>',
         '  <metadata>',
-        '    <id>'      + pkgName + '</id>',
+        '    <id>'      + pkgId + '</id>',
         '    <version>' + version + '</version>',
         '    <title>'   + title   + '</title>',
         '    <authors>' + author  + '</authors>',
@@ -1125,9 +1190,9 @@ function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
         '</package>',
         '',
     ].filter(l => l !== '').join('\n');
-    fs.writeFileSync(path.join(tmpBase, pkgName + '.nuspec'), nuspec, 'utf8');
+    fs.writeFileSync(path.join(tmpBase, pkgId + '.nuspec'), nuspec, 'utf8');
 
-    const outFile = path.join(outDir, pkgName + '.' + version + '-' + arch + '.nupkg');
+    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
     console.log('  [nuget] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
@@ -1195,10 +1260,10 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
 
     const title   = info.title    || 'App';
     const version = (info.version || '0.0.1').trim();
+    const pkgId   = toKebab(info.title || 'app');
     const desc    = info.description || title;
-    const pkgName = toKebab(info.title || 'app');
     const website = info.repository || '';
-    const license = info.license  || 'Proprietary';
+    const license = info.license  || 'BSL-1.0';
     const bottleTag = HOMEBREW_BOTTLE_TAG[arch] || 'all';
     // Homebrew formula class must be CamelCase
     const klass   = title.replace(/[^a-zA-Z0-9]/g, ' ').trim()
@@ -1207,14 +1272,14 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
     // ── Build the Cellar-layout staging tree ───────────────────────────────
     // Homebrew unpacks the bottle into HOMEBREW_CELLAR/<formula>/<version>/
     // so that must be the root path inside the archive.
-    const tmpBase    = path.join(os.tmpdir(), '_renweb-hb-' + pkgName + '-' + arch);
-    const cellarRoot = path.join(tmpBase, pkgName, version);
+    const tmpBase    = path.join(os.tmpdir(), '_renweb-hb-' + pkgId + '-' + arch);
+    const cellarRoot = path.join(tmpBase, pkgId, version);
     const binDir     = path.join(cellarRoot, 'bin');
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(binDir, { recursive: true });
     copyDir(stagingDir, cellarRoot);
 
-    // bin/<pkgName> wrapper script — execs the real binary from the Cellar
+    // bin/<pkgId> wrapper script — execs the real binary from the Cellar
     const binTarget = isBundle ? 'bundle_exec.sh' : exeFilename;
     const wrapperSh = [
         '#!/bin/bash',
@@ -1222,17 +1287,17 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
         'exec "${CELLAR}/../' + binTarget + '" "$@"',
         '',
     ].join('\n');
-    const wrapperPath = path.join(binDir, pkgName);
+    const wrapperPath = path.join(binDir, pkgId);
     fs.writeFileSync(wrapperPath, wrapperSh, 'utf8');
     makeExecutable(wrapperPath);
 
     // ── Pack the bottle ────────────────────────────────────────────────────
     fs.mkdirSync(outDir, { recursive: true });
-    const bottleName = pkgName + '--' + version + '.' + bottleTag + '.bottle.tar.gz';
+    const bottleName = pkgId + '--' + version + '.' + bottleTag + '.bottle.tar.gz';
     const bottlePath = path.join(outDir, bottleName);
     try { fs.unlinkSync(bottlePath); } catch (_) {}
-    // tar from inside tmpBase so archive root is "<pkgName>/<version>/..."
-    const tarR = spawnSync('tar', ['-czf', bottlePath, pkgName], { cwd: tmpBase, stdio: 'inherit' });
+    // tar from inside tmpBase so archive root is "<pkgId>/<version>/..."
+    const tarR = spawnSync('tar', ['-czf', bottlePath, pkgId], { cwd: tmpBase, stdio: 'inherit' });
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
     if (tarR.status !== 0) {
         console.warn('  \u26a0 homebrew bottle tar failed');
@@ -1248,7 +1313,7 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
 
     // Push bottle metadata for later unified formula write
     if (homebrewBottles) {
-        homebrewBottles.push({ bottleTag, bottleName, sha256, binTarget, outDir, pkgName, klass, version, desc, website, license });
+        homebrewBottles.push({ bottleTag, bottleName, sha256, binTarget, outDir, pkgId, klass, version, desc, website, license });
     }
 }
 
@@ -1260,7 +1325,7 @@ function writeHomebrewFormula(bottles) {
     if (!bottles || bottles.length === 0) return;
 
     // All bottles should agree on these fields; take from first entry.
-    const { outDir, pkgName, klass, version, desc, website, license } = bottles[0];
+    const { outDir, pkgId, klass, version, desc, website, license } = bottles[0];
 
     // Prefer the 'all' (universal) bottle as the primary download url;
     // fall back to the first bottle if none is present.
@@ -1290,13 +1355,13 @@ function writeHomebrewFormula(bottles) {
         '  end',
         '',
         '  test do',
-        '    system "#{bin}/' + pkgName + '", "--version" rescue nil',
+        '    system "#{bin}/' + pkgId + '", "--version" rescue nil',
         '  end',
         'end',
         '',
     );
 
-    const formulaPath = path.join(outDir, pkgName + '.rb');
+    const formulaPath = path.join(outDir, pkgId + '.rb');
     console.log('  [homebrew formula] \u2192 ' + path.relative(process.cwd(), formulaPath));
     fs.writeFileSync(formulaPath, rb.join('\n'), 'utf8');
 }
@@ -1384,7 +1449,9 @@ const APPIMAGE_ARCH_MAP = {
 
 /**
  * Build an AppImage using appimagetool.
- * APPIMAGE_EXTRACT_AND_RUN=1 is set in the Dockerfile so FUSE is not needed.
+ * APPIMAGE_EXTRACT_AND_RUN=1 is set in the Dockerfile so FUSE is not needed
+ * during the build.  At runtime, AppRun prefers the extract-and-run path
+ * (writable tmpdir) over the old copy-on-first-run approach.
  */
 function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('AppImage') && !opts.exts.has('appimage')) return;
@@ -1401,8 +1468,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
 
     const title   = info.title    || 'App';
     const version = (info.version || '0.0.1').trim();
-    const pkgId   = toSnake(info.title || 'app');
-    const pkgName = toKebab(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const appId   = info.app_id  || pkgId;
     const desc    = info.description || title;
     const cats    = parseCats(info.categories || info.category);
@@ -1413,25 +1479,40 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     fs.mkdirSync(appShare, { recursive: true });
     copyDir(stagingDir, appShare);
 
-    // AppRun entry point (required by the AppImage spec)
+    // ── AppRun ────────────────────────────────────────────────────────────────
+    // The engine uses wai_getExecutablePath (/proc/self/exe) to resolve all
+    // paths, so it must run from a writable directory.
+    //
+    // Strategy:
+    //   1. If APPDIR is already writable (extract-and-run mode)  → exec directly.
+    //   2. Otherwise re-exec $APPIMAGE with APPIMAGE_EXTRACT_AND_RUN=1 so the
+    //      runtime extracts to a writable tmpdir before calling us again.
+    //   3. Fallback (extract-and-run unavailable): copy to ~/.local/share once.
     const appTarget  = isBundle ? 'bundle_exec.sh' : exeFilename;
     const appRunPath = path.join(appDir, 'AppRun');
     fs.writeFileSync(appRunPath, [
         '#!/bin/bash',
         'APPDIR="$(dirname "$(readlink -f "$0")")"',
-        '# The engine resolves log.txt relative to dirname(argv[0]) / realpath(argv[0]).',
-        '# Symlinks do not help because the engine calls realpath() which follows them',
-        '# back into the read-only squashfs mount.  Instead, copy the entire app tree',
-        '# to a writable data dir on first run (or when the version stamp changes),',
-        '# then exec the copy so both argv[0] and /proc/self/exe live in a writable dir.',
+        '',
+        '# Fast path: APPDIR is writable (extract-and-run tmpdir) — exec directly.',
+        'if touch "$APPDIR/.w" 2>/dev/null && rm -f "$APPDIR/.w"; then',
+        '    exec "$APPDIR/opt/' + pkgId + '/' + appTarget + '" "$@"',
+        'fi',
+        '',
+        '# APPDIR is read-only (FUSE mount). Re-exec via extract-and-run so the',
+        '# runtime lands in a writable tmpdir on the next invocation.',
+        'if [ -z "${_RENWEB_REEXEC}" ]; then',
+        '    export _RENWEB_REEXEC=1 APPIMAGE_EXTRACT_AND_RUN=1',
+        '    exec "${APPIMAGE:-$0}" "$@"',
+        'fi',
+        '',
+        '# Last-resort fallback: copy app to ~/.local/share once and exec from there.',
         'DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/' + pkgId + '"',
-        'STAMP="$DATA_DIR/.appimage-version"',
-        'VERSION="' + version + '"',
-        'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP")" != "$VERSION" ] || [ ! -x "$DATA_DIR/' + appTarget + '" ]; then',
-        '    rm -rf "$DATA_DIR"',
-        '    mkdir -p "$DATA_DIR"',
-        '    cp -a "$APPDIR/opt/' + pkgId + '/." "$DATA_DIR/" || { echo "AppImage: failed to copy app to $DATA_DIR" >&2; exit 1; }',
-        '    echo "$VERSION" > "$STAMP"',
+        'STAMP="$DATA_DIR/.version"',
+        'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
+        '    rm -rf "$DATA_DIR" && mkdir -p "$DATA_DIR"',
+        '    cp -a "$APPDIR/opt/' + pkgId + '/." "$DATA_DIR/" || { echo "AppImage: copy failed" >&2; exit 1; }',
+        '    echo "' + version + '" > "$STAMP"',
         'fi',
         'exec "$DATA_DIR/' + appTarget + '" "$@"',
         '',
@@ -1447,8 +1528,8 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
         '  <id>' + appId + '</id>',
         '  <name>' + (info.title || pkgId) + '</name>',
         '  <summary>' + desc + '</summary>',
-        '  <metadata_license>MIT</metadata_license>',
-        '  <project_license>' + (info.license || 'LicenseRef-proprietary') + '</project_license>',
+        '  <metadata_license>BSL 1.0</metadata_license>',
+        '  <project_license>' + (info.license || 'BSL-1.0') + '</project_license>',
         '  <releases>',
         '    <release version="' + version + '" date="' + new Date().toISOString().slice(0, 10) + '"/>',
         '  </releases>',
@@ -1482,12 +1563,26 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
         '',
     ].join('\n'), 'utf8');
 
-    const outFile = path.join(outDir, pkgName + '-' + version + '-' + archFlag + '.AppImage');
+    const outFile = path.join(outDir, pkgId + '-' + version + '-' + archFlag + '.AppImage');
     fs.mkdirSync(outDir, { recursive: true });
+
+    // Strip any ELF files whose architecture doesn't match archFlag.  This
+    // prevents appimagetool aborting with "More than one architectures were found"
+    // when e.g. host-arch libraries or scripts slip into the staging tree.
+    const wantMachine = ELF_MACHINE_FOR_APPIMAGE_ARCH[archFlag];
+    if (wantMachine !== undefined) purgeForeignElfs(appDir, wantMachine);
+
     console.log('  [AppImage] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync(APPIMAGETOOL, [appDir, outFile], {
         stdio : 'inherit',
-        env   : Object.assign({}, process.env, { ARCH: archFlag, APPIMAGE_EXTRACT_AND_RUN: '1' }),
+        // TMPDIR → output dir (Docker /tmp may be owned by root under --user runs).
+        // ARCH   → required by appimagetool to embed the correct architecture.
+        // APPIMAGE_EXTRACT_AND_RUN → build without FUSE (not available in Docker).
+        env   : Object.assign({}, process.env, {
+            ARCH                  : archFlag,
+            APPIMAGE_EXTRACT_AND_RUN: '1',
+            TMPDIR                : outDir,
+        }),
     });
     if (r.status !== 0) console.warn('  \u26a0 appimagetool failed');
     try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {}
@@ -1522,32 +1617,150 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
     fs.mkdirSync(metaDir,  { recursive: true });
     copyDir(stagingDir, appShare);
 
-    const snapYaml = [
+    // ── Confinement strategy ────────────────────────────────────────────────
+    // Bare exe: dynamically linked against the host GTK/WebKit stack.
+    //   → classic confinement (full host library access).
+    // Bundle: ships its own .so libs in lib/.
+    //   → strict confinement + LD_LIBRARY_PATH wrapper.
+    //
+    // Both cases share the same root problem: $SNAP is a read-only squashfs
+    // mount, and the engine writes log.txt next to its own executable
+    // (Locate::currentDirectory() = exe.parent_path()).  The launcher wrapper
+    // copies the app tree to $SNAP_USER_DATA once per version and then execs
+    // from that writable directory, so all runtime writes land there instead
+    // of the read-only snap mount.
+    // ────────────────────────────────────────────────────────────────────────
+    const confinement = isBundle ? 'strict' : 'classic';
+    const appTarget   = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const wrapperName = 'snap-launch.sh';
+    const wrapperPath = path.join(appShare, wrapperName);
+
+    // Common launcher body — copy-once + exec from writable $SNAP_USER_DATA.
+    const wrapperLines = [
+        '#!/bin/sh',
+        '# $SNAP         — read-only squashfs mount',
+        '# $SNAP_USER_DATA — writable, per-user, per-version ($HOME/snap/<name>/current)',
+        'SRC="$SNAP/opt/' + pkgId + '"',
+        'DEST="${SNAP_USER_DATA:-$HOME/.local/share/' + pkgId + '}"',
+        'STAMP="$DEST/.version"',
+        '',
+        '# Suppress WebKit\'s portal-based proxy detection (causes "not available inside',
+        '# the sandbox" noise on classic snaps; actual network access is unaffected).',
+        'export GDK_USE_PORTAL=0',
+        '',
+        '# Copy app tree once per version so the engine can write log.txt etc.',
+        'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
+        '    rm -rf "$DEST" && mkdir -p "$DEST"',
+        '    cp -a "$SRC/." "$DEST/" || { echo "snap: copy failed" >&2; exit 1; }',
+        '    echo "' + version + '" > "$STAMP"',
+        'fi',
+        '',
+    ];
+
+    if (isBundle) {
+        wrapperLines.push(
+            '# Bundle: prepend bundled libs so the engine finds its own .so files.',
+            'export LD_LIBRARY_PATH="$DEST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"',
+        );
+    }
+
+    wrapperLines.push(
+        '# Suppress WebKit network-subprocess pxbackend proxy-portal warnings.',
+        '# WebKit\'s sandboxed network process tries to query proxy settings via',
+        '# the D-Bus portal and fails inside the snap sandbox.  GTK_USE_PORTAL=0',
+        '# tells GTK/WebKit not to use the portal API at all.',
+        'export GTK_USE_PORTAL=0',
+        '',
+        '# Tell KDE Plasma / GNOME / Mutter which .desktop file owns this process.',
+        '# Without this the compositor cannot correlate the live Wayland app_id to',
+        '# the snap .desktop entry, so it spawns a second taskbar icon instead of',
+        '# grouping the window under the one the user launched.',
+        'export BAMF_DESKTOP_FILE_HINT="/var/lib/snapd/desktop/applications/' + pkgId + '_' + pkgId + '.desktop"',
+        '',
+        'exec "$DEST/' + appTarget + '" "$@"',
+        '',
+    );
+
+    fs.writeFileSync(wrapperPath, wrapperLines.join('\n'), 'utf8');
+    makeExecutable(wrapperPath);
+    const snapCommand = 'opt/' + pkgId + '/' + wrapperName;
+
+    const yamlLines = [
         'name: ' + pkgId,
         "version: '" + version + "'",
         'summary: ' + title,
         'description: |',
         '  ' + desc,
-        website ? '  ' + website : '',
+        website ? '  ' + website : null,
+        'base: core22',
         'grade: stable',
-        'confinement: strict',
+        'confinement: ' + confinement,
         'architectures:',
         '  - ' + snapArch,
         '',
         'apps:',
         '  ' + pkgId + ':',
-        '    command: opt/' + pkgId + '/' + (isBundle ? 'bundle_exec.sh' : exeFilename),
-        '    plugs:',
-        '      - desktop',
-        '      - desktop-legacy',
-        '      - wayland',
-        '      - x11',
-        '      - network',
-        '      - audio-playback',
-        '      - opengl',
+        '    command: ' + snapCommand,
+    ];
+
+    // Plugs only apply to strict confinement (bundle); classic has full host access.
+    if (confinement === 'strict') {
+        yamlLines.push(
+            '    plugs:',
+            '      - desktop',
+            '      - desktop-legacy',
+            '      - wayland',
+            '      - x11',
+            '      - network',
+            '      - audio-playback',
+            '      - opengl',
+            '      - home',
+        );
+    }
+    yamlLines.push('');
+
+    fs.writeFileSync(path.join(metaDir, 'snap.yaml'),
+        yamlLines.filter(l => l !== null).join('\n'), 'utf8');
+
+    // ── meta/gui — desktop integration (KDE/GNOME app launcher, KRunner, etc.) ──
+    // snapd reads meta/gui/<name>.desktop and registers it in
+    // ~/.local/share/applications/ so the app appears in system search.
+    const guiDir  = path.join(metaDir, 'gui');
+    fs.mkdirSync(guiDir, { recursive: true });
+    const cats    = parseCats(info.categories || info.category);
+    const appId   = info.app_id || pkgId;
+    const desktopContent = [
+        '[Desktop Entry]',
+        'Version=1.0',
+        'Type=Application',
+        'Name=' + title,
+        'Comment=' + desc,
+        // Exec must be the snap name (snapd maps it to /snap/bin/<name>)
+        'Exec=' + pkgId,
+        // Icon path: snapd substitutes ${SNAP} when registering the .desktop file.
+        // Point to meta/gui/ where we also copy the image, which is the conventional
+        // snap icon location and avoids needing the full opt/ tree to be accessible.
+        'Icon=${SNAP}/meta/gui/' + pkgId,
+        'Terminal=false',
+        'Categories=' + cats,
+        'StartupWMClass=' + appId,
+        'StartupNotify=true',
         '',
-    ].filter(l => l !== undefined).join('\n');
-    fs.writeFileSync(path.join(metaDir, 'snap.yaml'), snapYaml, 'utf8');
+    ].join('\n');
+    fs.writeFileSync(path.join(guiDir, pkgId + '.desktop'), desktopContent, 'utf8');
+    // Also copy the icon into meta/gui/ so snapd can display it in stores/launchers
+    for (const ext of ['png', 'svg']) {
+        for (const cand of [
+            path.join(stagingDir, 'resource', 'app.' + ext),
+            path.join(stagingDir, 'resource', 'icon.' + ext),
+            path.join(stagingDir, 'resources', 'icon.' + ext),
+        ]) {
+            if (fs.existsSync(cand)) {
+                fs.copyFileSync(cand, path.join(guiDir, pkgId + '.' + ext));
+                break;
+            }
+        }
+    }
 
     const outFile = path.join(outDir, pkgId + '_' + version + '_' + snapArch + '.snap');
     fs.mkdirSync(outDir, { recursive: true });
@@ -1558,7 +1771,9 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         '-noappend', '-comp', 'xz', '-no-progress',
     ], { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 snap build failed');
-    else console.log('  \u2139 To install: sudo snap install --dangerous ' + path.relative(process.cwd(), outFile));
+    else console.log('  \u2139 To install: sudo snap install --dangerous' +
+        (confinement === 'classic' ? ' --classic' : '') +
+        ' ' + path.relative(process.cwd(), outFile));
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1573,10 +1788,9 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         console.warn('  \u26a0 flatpak not found \u2014 skipping flatpak'); return;
     }
 
-    const pkgId   = toSnake(info.title || 'app');
+    const pkgId   = toKebab(info.title || 'app');
     const appId   = info.app_id  || pkgId;
     const version = (info.version || '0.0.1').trim();
-    const pkgName = toKebab(info.title || 'app');
     const binTarget = isBundle ? 'bundle_exec.sh' : exeFilename;
 
     const tmpBase  = path.join(os.tmpdir(), '_renweb-flatpak-' + pkgId + '-' + arch);
@@ -1614,7 +1828,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     fs.writeFileSync(binWrapper, wrapperSh, 'utf8');
     makeExecutable(binWrapper);
 
-    const outFile = path.join(outDir, pkgName + '-' + version + '-' + arch + '.flatpak');
+    const outFile = path.join(outDir, pkgId + '-' + version + '-' + arch + '.flatpak');
     fs.mkdirSync(outDir, { recursive: true });
     console.log('  [flatpak] \u2192 ' + path.relative(process.cwd(), outFile));
 
@@ -1661,7 +1875,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
 
 /** Launcher for bare (no bundled libs) releases. */
 function generateBareLauncher(exeFilename, info, targetOs, targetArch) {
-    const pkgId = toSnake(info.title || 'app');
+    const pkgId = toKebab(info.title || 'app');
     return `#!/usr/bin/env bash
 # launch.sh — ${info.title || 'app'} ${targetOs}/${targetArch}
 set -e
@@ -1679,7 +1893,7 @@ exec "\${SCRIPT_DIR}/${exeFilename}" "$@"
  * Delegates to bundle_exec.sh which sets LD_LIBRARY_PATH then calls the exe.
  */
 function generateBundleLauncher(info, targetOs, targetArch) {
-    const pkgId = toSnake(info.title || 'app');
+    const pkgId = toKebab(info.title || 'app');
     return `#!/usr/bin/env bash
 # launch.sh — ${info.title || 'app'} ${targetOs}/${targetArch} [bundled]
 set -e
@@ -1842,16 +2056,16 @@ function run(args) {
         process.exit(1);
     }
 
-    // ── 5. Copy ./build → ./.package/build-srSc (skip exe, log, plugins, lib) ──────
+    // ── 5. Copy ./build → ./.package/build-src (skip exe, log, plugins, lib) ──────
     console.log('\n── Copying build files ──');
-    const exePattern = new RegExp(
-        `^${toKebab(info.title || 'app')}-[\\d].+-(linux|darwin|macos|windows|win)-.+`, 'i'
-    );
     for (const entry of fs.readdirSync(buildDir, { withFileTypes: true })) {
         const name = entry.name;
         if (BUILD_EXCLUDES.has(name) || BUILD_EXCLUDE_PREFIXES.some(p => name.startsWith(p)))
             { console.log(`  skip: ${name}`); continue; }
-        if (exePattern.test(name)) { console.log(`  skip (exe): ${name}`); continue; }
+        // Skip any file that parses as an engine binary (any name/os/arch combination).
+        // This prevents host-arch binaries from leaking into cross-platform packages.
+        if (parseExecAsset(name) || parseBundleAsset(name))
+            { console.log(`  skip (exe): ${name}`); continue; }
         const src  = path.join(buildDir, name);
         const dest = path.join(buildSrcDir, name);
         if (entry.isDirectory()) copyDir(src, dest); else fs.copyFileSync(src, dest);

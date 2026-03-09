@@ -1,0 +1,12 @@
+{
+  "name": "renweb-engine-repo",
+  "private": true,
+  "workspaces": [
+    "web/api",
+    "cli"
+  ],
+  "scripts": {
+    "build:api": "npm run build --workspace=web/api",
+    "link:cli":  "npm link --workspace=cli"
+  }
+}
