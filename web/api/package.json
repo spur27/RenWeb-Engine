@@ -1,0 +1,34 @@
+{
+  "name": "renweb",
+  "version": "0.0.6",
+  "description": "RenWeb Engine JavaScript/TypeScript API — use inside a RenWeb webview to call the native engine.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "types":  "./index.d.ts"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.js.map",
+    "index.d.ts",
+    "index.ts"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["renweb", "webview", "desktop"],
+  "author": "spur27",
+  "license": "BSL-1.0",
+  "repository": {
+    "type": "git",
+    "url":  "https://github.com/spur27/RenWeb-Engine"
+  },
+  "homepage": "https://spur27.github.io/RenWeb-Engine/"
+}

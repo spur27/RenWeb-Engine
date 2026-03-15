@@ -3,9 +3,12 @@
 compile_commands.json
 *.o
 *.d
+log.txt
 build
 .build
 release
+.package
+package
 .cache
 libs.log
 node_modules
@@ -22,3 +25,9 @@ programs
 external/webview2_sdk
 external/webview2_runtimes
 external/webview2_bootstraps
+cli/node_modules
+cli/build
+cli/pkg
+cli/.package
+cli/release
+cli/package

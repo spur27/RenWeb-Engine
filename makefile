@@ -275,7 +275,7 @@ SRC_PATH :=    ./src
 OBJ_PATH :=    $(SRC_PATH)/.build
 INC_PATH :=    ./include
 PATCH_PATH :=  ./patches
-EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]/-/g' | xargs)
+EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]_]/-/g' | xargs)
 EXE_VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | xargs)
 EXE := $(EXE_NAME)-$(EXE_VERSION)-$(OS_NAME)-$(ARCH)$(EXE_EXT)
 ifeq ($(OS_NAME), windows)
@@ -674,6 +674,17 @@ ifdef TOOLCHAIN
 				done; \
 			done; \
 		done; \
+		LD_INTERP=$$($(TOOLCHAIN)-readelf -l "$(BUILD_PATH)/$(EXE)" 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*\[//;s/\].*//'); \
+		if [ -n "$$LD_INTERP" ]; then \
+			LD_NAME=$$(basename "$$LD_INTERP"); \
+			for search_dir in $$SEARCH_DIRS; do \
+				if [ -f "$$search_dir/$$LD_NAME" ]; then \
+					cp -L "$$search_dir/$$LD_NAME" $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
+					chmod +x $(BUILD_PATH)/lib-$(ARCH)/$$LD_NAME 2>/dev/null || true; \
+					break; \
+				fi; \
+			done; \
+		fi; \
 		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
 		if [ $$LIB_COUNT -gt 0 ]; then \
 			printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT libraries from $(TOOLCHAIN) sysroot"; \

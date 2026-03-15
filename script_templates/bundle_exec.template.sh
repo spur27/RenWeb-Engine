@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Copyright (C) 2025 spur27
 # SPDX-License-Identifier: BSL-1.0
 #
@@ -28,27 +28,52 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 set -e
-SCRIPT_DIR="$( cd "$( dirname "$0" )" && pwd )"
-PATTERN="@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*"
-ARCH_PARAM="$1"
-shopt -s nullglob
-EXES=($SCRIPT_DIR/$PATTERN)
-shopt -u nullglob
-[ ${#EXES[@]} -eq 0 ] && echo "Error: No executables found matching $PATTERN" && exit 1
-if [ ${#EXES[@]} -gt 1 ]; then
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Collect all matching executables (POSIX-compatible glob, no nullglob needed)
+EXES=""
+for _f in "$SCRIPT_DIR"/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*; do
+    [ -f "$_f" ] && [ -x "$_f" ] && EXES="${EXES}${_f}
+"
+done
+
+if [ -z "$EXES" ]; then
+    echo "Error: No executables found matching @EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*"
+    exit 1
+fi
+
+COUNT=$(printf '%s' "$EXES" | grep -c .)
+
+if [ "$COUNT" -gt 1 ]; then
+    ARCH_PARAM="$1"
     if [ -z "$ARCH_PARAM" ]; then
         echo "Error: Multiple executables found. Specify architecture:"
-        printf '  %s\n' "${EXES[@]##*/}" | sed 's/.*-//'
-        echo "Usage: $0 <arch> [args...]"
+        printf '%s' "$EXES" | while IFS= read -r _exe; do
+            printf '  %s\n' "${_exe##*-}"
+        done
+        printf 'Usage: %s <arch> [args...]\n' "$0"
         exit 1
     fi
     EXE="$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-$ARCH_PARAM"
     [ ! -x "$EXE" ] && echo "Error: No executable for arch: $ARCH_PARAM" && exit 1
     shift
 else
-    EXE="${EXES[0]}"
+    EXE=$(printf '%s' "$EXES" | head -n1)
 fi
+
 LIB_DIR="$SCRIPT_DIR/lib"
 [ ! -d "$LIB_DIR" ] && echo "Error: Library directory not found: lib" && exit 1
-[[ "$OSTYPE" == "darwin"* ]] && export DYLD_LIBRARY_PATH="$LIB_DIR:$DYLD_LIBRARY_PATH" || export LD_LIBRARY_PATH="$LIB_DIR:$LD_LIBRARY_PATH"
+
+case "$(uname -s)" in
+    Darwin) export DYLD_LIBRARY_PATH="$LIB_DIR:${DYLD_LIBRARY_PATH:-}" ;;
+    *)      export LD_LIBRARY_PATH="$LIB_DIR:${LD_LIBRARY_PATH:-}" ;;
+esac
+
+# If a bundled dynamic linker is present, invoke it directly so that
+# glibc-linked binaries run correctly on musl-based systems (e.g. Alpine).
+BUNDLED_LD=""
+for _ld in "$LIB_DIR"/ld-*.so*; do
+    [ -f "$_ld" ] && [ -x "$_ld" ] && { BUNDLED_LD="$_ld"; break; }
+done
+[ -n "$BUNDLED_LD" ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
 exec "$EXE" "$@"

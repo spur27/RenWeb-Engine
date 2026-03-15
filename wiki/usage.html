@@ -368,9 +368,11 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         <li><code>description</code> (string) - Brief application description</li>
                         <li><code>license</code> (string) - License identifier (e.g., "BSL", "MIT", "GPL-3.0")</li>
                         <li><code>repository</code> (string) - Source code repository URL</li>
+                        <li><code>engine_repository</code> (string) - Source code repository URL for engine (default is <a target="_blank" href="https://github.com/spur27/RenWeb-Engine">this</a>)</li>
+                        <li><code>plugin_repositories</code> (array of strings) - Source code repository URLs for plugins</li>
                         <li><code>categories</code> (array of strings) - Application categories for app stores/launchers (e.g., ["Utility"], ["Game", "Adventure"])</li>
                         <li><code>copyright</code> (string) - Copyright notice</li>
-                        <li><code>app_id</code> (string) - Unique application identifier for packaging (reverse domain notation recommended)</li>
+                        <li><code>app_id</code> (string) - Unique application identifier for packaging (reverse domain notation recommcended)</li>
                         <li><code>pkg_id</code> (string) - Short package identifier for package management systems</li>
                         <li><code>startup_notify</code> (boolean) - Whether to show desktop startup notification</li>
                     </ul>

@@ -1,0 +1,18 @@
+# Runtime artifacts — never needed in the image
+node_modules/
+release/
+.package/
+
+# Version control
+.git/
+.gitignore
+
+# Editor / OS noise
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build artefacts inside build/
+build/backup/
