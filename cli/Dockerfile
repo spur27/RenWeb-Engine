@@ -55,12 +55,21 @@ RUN mkdir -p /opt/wine \
  && (DISPLAY= wine64 wineboot --init 2>/dev/null || true) \
  && chmod -R 777 /opt/wine
 
-# ── AppImage tool — build AppImages for Linux ─────────────────────────────────
-# APPIMAGE_EXTRACT_AND_RUN=1 lets it work inside Docker without FUSE.
+# ── AppImage tool + per-arch runtimes ────────────────────────────────────────
+# APPIMAGE_EXTRACT_AND_RUN=1 lets appimagetool work inside Docker without FUSE.
+# The runtime-<arch> files are the small ELF stubs prepended to every AppImage;
+# without the correct one for the target arch, cross-built AppImages fail with
+# "Exec format error" on the target machine.
 RUN curl -fsSL \
     "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
     -o /opt/appimagetool \
- && chmod +x /opt/appimagetool
+ && chmod +x /opt/appimagetool \
+ && for arch in x86_64 i686 aarch64 armhf; do \
+      curl -fsSL \
+        "https://github.com/AppImage/AppImageKit/releases/download/continuous/runtime-${arch}" \
+        -o "/opt/appimage-runtime-${arch}"; \
+      chmod +x "/opt/appimage-runtime-${arch}"; \
+    done
 
 ENV APPIMAGE_EXTRACT_AND_RUN=1
 

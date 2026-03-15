@@ -51,15 +51,45 @@ const FPM_EXT = {
     freebsd : '.txz',
 };
 
+// Maps engine arch names → fpm --architecture values.
+// fpm normalises these per output format (e.g. x86_64→amd64 for deb).
+const FPM_ARCH_MAP = {
+    x86_64   : 'x86_64',
+    x86_32   : 'i686',
+    arm64    : 'aarch64',
+    aarch64  : 'aarch64',
+    arm32    : 'armhf',
+    armhf    : 'armhf',
+    mips32   : 'mips',
+    mips32el : 'mipsel',
+    mips64   : 'mips64',
+    mips64el : 'mips64el',
+    powerpc32: 'ppc',
+    powerpc64: 'ppc64',
+    riscv64  : 'riscv64',
+    s390x    : 's390x',
+    sparc64  : 'sparcv9',
+};
+
 // WebView2 runtime bootstrapper URL — required by bare Windows executables
 const WEBVIEW2_BOOTSTRAPPER_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
 
 // appimagetool static binary path inside the Docker image
 const APPIMAGETOOL = '/opt/appimagetool';
+// Per-architecture runtime stubs (ELF binary prepended to every AppImage).
+// Must match the TARGET architecture, not the build host.
+const APPIMAGE_RUNTIME_DIR = '/opt';
+const APPIMAGE_RUNTIME_FOR_ARCH = {
+    x86_64 : 'appimage-runtime-x86_64',
+    i686   : 'appimage-runtime-i686',
+    aarch64: 'appimage-runtime-aarch64',
+    armhf  : 'appimage-runtime-armhf',
+};
 
 // ELF e_machine values for architectures we package.
 const ELF_MACHINE_FOR_APPIMAGE_ARCH = { x86_64: 0x3E, i686: 0x03, aarch64: 0xB7, armhf: 0x28 };
 
+// Paths to the ELF dynamic linker (PT_INTERP) inside the Debian cross-compile
 /**
  * Returns the ELF e_machine uint16 for a file, or null if it is not an ELF.
  */
@@ -387,7 +417,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     const stagingSuffix = engineAsset.isBootstrap ? '-bundle-bootstrap'
                         : engineAsset.isBundle     ? '-bundle'
                         : '';
-    const stagingDir = path.join(tmpDir, 'staging', stem + stagingSuffix);    
+    const stagingDir = path.join(tmpDir, stem + stagingSuffix);    
 
     console.log(`\n── Building ${stem}${engineAsset.isBundle ? ' [bundle]' : ''} ──`);
 
@@ -543,7 +573,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
     // /usr/bin/<pkgId> → exec the real binary (or bundle_exec.sh) directly
     const binTarget   = isBundle ? `bundle_exec.sh` : exeFilename;
-    const binLauncher = `#!/usr/bin/env bash\nexec /opt/${pkgId}/${binTarget} "$@"\n`;
+    const binLauncher = `#!/bin/sh\nexec /opt/${pkgId}/${binTarget} "$@"\n`;
     const binPath     = path.join(binDir, pkgId);
     fs.writeFileSync(binPath, binLauncher, 'utf8');
     makeExecutable(binPath);
@@ -609,6 +639,8 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         ];
         if (website) fpmArgs.push('--url', website);
         if (license) fpmArgs.push('--license', license);
+        const fpmArch = FPM_ARCH_MAP[targetArch];
+        if (fpmArch) fpmArgs.push('--architecture', fpmArch);
         // Bundle releases carry their own .so libs — no runtime deps needed
         if (!isBundle) {
             for (const dep of LINUX_DEPS_REQUIRED) fpmArgs.push('--depends', dep);
@@ -1282,8 +1314,15 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
     // bin/<pkgId> wrapper script — execs the real binary from the Cellar
     const binTarget = isBundle ? 'bundle_exec.sh' : exeFilename;
     const wrapperSh = [
-        '#!/bin/bash',
-        'CELLAR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"',
+        '#!/bin/sh',
+        '# Resolve symlinks to find the real Cellar directory (POSIX-compatible).',
+        '_self="$0"',
+        'while [ -L "$_self" ]; do',
+        '    _dir="$(dirname "$_self")"',
+        '    _self="$(readlink "$_self")"',
+        '    case "$_self" in /*) ;; *) _self="$_dir/$_self" ;; esac',
+        'done',
+        'CELLAR="$(cd "$(dirname "$_self")" && pwd)"',
         'exec "${CELLAR}/../' + binTarget + '" "$@"',
         '',
     ].join('\n');
@@ -1491,7 +1530,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     const appTarget  = isBundle ? 'bundle_exec.sh' : exeFilename;
     const appRunPath = path.join(appDir, 'AppRun');
     fs.writeFileSync(appRunPath, [
-        '#!/bin/bash',
+        '#!/bin/sh',
         'APPDIR="$(dirname "$(readlink -f "$0")")"',
         '',
         '# Fast path: APPDIR is writable (extract-and-run tmpdir) — exec directly.',
@@ -1573,7 +1612,14 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     if (wantMachine !== undefined) purgeForeignElfs(appDir, wantMachine);
 
     console.log('  [AppImage] \u2192 ' + path.relative(process.cwd(), outFile));
-    const r = spawnSync(APPIMAGETOOL, [appDir, outFile], {
+    const appimageArgs = [appDir, outFile];
+    const runtimeFile = path.join(APPIMAGE_RUNTIME_DIR, APPIMAGE_RUNTIME_FOR_ARCH[archFlag] || '');
+    if (APPIMAGE_RUNTIME_FOR_ARCH[archFlag] && fs.existsSync(runtimeFile)) {
+        appimageArgs.unshift('--runtime-file', runtimeFile);
+    } else {
+        console.warn('  \u26a0 No runtime file for ' + archFlag + ' — AppImage may not run on target arch');
+    }
+    const r = spawnSync(APPIMAGETOOL, appimageArgs, {
         stdio : 'inherit',
         // TMPDIR → output dir (Docker /tmp may be owned by root under --user runs).
         // ARCH   → required by appimagetool to embed the correct architecture.
@@ -1584,7 +1630,31 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
             TMPDIR                : outDir,
         }),
     });
-    if (r.status !== 0) console.warn('  \u26a0 appimagetool failed');
+    if (r.status !== 0) {
+        console.warn('  \u26a0 appimagetool failed');
+    } else if (fs.existsSync(outFile)) {
+        // Verify the embedded ELF runtime matches the target architecture.
+        // The AppImage runtime stub is at byte offset 0; its e_machine field is
+        // at bytes 18-19 (LE uint16). A mismatch means "Exec format error" on target.
+        const ELF_MACHINE_NAMES = { 0x03: 'i686', 0x28: 'armhf', 0x3E: 'x86_64', 0xB7: 'aarch64' };
+        try {
+            const buf = Buffer.alloc(20);
+            const fd  = fs.openSync(outFile, 'r');
+            fs.readSync(fd, buf, 0, 20, 0);
+            fs.closeSync(fd);
+            const isElf     = buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46;
+            const eMachine  = isElf ? buf.readUInt16LE(18) : null;
+            const archName  = eMachine !== null ? (ELF_MACHINE_NAMES[eMachine] || `0x${eMachine.toString(16)}`) : '(not ELF)';
+            const wantMachineName = ELF_MACHINE_NAMES[wantMachine] || archFlag;
+            if (eMachine !== wantMachine) {
+                console.warn(`  \u26a0 AppImage runtime arch mismatch: embedded=${archName}, expected=${wantMachineName}`);
+                console.warn('     This AppImage will fail with "Exec format error" on the target.');
+                console.warn('     Rebuild the Docker image so the per-arch runtime stubs are present.');
+            } else {
+                console.log(`  \u2714 AppImage runtime arch verified: ${archName}`);
+            }
+        } catch (_) {}
+    }
     try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1820,7 +1890,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     try { fs.chmodSync(path.join(appFiles, binTarget), 0o755); } catch (_) {}
     // bin/<pkgId> wrapper that execs from the Flatpak /app prefix
     const wrapperSh = [
-        '#!/bin/bash',
+        '#!/bin/sh',
         'exec "/app/opt/' + pkgId + '/' + binTarget + '" "$@"',
         '',
     ].join('\n');

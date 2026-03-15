@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # Copyright (C) 2025 spur27
 # SPDX-License-Identifier: BSL-1.0
 #
@@ -50,14 +50,14 @@ set -e
 ENABLE_BUNDLE=false
 
 # Color codes for output
-RESET='\033[0m'
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-BLUE='\033[34m'
-MAGENTA='\033[35m'
-CYAN='\033[36m'
-BOLD='\033[1m'
+RESET=$(printf '\033[0m')
+RED=$(printf '\033[31m')
+GREEN=$(printf '\033[32m')
+YELLOW=$(printf '\033[33m')
+BLUE=$(printf '\033[34m')
+MAGENTA=$(printf '\033[35m')
+CYAN=$(printf '\033[36m')
+BOLD=$(printf '\033[1m')
 
 # =============================================================================
 # Supported Toolchains and Architectures
@@ -74,29 +74,29 @@ WINDOWS_ARCHITECTURES="x64 x86 arm64 arm"
 # =============================================================================
 
 print_header() {
-    echo -e "${CYAN}${BOLD}========================================${RESET}"
-    echo -e "${CYAN}${BOLD}$1${RESET}"
-    echo -e "${CYAN}${BOLD}========================================${RESET}"
+    echo "${CYAN}${BOLD}========================================${RESET}"
+    echo "${CYAN}${BOLD}$1${RESET}"
+    echo "${CYAN}${BOLD}========================================${RESET}"
 }
 
 print_info() {
-    echo -e "${GREEN}${BOLD}[INFO]${RESET} $1"
+    echo "${GREEN}${BOLD}[INFO]${RESET} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}${BOLD}[WARN]${RESET} $1"
+    echo "${YELLOW}${BOLD}[WARN]${RESET} $1"
 }
 
 print_error() {
-    echo -e "${RED}${BOLD}[ERROR]${RESET} $1"
+    echo "${RED}${BOLD}[ERROR]${RESET} $1"
 }
 
 print_success() {
-    echo -e "${GREEN}${BOLD}[SUCCESS]${RESET} $1"
+    echo "${GREEN}${BOLD}[SUCCESS]${RESET} $1"
 }
 
 print_building() {
-    echo -e "${MAGENTA}${BOLD}[BUILD]${RESET} Building for ${CYAN}$1${RESET} (${YELLOW}$2${RESET})"
+    echo "${MAGENTA}${BOLD}[BUILD]${RESET} Building for ${CYAN}$1${RESET} (${YELLOW}$2${RESET})"
 }
 
 command_exists() {
@@ -257,9 +257,9 @@ build_linux() {
     done
     
     print_header "Build Summary"
-    echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
-    echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
-    echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
+    echo "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
+    echo "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
+    echo "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
         print_info "Built executables are located in: ./build/"
@@ -349,9 +349,9 @@ build_macos() {
     fi
     
     print_header "Build Summary"
-    echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
-    echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
-    echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
+    echo "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
+    echo "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
+    echo "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
         print_info "Built executables are located in: ./build/"
@@ -403,8 +403,10 @@ build_windows() {
     local architectures="x64:x86_64:vcvars64.bat x86:x86_32:vcvars32.bat arm64:arm64:vcvarsamd64_arm64.bat"
     
     for arch_spec in $architectures; do
-        IFS=':' read -r win_arch make_arch vcvars <<< "$arch_spec"
-        
+        win_arch=$(printf '%s' "$arch_spec" | cut -d: -f1)
+        make_arch=$(printf '%s' "$arch_spec" | cut -d: -f2)
+        vcvars=$(printf '%s' "$arch_spec" | cut -d: -f3)
+
         echo ""
         print_building "$win_arch" "$vcvars"
         
@@ -434,9 +436,9 @@ EOF
     
     echo ""
     print_header "Build Summary"
-    echo -e "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
-    echo -e "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
-    echo -e "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
+    echo "${GREEN}Successful builds: ${BOLD}$success_count${RESET}"
+    echo "${RED}Failed builds: ${BOLD}$fail_count${RESET}"
+    echo "${CYAN}Total attempts: ${BOLD}$total_count${RESET}"
     
     if [ $success_count -gt 0 ]; then
         print_info "Built executables are located in: ./build/"
@@ -454,7 +456,7 @@ EOF
 # =============================================================================
 
 main() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --bundle)
                 ENABLE_BUNDLE=true

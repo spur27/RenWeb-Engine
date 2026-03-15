@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # Copyright (C) 2025 spur27
 # SPDX-License-Identifier: BSL-1.0
 #
@@ -38,39 +38,39 @@ set -e
 # =============================================================================
 # Color codes for output
 # =============================================================================
-RESET='\033[0m'
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-BLUE='\033[34m'
-MAGENTA='\033[35m'
-CYAN='\033[36m'
-BOLD='\033[1m'
+RESET=$(printf '\033[0m')
+RED=$(printf '\033[31m')
+GREEN=$(printf '\033[32m')
+YELLOW=$(printf '\033[33m')
+BLUE=$(printf '\033[34m')
+MAGENTA=$(printf '\033[35m')
+CYAN=$(printf '\033[36m')
+BOLD=$(printf '\033[1m')
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
 
 print_header() {
-    echo -e "${CYAN}${BOLD}========================================${RESET}"
-    echo -e "${CYAN}${BOLD}$1${RESET}"
-    echo -e "${CYAN}${BOLD}========================================${RESET}"
+    echo "${CYAN}${BOLD}========================================${RESET}"
+    echo "${CYAN}${BOLD}$1${RESET}"
+    echo "${CYAN}${BOLD}========================================${RESET}"
 }
 
 print_info() {
-    echo -e "${GREEN}${BOLD}[INFO]${RESET} $1"
+    echo "${GREEN}${BOLD}[INFO]${RESET} $1"
 }
 
 print_error() {
-    echo -e "${RED}${BOLD}[ERROR]${RESET} $1"
+    echo "${RED}${BOLD}[ERROR]${RESET} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}${BOLD}[WARN]${RESET} $1"
+    echo "${YELLOW}${BOLD}[WARN]${RESET} $1"
 }
 
 print_step() {
-    echo -e "${BLUE}${BOLD}[STEP]${RESET} $1"
+    echo "${BLUE}${BOLD}[STEP]${RESET} $1"
 }
 
 # Detect operating system
@@ -85,14 +85,17 @@ detect_os() {
 
 # Convert a POSIX path to a Windows path (fallback when cygpath is unavailable)
 to_windows_path() {
-    local p=$1
-    if [[ "$p" =~ ^/([a-zA-Z])/(.*)$ ]]; then
-        local drive=${BASH_REMATCH[1]^^}
-        local rest=${BASH_REMATCH[2]//\//\\}
-        echo "${drive}:\\${rest}"
-    else
-        echo "$p"
-    fi
+    p=$1
+    case "$p" in
+        /[a-zA-Z]/*)
+            drive=$(printf '%s' "$p" | cut -c2 | tr '[:lower:]' '[:upper:]')
+            rest=$(printf '%s' "$p" | cut -c4- | tr '/' '\\')
+            printf '%s:\\%s\n' "$drive" "$rest"
+            ;;
+        *)
+            printf '%s\n' "$p"
+            ;;
+    esac
 }
 
 # Create a zip archive (falls back to PowerShell on Windows)
@@ -250,23 +253,30 @@ endlocal
 EOF
         fi
     else
-        cat > "$output_file" <<'EOF'
-#!/bin/bash
-
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    if [ -d "$SCRIPT_DIR/lib" ]; then
-        export DYLD_LIBRARY_PATH="$SCRIPT_DIR/lib:$DYLD_LIBRARY_PATH"
-    fi
-else
-    if [ -d "$SCRIPT_DIR/lib" ]; then
-        export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$LD_LIBRARY_PATH"
-    fi
-fi
-
-"$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-"* "$@"
-EOF
+        if [ -f "./script_templates/bundle_exec.template.sh" ]; then
+            cp "./script_templates/bundle_exec.template.sh" "$output_file"
+        else
+            # Fallback if the template is not present alongside the script
+            cat > "$output_file" <<'TMPLEOF'
+#!/bin/sh
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+EXE=$(ls "$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-"* 2>/dev/null | head -n1)
+[ -z "$EXE" ] && echo "Error: executable not found" >&2 && exit 1
+LIB_DIR="$SCRIPT_DIR/lib"
+[ ! -d "$LIB_DIR" ] && echo "Error: lib/ directory not found" >&2 && exit 1
+case "$(uname -s)" in
+    Darwin) export DYLD_LIBRARY_PATH="$LIB_DIR:${DYLD_LIBRARY_PATH:-}" ;;
+    *)      export LD_LIBRARY_PATH="$LIB_DIR:${LD_LIBRARY_PATH:-}" ;;
+esac
+BUNDLED_LD=""
+for _ld in "$LIB_DIR"/ld-*.so*; do
+    [ -f "$_ld" ] && [ -x "$_ld" ] && { BUNDLED_LD="$_ld"; break; }
+done
+[ -n "$BUNDLED_LD" ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
+exec "$EXE" "$@"
+TMPLEOF
+        fi
         chmod +x "$output_file"
     fi
     
@@ -567,11 +577,13 @@ main() {
             # Exclude directories like lib-x86_64
             exe_name=$(basename "$exe")
             # Make sure it's an executable, not a library directory
-            if [[ "$exe_name" == "${EXE_NAME}-"* ]]; then
-                print_info "Copying: $exe_name"
-                cp "$exe" "./release/"
-                exe_count=$((exe_count + 1))
-            fi
+            case "$exe_name" in
+                "${EXE_NAME}-"*)
+                    print_info "Copying: $exe_name"
+                    cp "$exe" "./release/"
+                    exe_count=$((exe_count + 1))
+                    ;;
+            esac
         fi
     done
     
@@ -606,9 +618,10 @@ main() {
     for exe in ./build/${EXE_NAME}-*; do
         if [ -f "$exe" ] && [ ! -d "$exe" ]; then
             exe_name=$(basename "$exe")
-            if [[ "$exe_name" != "${EXE_NAME}-"* ]]; then
-                continue
-            fi
+            case "$exe_name" in
+                "${EXE_NAME}-"*) ;;
+                *) continue ;;
+            esac
 
             print_info "Processing: $exe_name"
 
@@ -688,7 +701,7 @@ main() {
     print_info "Release directory: ./release"
     print_info ""
     print_info "Contents:"
-    print_info "  • Example archives: example-${VERSION}.{zip,tar.gz}"
+    print_info "  • Example archives: example-${VERSION}.zip and example-${VERSION}.tar.gz"
     print_info "  • Executables: ${exe_count} files"
     print_info "  • Bundle archives: ${bundle_count} bundles × 2 formats (zip + tar.gz) = $((bundle_count * 2)) files"
     echo ""
@@ -709,7 +722,7 @@ main() {
 # =============================================================================
 
 # Handle help flag
-if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Usage: $0"
     echo ""
     echo "Description:"

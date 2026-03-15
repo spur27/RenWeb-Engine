@@ -161,8 +161,10 @@ program
       const userFlag = process.platform !== 'win32'
         ? ['--user', `${process.getuid()}:${process.getgid()}`]
         : [];
-      // Mount the user's cwd at /project (rw). The CLI itself is baked into
-      // the image at /work — no volume mount needed for it.
+      // Mount the user's cwd at /project (rw) and the local CLI source at /work
+      // so that edits to cli/commands/*.js are reflected immediately without
+      // having to rebuild the Docker image. The image provides all the build
+      // tooling (fpm, appimagetool, cross-compilers, etc.).
       // RENWEB_CWD tells package.js where to find build/ and write output.
       const containerName = `renweb-pkg-${Date.now()}`;
       const dockerArgs = [
@@ -172,6 +174,7 @@ program
         '-e', 'RENWEB_CWD=/project',
         ...userFlag,
         '-v', `${hostCwd}:/project`,
+        '-v', `${hostDir}:/work`,
         '-w', '/project',
         image,
         'package', ...remaining,
