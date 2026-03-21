@@ -73,6 +73,26 @@ print_step() {
     echo "${BLUE}${BOLD}[STEP]${RESET} $1"
 }
 
+# Normalize an arch name (alias or canonical) to the canonical makefile ARCH value.
+normalize_arch() {
+    case "$1" in
+        x86_64|x64|amd64)              echo "x86_64"    ;;
+        x86_32|x86|i686|i386|ia32)     echo "x86_32"    ;;
+        arm64|aarch64)                  echo "arm64"     ;;
+        arm32|armhf|armv7|armv7l)       echo "arm32"     ;;
+        mips32|mips)                    echo "mips32"    ;;
+        mips32el|mipsel)                echo "mips32el"  ;;
+        mips64)                         echo "mips64"    ;;
+        mips64el)                       echo "mips64el"  ;;
+        powerpc32|ppc|ppc32)            echo "powerpc32" ;;
+        powerpc64|ppc64)                echo "powerpc64" ;;
+        riscv64)                        echo "riscv64"   ;;
+        s390x)                          echo "s390x"     ;;
+        sparc64)                        echo "sparc64"   ;;
+        *)                              echo "$1"        ;;
+    esac
+}
+
 # Detect operating system
 detect_os() {
     case "$(uname -s)" in
@@ -372,6 +392,85 @@ copy_webview2_bootstrapper() {
 # =============================================================================
 
 main() {
+    # Parse arguments
+    ARCH_FLAGS=""
+    BUILD_MODE_FLAG=""
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --bundle-only)
+                BUILD_MODE_FLAG="--bundle-only"
+                shift
+                ;;
+            --executable-only)
+                BUILD_MODE_FLAG="--executable-only"
+                shift
+                ;;
+            --arch|-a)
+                if [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+                    print_error "--arch requires an architecture name"
+                    exit 1
+                fi
+                _fa=$(normalize_arch "$2")
+                ARCH_FLAGS="${ARCH_FLAGS:+$ARCH_FLAGS }--arch $_fa"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: $0 [--bundle-only | --executable-only] [--arch <arch>] ..."
+                echo ""
+                echo "Description:"
+                echo "  Automated release build script for RenWeb that creates:"
+                echo "  - Example content archives (zip + tar.gz)"
+                echo "  - Executables for the specified (or all) architectures"
+                echo "  - Bundle archives with libraries for each architecture"
+                echo ""
+                echo "Options:"
+                echo "  --bundle-only        Build bundles only (skips executable-only step)"
+                echo "  --executable-only    Build executables only, skip bundle creation"
+                echo "  (neither)            Build both executables and bundles (default)"
+                echo "  --arch <arch>, -a    Build only the specified architecture (repeatable)."
+                echo "                       Accepts canonical names or common aliases."
+                echo "                       Default: all architectures."
+                echo ""
+                echo "Supported architectures:"
+                echo "  x86_64     (x64, amd64)"
+                echo "  x86_32     (x86, i686, i386, ia32)"
+                echo "  arm64      (aarch64)"
+                echo "  arm32      (armhf, armv7, armv7l)"
+                echo "  mips32     (mips)"
+                echo "  mips32el   (mipsel)"
+                echo "  mips64"
+                echo "  mips64el"
+                echo "  powerpc32  (ppc, ppc32)"
+                echo "  powerpc64  (ppc64)"
+                echo "  riscv64"
+                echo "  s390x"
+                echo "  sparc64"
+                echo ""
+                echo "Requirements:"
+                echo "  - build_all_archs.sh script"
+                echo "  - zip and tar utilities"
+                echo "  - Cross-compilers for target architectures"
+                echo ""
+                echo "Output:"
+                echo "  All release artifacts are placed in ./release/"
+                echo ""
+                echo "Examples:"
+                echo "  $0                            # Build everything"
+                echo "  $0 --bundle-only              # Build bundles only"
+                echo "  $0 --executable-only          # Build executables only"
+                echo "  $0 --arch arm64               # Build only arm64"
+                echo "  $0 --arch arm64 --arch x86_64 # Build arm64 and x86_64"
+                echo "  $0 -a aarch64 -a armhf        # Using aliases"
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+
     print_header "RenWeb Release Build Script"
 
     detect_os
@@ -544,20 +643,21 @@ main() {
     # Step 9: Build all architectures with bundling
     # ==========================================================================
     print_step "9. Building all architectures (this may take a while)"
-    print_warning "Running: ./build_all_archs.sh --bundle"
+    print_warning "Running: ./build_all_archs.sh${BUILD_MODE_FLAG:+ $BUILD_MODE_FLAG}${ARCH_FLAGS:+ $ARCH_FLAGS}"
     echo ""
     
     if [ ! -f "./build_all_archs.sh" ]; then
         print_error "build_all_archs.sh not found"
         exit 1
     fi
-    
+
+    # shellcheck disable=SC2086  # word-splits intentionally into --arch/--bundle-only/--executable-only tokens
     if [ "$OS_NAME" = "Windows" ]; then
-        if ! bash ./build_all_archs.sh --bundle; then
+        if ! bash ./build_all_archs.sh $BUILD_MODE_FLAG $ARCH_FLAGS; then
             print_error "Build failed - check output above"
             exit 1
         fi
-    elif ! ./build_all_archs.sh --bundle; then
+    elif ! ./build_all_archs.sh $BUILD_MODE_FLAG $ARCH_FLAGS; then
         print_error "Build failed - check output above"
         exit 1
     fi
@@ -721,25 +821,4 @@ main() {
 # Script Entry Point
 # =============================================================================
 
-# Handle help flag
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "Usage: $0"
-    echo ""
-    echo "Description:"
-    echo "  Automated release build script for RenWeb that creates:"
-    echo "  - Example content archives (zip + tar.gz)"
-    echo "  - Executables for all supported architectures"
-    echo "  - Bundle archives with libraries for each architecture"
-    echo ""
-    echo "Requirements:"
-    echo "  - build_all_archs.sh script"
-    echo "  - zip and tar utilities"
-    echo "  - Cross-compilers for target architectures"
-    echo ""
-    echo "Output:"
-    echo "  All release artifacts are placed in ./release/"
-    exit 0
-fi
-
-# Run main function
 main "$@"

@@ -72,7 +72,7 @@ void App::showErrorPopup(const std::string& message) {
     }
     std::string cmd = "zenity --error --title='RenWeb \xe2\x80\x93 Error' --text=\"" + escaped + "\" 2>/dev/null"
                       " || xmessage -center \"" + escaped + "\" 2>/dev/null";
-    std::system(cmd.c_str());
+    (void)std::system(cmd.c_str());
 #endif
 }
 

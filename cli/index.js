@@ -85,6 +85,7 @@ program
   .option('--executable-only',    'Only process bare executables (no bundled libs)')
   .option('-e, --ext <ext>',      'Output format filter, repeatable: -edeb -erpm -etar.gz -ezip (default: all formats)')
   .option('-o, --os <os>',        'Target OS filter, repeatable: -olinux -owindows (default: all)')
+  .option('-a, --arch <arch>',    'Target arch filter, repeatable: -aarm64 -ax86_64 (default: all). Aliases: aarch64, armhf, x64, i686, ppc, …')
   .option('-c, --cache',          'Cache downloads in ./.package and reuse on subsequent runs')
   .allowUnknownOption(true)
   .action(() => {

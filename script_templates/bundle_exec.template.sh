@@ -30,7 +30,6 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Collect all matching executables (POSIX-compatible glob, no nullglob needed)
 EXES=""
 for _f in "$SCRIPT_DIR"/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*; do
     [ -f "$_f" ] && [ -x "$_f" ] && EXES="${EXES}${_f}
@@ -61,19 +60,89 @@ else
     EXE=$(printf '%s' "$EXES" | head -n1)
 fi
 
-LIB_DIR="$SCRIPT_DIR/lib"
-[ ! -d "$LIB_DIR" ] && echo "Error: Library directory not found: lib" && exit 1
+_rw_arch="${EXE##*-}"
+if   [ -d "$SCRIPT_DIR/lib-${_rw_arch}" ]; then
+    LIB_DIR="$SCRIPT_DIR/lib-${_rw_arch}"
+elif [ -d "$SCRIPT_DIR/lib" ]; then
+    LIB_DIR="$SCRIPT_DIR/lib"
+else
+    LIB_DIR="/lib"
+    printf 'Warning: no bundled lib-%s/ or lib/ found; running against system libraries (no isolation)\n' "$_rw_arch" >&2
+fi
+unset _rw_arch
 
 case "$(uname -s)" in
     Darwin) export DYLD_LIBRARY_PATH="$LIB_DIR:${DYLD_LIBRARY_PATH:-}" ;;
     *)      export LD_LIBRARY_PATH="$LIB_DIR:${LD_LIBRARY_PATH:-}" ;;
 esac
 
-# If a bundled dynamic linker is present, invoke it directly so that
-# glibc-linked binaries run correctly on musl-based systems (e.g. Alpine).
+unset LD_PRELOAD
+export GST_PLUGIN_SYSTEM_PATH_1_0="$LIB_DIR/gstreamer-1.0"
+export GST_PLUGIN_PATH=""
+export GST_GL_PLATFORM=egl
+export GDK_PIXBUF_MODULE_FILE="$LIB_DIR/gdk-pixbuf-2.0/loaders.cache"
+export NO_AT_BRIDGE=1
+
+_rw_musl=0
+find /lib -maxdepth 2 -name 'ld-musl-*.so*' 2>/dev/null | grep -q . && _rw_musl=1
+
+if [ "$_rw_musl" -eq 1 ]; then
+    export GIO_EXTRA_MODULES="$LIB_DIR/gio/modules"
+    export GTK_MODULES=""
+    export GTK_PATH=""
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export LIBGL_DRIVERS_PATH="$LIB_DIR/dri"
+    export GBM_BACKENDS_PATH="$LIB_DIR/gbm"
+    export __EGL_VENDOR_LIBRARY_DIRS="$LIB_DIR/glvnd/egl_vendor.d"
+else
+    :
+fi
+unset _rw_musl
+
+[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland
+
+export ENCHANT_CONFIG_DIR="$LIB_DIR/enchant"
+
+_rw_fc_path=""
+for _rw_d in /etc/fonts /usr/local/etc/fonts /usr/share/fontconfig; do
+    [ -f "$_rw_d/fonts.conf" ] && { _rw_fc_path="$_rw_d"; break; }
+done
+[ -n "$_rw_fc_path" ] && export FONTCONFIG_PATH="$_rw_fc_path"
+unset _rw_fc_path _rw_d
+
+if [ -d "$LIB_DIR/webkit2gtk-4.1" ]; then
+    export WEBKIT_EXEC_PATH="$LIB_DIR/webkit2gtk-4.1"
+    export WEBKIT_INJECTED_BUNDLE_PATH="$LIB_DIR/webkit2gtk-4.1"
+    _wk_dest="/usr/local/libexec/webkit2gtk-4.1"
+    _wk_src="$LIB_DIR/webkit2gtk-4.1"
+    if [ "$(readlink "$_wk_dest" 2>/dev/null)" != "$_wk_src" ]; then
+        set +e
+        mkdir -p /usr/local/libexec 2>/dev/null
+        if [ -d "$_wk_dest" ] && [ ! -L "$_wk_dest" ]; then
+            rm -rf "$_wk_dest" 2>/dev/null
+            if [ -d "$_wk_dest" ]; then
+                printf 'Warning: could not remove %s — run once with sudo to fix\n' "$_wk_dest" >&2
+            fi
+        fi
+        ln -sfn "$_wk_src" "$_wk_dest" 2>/dev/null
+        set -e
+    fi
+fi
+
 BUNDLED_LD=""
 for _ld in "$LIB_DIR"/ld-*.so*; do
     [ -f "$_ld" ] && [ -x "$_ld" ] && { BUNDLED_LD="$_ld"; break; }
 done
+
+if [ -n "$BUNDLED_LD" ]; then
+    _rw_ld_hash=$(sha256sum "$BUNDLED_LD" 2>/dev/null | cut -c1-16)
+    if [ -n "$_rw_ld_hash" ]; then
+        mkdir -p /tmp/.renweb/.so 2>/dev/null || true
+        chmod +t /tmp/.renweb/.so 2>/dev/null || true
+        ln -sf "$BUNDLED_LD" "/tmp/.renweb/.so/${_rw_ld_hash}.so" 2>/dev/null || true
+    fi
+    unset _rw_ld_hash
+fi
+export RENWEB_EXECUTABLE_PATH="$EXE"
 [ -n "$BUNDLED_LD" ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
 exec "$EXE" "$@"

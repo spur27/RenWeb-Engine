@@ -15,6 +15,7 @@ const DEFAULT_ENGINE_REPO = 'https://github.com/spur27/RenWeb-Engine';
 const LINUX_DEPS_REQUIRED = [
     'libgtk-3-0',
     'libwebkit2gtk-4.1-0',
+    'libegl1',                       // Wayland/EGL path (libepoxy lazy-dlopen)
     'gstreamer1.0-plugins-base',
     'gstreamer1.0-plugins-good',
 ];
@@ -69,6 +70,28 @@ const FPM_ARCH_MAP = {
     riscv64  : 'riscv64',
     s390x    : 's390x',
     sparc64  : 'sparcv9',
+};
+
+// Maps engine arch names → Alpine APK arch strings (passed verbatim to nfpm).
+// Alpine uses its own canonical names; nfpm only transforms standard Go arch
+// names (amd64, arm64, 386, arm) so passing Alpine names directly avoids any
+// unwanted remapping.
+const NFPM_APK_ARCH_MAP = {
+    x86_64   : 'x86_64',
+    x86_32   : 'x86',
+    arm64    : 'aarch64',
+    aarch64  : 'aarch64',
+    arm32    : 'armhf',
+    armhf    : 'armhf',
+    mips32   : 'mips',
+    mips32el : 'mipsel',
+    mips64   : 'mips64',
+    mips64el : 'mips64el',
+    powerpc32: 'ppc',
+    powerpc64: 'ppc64le',
+    riscv64  : 'riscv64',
+    s390x    : 's390x',
+    sparc64  : 'sparc64',
 };
 
 // WebView2 runtime bootstrapper URL — required by bare Windows executables
@@ -304,12 +327,34 @@ function normalizeExt(raw) {
     return s;
 }
 
+/** Normalise arch name aliases to the canonical makefile ARCH value. */
+function normalizeArch(raw) {
+    switch (raw.toLowerCase()) {
+        case 'x86_64':  case 'x64':   case 'amd64':                    return 'x86_64';
+        case 'x86_32':  case 'x86':   case 'i686': case 'i386':
+        case 'ia32':                                                    return 'x86_32';
+        case 'arm64':   case 'aarch64':                                 return 'arm64';
+        case 'arm32':   case 'armhf': case 'armv7': case 'armv7l':      return 'arm32';
+        case 'mips32':  case 'mips':                                    return 'mips32';
+        case 'mips32el': case 'mipsel':                                 return 'mips32el';
+        case 'mips64':                                                  return 'mips64';
+        case 'mips64el':                                                return 'mips64el';
+        case 'powerpc32': case 'ppc': case 'ppc32':                     return 'powerpc32';
+        case 'powerpc64': case 'ppc64':                                 return 'powerpc64';
+        case 'riscv64':                                                 return 'riscv64';
+        case 's390x':                                                   return 's390x';
+        case 'sparc64':                                                 return 'sparc64';
+        default:                                                        return raw.toLowerCase();
+    }
+}
+
 /**
  * Parse CLI args passed to run().
  *   --bundle-only        Only process bundle archives (skip bare executables)
  *   --executable-only    Only process bare executables (skip bundles)
- *   -e<ext> / --ext <ext>  Output format filter (repeatable); empty = all
- *   -o<os>  / --os  <os>   Target OS filter (repeatable); empty = all
+ *   -e<ext> / --ext <ext>   Output format filter (repeatable); empty = all
+ *   -o<os>  / --os  <os>    Target OS filter (repeatable); empty = all
+ *   -a<arch>/ --arch <arch> Target arch filter (repeatable); empty = all. Aliases accepted.
  *   -c / --cache         Reuse cached downloads in ./.package
  */
 function parseArgs(args) {
@@ -318,6 +363,7 @@ function parseArgs(args) {
         executableOnly : false,
         exts           : new Set(),   // empty = all formats
         oses           : new Set(),   // empty = all OS targets
+        arches         : new Set(),   // empty = all architectures
         cache          : false,
     };
     for (let i = 0; i < args.length; i++) {
@@ -329,6 +375,8 @@ function parseArgs(args) {
         if (a === '-e' || a === '--ext')              { const v = args[++i]; if (v) opts.exts.add(normalizeExt(v)); continue; }
         if (a.startsWith('-o') && a.length > 2)       { opts.oses.add(a.slice(2).toLowerCase()); continue; }
         if (a === '-o' || a === '--os')               { const v = args[++i]; if (v) opts.oses.add(v.toLowerCase()); continue; }
+        if (a.startsWith('-a') && a.length > 2)       { opts.arches.add(normalizeArch(a.slice(2))); continue; }
+        if (a === '-a' || a === '--arch')             { const v = args[++i]; if (v) opts.arches.add(normalizeArch(v)); continue; }
     }
     return opts;
 }
@@ -618,7 +666,8 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
     desktopLines.push('');
     fs.writeFileSync(path.join(appsDir, `${pkgId}.desktop`), desktopLines.join('\n'), 'utf8');
 
-    // Run fpm for each format
+    // Run fpm (deb/rpm/pacman/freebsd) or nfpm (apk) for each format.
+    // nfpm natively produces correct 3-stream APKv2; fpm 1.17 does not.
     for (const fmt of formats) {
         const stem       = `${pkgId}-${version}-${targetOs}-${targetArch}`;
         const outputFile = path.join(outDir, `${stem}${FPM_EXT[fmt]}`);
@@ -628,7 +677,31 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         const fmtRoot = fpmRoot + '-' + fmt;
         if (fs.existsSync(fmtRoot)) fs.rmSync(fmtRoot, { recursive: true, force: true });
         copyDir(fpmRoot, fmtRoot);
-        // All package managers prefer hyphens over underscores in package names
+
+        // APK is handled exclusively by nfpm.
+        if (fmt === 'apk') {
+            const postInstallScript = path.join(os.tmpdir(), `_renweb-postinstall-${pkgId}-${fmt}.sh`);
+            fs.writeFileSync(postInstallScript, isBundle
+                ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
+                : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
+            makeExecutable(postInstallScript);
+            const postRemoveScript = path.join(os.tmpdir(), `_renweb-postremove-${pkgId}-${fmt}.sh`);
+            fs.writeFileSync(postRemoveScript, isBundle
+                ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
+                : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
+            makeExecutable(postRemoveScript);
+            console.log(`  [nfpm apk] → ${path.relative(process.cwd(), outputFile)}`);
+            try { fs.unlinkSync(outputFile); } catch (_) {}
+            const r = runNfpmApk({ pkgId, version, targetArch, desc, website, license,
+                                   fmtRoot, outputFile, postInstallScript, postRemoveScript, isBundle });
+            try { fs.unlinkSync(postInstallScript); } catch (_) {}
+            try { fs.unlinkSync(postRemoveScript); } catch (_) {}
+            try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
+            if (r.status !== 0) console.warn('  ⚠ nfpm failed for format: apk');
+            continue;
+        }
+
+        // All other formats use fpm.
         const fpmArgs    = [
             '-s', 'dir', '-t', fmt,
             '-n', pkgId, '-v', version,
@@ -648,37 +721,89 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
                 for (const dep of LINUX_DEPS_RECOMMENDED) fpmArgs.push('--deb-recommends', dep);
             }
         }
-        // Post-install: make the app directory writable so the engine can write
-        // log.txt, saves, and other runtime files next to the executable.
         const postInstallScript = path.join(os.tmpdir(), `_renweb-postinstall-${pkgId}-${fmt}.sh`);
-        fs.writeFileSync(postInstallScript,
-            `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
+        fs.writeFileSync(postInstallScript, isBundle
+            ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
+            : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
         makeExecutable(postInstallScript);
         fpmArgs.push('--after-install', postInstallScript);
 
-        // Post-remove: force-delete the install directory so dpkg/rpm don't
-        // leave it behind when the app has written runtime files (log.txt, etc.).
         const postRemoveScript = path.join(os.tmpdir(), `_renweb-postremove-${pkgId}-${fmt}.sh`);
-        fs.writeFileSync(postRemoveScript,
-            `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
+        fs.writeFileSync(postRemoveScript, isBundle
+            ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
+            : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
         makeExecutable(postRemoveScript);
         fpmArgs.push('--after-remove', postRemoveScript);
 
         fpmArgs.push('.');
 
         console.log(`  [fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
-        try { fs.unlinkSync(outputFile); } catch (_) {} // remove stale file so fpm doesn't refuse to overwrite
+        try { fs.unlinkSync(outputFile); } catch (_) {}
         const r = spawnSync('fpm', fpmArgs, { stdio: 'inherit' });
         try { fs.unlinkSync(postInstallScript); } catch (_) {}
         try { fs.unlinkSync(postRemoveScript); } catch (_) {}
-        try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {} // free space immediately
+        try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
         if (r.status !== 0) console.warn(`  ⚠ fpm failed for format: ${fmt}`);
     }
 
     try { fs.rmSync(fpmRoot, { recursive: true, force: true }); } catch (_) {}
 }
 
-// ─── Windows packaging ───────────────────────────────────────────────────────
+/**
+ * Recursively walk a staging directory and return nfpm YAML content entries.
+ * Handles regular files (with executable-bit detection) and relative symlinks.
+ */
+function walkStagingDir(dir, mountAt) {
+    const items = [];
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const src = path.join(dir, ent.name);
+        const dst = mountAt + '/' + ent.name;
+        if (ent.isDirectory()) {
+            items.push(...walkStagingDir(src, dst));
+        } else if (ent.isSymbolicLink()) {
+            const target = fs.readlinkSync(src);
+            items.push(`  - src: "${target}"\n    dst: "${dst}"\n    type: symlink`);
+        } else {
+            const mode = (fs.statSync(src).mode & 0o111) ? 0o755 : 0o644;
+            items.push(`  - src: "${src}"\n    dst: "${dst}"\n    file_info:\n      mode: ${mode}`);
+        }
+    }
+    return items;
+}
+
+/**
+ * Build an Alpine APK using nfpm, which correctly produces the 3-stream APKv2
+ * format that fpm 1.17 gets wrong.  Returns an object with a .status property
+ * (0 on success) so call-sites can treat it the same as spawnSync's return.
+ */
+function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
+                      fmtRoot, outputFile, postInstallScript, postRemoveScript, isBundle = false }) {
+    const nfpmArch    = NFPM_APK_ARCH_MAP[targetArch] || targetArch;
+    const escapedDesc = (desc || pkgId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ');
+    const cfgLines = [
+        `name: "${pkgId}"`,
+        `arch: "${nfpmArch}"`,
+        `platform: "linux"`,
+        `version: "${version}"`,
+        `description: "${escapedDesc}"`,
+        website ? `homepage: "${website}"` : null,
+        license ? `license: "${license}"` : null,
+        // Bare APKs declare runtime deps; bundle APKs carry them in lib/.
+        ...(!isBundle ? [`depends:`, `  - libatomic`] : []),
+        `scripts:`,
+        `  postinstall: "${postInstallScript}"`,
+        `  postremove: "${postRemoveScript}"`,
+        `contents:`,
+        ...walkStagingDir(fmtRoot, ''),
+    ].filter(x => x !== null).join('\n') + '\n';
+
+    const cfgPath = path.join(os.tmpdir(), `_renweb-nfpm-${pkgId}-${targetArch}.yaml`);
+    fs.writeFileSync(cfgPath, cfgLines, 'utf8');
+    const r = spawnSync('nfpm', ['pkg', '--packager', 'apk', '--config', cfgPath, '--target', outputFile],
+                        { stdio: 'inherit' });
+    try { fs.unlinkSync(cfgPath); } catch (_) {}
+    return r;
+}
 
 /**
  * Patch version info + icon into a Windows .exe using rcedit (via Wine64).
@@ -1747,6 +1872,17 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         '# grouping the window under the one the user launched.',
         'export BAMF_DESKTOP_FILE_HINT="/var/lib/snapd/desktop/applications/' + pkgId + '_' + pkgId + '.desktop"',
         '',
+    );
+    // Bundle: bundle_exec.sh already sets GDK_BACKEND=wayland (strict, overridable).
+    // Bare: prefer Wayland but allow X11 fallback since system libs support both.
+    if (!isBundle) {
+        wrapperLines.push(
+            '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
+            '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
+            '',
+        );
+    }
+    wrapperLines.push(
         'exec "$DEST/' + appTarget + '" "$@"',
         '',
     );
@@ -1891,6 +2027,8 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     // bin/<pkgId> wrapper that execs from the Flatpak /app prefix
     const wrapperSh = [
         '#!/bin/sh',
+        '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
+        '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
         'exec "/app/opt/' + pkgId + '/' + binTarget + '" "$@"',
         '',
     ].join('\n');
@@ -1954,6 +2092,8 @@ SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 DATA_DIR="\${XDG_DATA_HOME:-\$HOME/.local/share}/${pkgId}"
 mkdir -p "\${DATA_DIR}"
 cd "\${DATA_DIR}"
+# Prefer Wayland; fall back to X11 if Wayland is unavailable.
+[ -z "\$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11
 exec "\${SCRIPT_DIR}/${exeFilename}" "$@"
 `;
 }
@@ -2032,11 +2172,12 @@ function run(args) {
     console.log(`  build dir : ${buildDir}`);
     console.log(`  engine    : ${engineRepo}`);
     console.log(`  plugins   : ${pluginRepos.length} repo(s)`);
-    if (opts.bundleOnly)     console.log('  mode      : bundle-only');
-    if (opts.executableOnly) console.log('  mode      : executable-only');
-    if (opts.exts.size > 0)  console.log(`  formats   : ${[...opts.exts].join(', ')}`);
-    if (opts.oses.size > 0)  console.log(`  os filter : ${[...opts.oses].join(', ')}`);
-    if (opts.cache)          console.log('  cache     : enabled (.package/)');
+    if (opts.bundleOnly)      console.log('  mode      : bundle-only');
+    if (opts.executableOnly)  console.log('  mode      : executable-only');
+    if (opts.exts.size > 0)   console.log(`  formats   : ${[...opts.exts].join(', ')}`);
+    if (opts.oses.size > 0)   console.log(`  os filter : ${[...opts.oses].join(', ')}`);
+    if (opts.arches.size > 0) console.log(`  arch filter: ${[...opts.arches].join(', ')}`);
+    if (opts.cache)           console.log('  cache     : enabled (.package/)');
 
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
@@ -2078,10 +2219,15 @@ function run(args) {
     const toProcess = []; // flat list of asset descriptors to build packages for
 
     for (const [key, group] of engineGroups) {
-        const targetOs = key.split('-')[0];
+        const targetOs   = key.split('-')[0];
+        const targetArch = key.slice(targetOs.length + 1);
         // OS filter
         if (opts.oses.size > 0 && !opts.oses.has(targetOs)) {
             console.log(`  skip (os filter): ${key}`); continue;
+        }
+        // Arch filter
+        if (opts.arches.size > 0 && !opts.arches.has(targetArch)) {
+            console.log(`  skip (arch filter): ${key}`); continue;
         }
 
         // Decide which asset type(s) to produce for this key

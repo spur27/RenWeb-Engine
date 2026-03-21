@@ -117,17 +117,17 @@ endif
 # Set BUNDLE=true for portable deployment with bundled libraries
 # Set WIN7_COMPAT=true for Windows 7 compatible WebView2 (version 109)
 # -----------------------------------------------------------------------------
-ifdef BUNDLE
+ifndef BUNDLE
 	BUNDLE := false
 endif
-ifdef WIN7_COMPAT
+ifndef WIN7_COMPAT
 	WIN7_COMPAT := false
 endif
 # -----------------------------------------------------------------------------
 # OS info
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
-	SHELL := C:\Program Files\Git\bin\bash.exe
+	SHELL := C:\Program Files\Git\usr\bin\sh.exe
     OS_NAME := windows
 	EXE_EXT := .exe
 	OBJ_EXT := .obj
@@ -187,7 +187,7 @@ endif
 		ARCH := x86_64
 	endif
 else
-	SHELL := /bin/bash
+	SHELL := /bin/sh
     UNAME_S := $(shell uname -s)
 	EXE_EXT :=
 	OBJ_EXT := .o
@@ -381,11 +381,9 @@ endif
 ifeq ($(OS_NAME), linux)
 	ifdef TOOLCHAIN
 		# For all cross-compilation targets, use explicit sysroot path and link boost statically
-		LIBS := -L/usr/$(TOOLCHAIN)/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -lboost_container -Wl,-Bdynamic -ldl
+		LIBS := -L/usr/$(TOOLCHAIN)/usr/local/lib -Wl,-Bstatic -lboost_program_options -lboost_json -lboost_container -Wl,-Bdynamic -lpthread -ldl -latomic
 		LDFLAGS := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
 	else
-		# Native build: use external/boost/stage/lib (Boost 1.90.0 with required symbols)
-		# Use full paths to libraries to avoid /usr/local/lib taking precedence
 		BOOST_STAGE_PATH := external/boost/stage/lib
 		LIBS := $(BOOST_STAGE_PATH)/libboost_program_options.a $(BOOST_STAGE_PATH)/libboost_json.a $(BOOST_STAGE_PATH)/libboost_container.a -ldl
 		LDFLAGS :=
@@ -404,8 +402,10 @@ ifeq ($(OS_NAME),linux)
         PKG_LIBS   := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) PKG_CONFIG_LIBDIR=$(PKG_CONFIG_LIBDIR) PKG_CONFIG_SYSROOT_DIR=$(PKG_CONFIG_SYSROOT_DIR) $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
     else
         PKG_CONFIG := pkg-config
-        PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
-        PKG_LIBS   := $(shell $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
+        # Prefer /usr/local so the DEVELOPER_MODE-enabled WebKit (installed by
+        # rebuild-webkit-devmode.sh) takes precedence over the apt system webkit.
+        PKG_CFLAGS := $(shell PKG_CONFIG_PATH=/usr/local/lib/pkgconfig $(PKG_CONFIG) --cflags gtk+-3.0 webkit2gtk-4.1)
+        PKG_LIBS   := $(shell PKG_CONFIG_PATH=/usr/local/lib/pkgconfig $(PKG_CONFIG) --libs gtk+-3.0 webkit2gtk-4.1)
     endif
 endif
 # -----------------------------------------------------------------------------
@@ -643,32 +643,44 @@ bundle-libs: $(BUILD_PATH)/$(EXE)
 ifeq ($(BUNDLE),true)
 ifeq ($(OS_NAME),linux)
 	$(call step,Bundling Libraries,Copying runtime dependencies for portable deployment)
+	@# Bundle layout: all .so files land in lib-ARCH/.  A webkit2gtk-4.1/
+	@# subdirectory holds the WebKit subprocess helpers.  bundle_exec.sh
+	@# invokes the bundled ld-linux linker with --library-path lib-ARCH/
+	@# so the glibc-linked binary runs correctly on musl hosts (Alpine)
+	@# without touching any host-installed shared libraries.
 	@rm -rf $(BUILD_PATH)/lib-$(ARCH)
 	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)
+	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)/glvnd/egl_vendor.d
 	$(call step,Collecting Dependencies,Gathering shared libraries for $(ARCH))
 ifdef TOOLCHAIN
-	@# Cross-compilation: recursively find all dependencies from sysroot
+	@# ── Phase 1 (cross): BFS walk over ELF NEEDED dependencies ──────────────
+	@# Starting from the main executable, recursively collect every shared
+	@# library listed in DT_NEEDED sections.  Uses the cross-compiler readelf
+	@# to read foreign ELF headers.  ld-linux* and linux-vdso* are excluded
+	@# here — the dynamic linker (PT_INTERP) is extracted and copied below.
 	@SYSROOT_PATH=/usr/$(TOOLCHAIN); \
 	if [ -d "$$SYSROOT_PATH/lib" ]; then \
-		SEARCH_DIRS="$$SYSROOT_PATH/lib $$SYSROOT_PATH/usr/lib $$SYSROOT_PATH/usr/local/lib"; \
+		SEARCH_DIRS="$$SYSROOT_PATH/lib $$SYSROOT_PATH/lib64 $$SYSROOT_PATH/usr/lib $$SYSROOT_PATH/usr/lib64 $$SYSROOT_PATH/usr/local/lib $$SYSROOT_PATH/usr/local/lib64 /usr/lib/$(TOOLCHAIN)"; \
+		for _gd in /usr/lib/gcc-cross/$(TOOLCHAIN)/*/; do \
+			[ -d "$$_gd" ] && SEARCH_DIRS="$$SEARCH_DIRS $$_gd"; \
+		done; \
 		TODO_LIBS="$(BUILD_PATH)/$(EXE)"; \
-		PROCESSED=""; \
+		QUEUED=" "; \
 		while [ -n "$$TODO_LIBS" ]; do \
 			CURRENT_LIB=$$(echo "$$TODO_LIBS" | head -n1); \
 			TODO_LIBS=$$(echo "$$TODO_LIBS" | tail -n +2); \
-			PROCESSED="$$PROCESSED $$CURRENT_LIB"; \
 			NEEDED=$$($(TOOLCHAIN)-readelf -d "$$CURRENT_LIB" 2>/dev/null | grep 'NEEDED' | awk '{print $$5}' | tr -d '[]'); \
 			for lib in $$NEEDED; do \
-				echo "$$PROCESSED" | grep -q " $$lib" && continue; \
+				case " $$QUEUED " in *" $$lib "*) continue ;; esac; \
 				case "$$lib" in \
-					ld-linux*|libc.so*|libm.so*|libpthread*|libdl.so*|librt.so*|libresolv*) continue ;; \
-					libgallium*|libglapi.so*) continue ;; \
+						ld-linux*|linux-vdso*) continue ;; \
 				esac; \
 				for search_dir in $$SEARCH_DIRS; do \
 					if [ -f "$$search_dir/$$lib" ]; then \
 						cp -L "$$search_dir/$$lib" $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
 						$(TOOLCHAIN)-strip --strip-unneeded $(BUILD_PATH)/lib-$(ARCH)/$$lib 2>/dev/null || true; \
-						TODO_LIBS="$$TODO_LIBS"$$'\n'"$$search_dir/$$lib"; \
+						QUEUED="$$QUEUED$$lib "; \
+						TODO_LIBS="$$(printf '%s\n%s' "$$TODO_LIBS" "$$search_dir/$$lib")"; \
 						break; \
 					fi; \
 				done; \
@@ -695,17 +707,88 @@ ifdef TOOLCHAIN
 		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Sysroot not found at $$SYSROOT_PATH"; \
 	fi
 else
-	@# Native compilation: use ldd
-	@LIBS=$$(ldd $(BUILD_PATH)/$(EXE) 2>/dev/null | grep -v 'linux-vdso\|ld-linux\|libc\.so\|libm\.so\|libpthread\|libdl\|librt\|libresolv' | grep '=>' | awk '{print $$3}' | grep -v '^$$' | sort -u); \
+	@# ── Phase 1 (native): collect deps via ldd ──────────────────────────────
+	@# On the build host, ldd resolves the executable's runtime deps against
+	@# the local dynamic linker, giving the exact set of .so paths to bundle.
+	@LIBS=$$(ldd $(BUILD_PATH)/$(EXE) 2>/dev/null | grep -v 'linux-vdso\|ld-linux' | grep '=>' | awk '{print $$3}' | grep -v '^$$' | sort -u); \
 	if [ -n "$$LIBS" ]; then \
 		echo "$$LIBS" | xargs -I {} cp -L {} $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
 		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
 		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT shared libraries bundled"; \
 	else \
 		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found to bundle"; \
+	fi; \
+	LD_INTERP=$$(readelf -l $(BUILD_PATH)/$(EXE) 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*\[//;s/\].*//'); \
+	if [ -n "$$LD_INTERP" ] && [ -f "$$LD_INTERP" ]; then \
+		LD_NAME=$$(basename "$$LD_INTERP"); \
+		cp -L "$$LD_INTERP" $(BUILD_PATH)/lib-$(ARCH)/"$$LD_NAME" 2>/dev/null || true; \
+		chmod +x $(BUILD_PATH)/lib-$(ARCH)/"$$LD_NAME" 2>/dev/null || true; \
 	fi
 endif
+	@# ── Phase 2: (removed) ────────────────────────────────────────────────
+	@# libepoxy was rebuilt with -Dglx=no -Dx11=false for all arches so it
+	@# only contacts libEGL.so.1 (already in the bundle via BFS).  It no
+	@# longer dlopen's libGL.so.1, libGLX.so.0, or libOpenGL.so.0, so there
+	@# is nothing extra to copy here.
+	$(call step,Bundling WebKit Helpers,Copying subprocess executables and injected bundle)
+	@# ── Phase 3: WebKit subprocess helpers ──────────────────────────────────
+	@# WebKitGTK forks separate processes for page rendering, networking, and
+	@# GPU compositing.  Their path is compiled into libwebkit2gtk-4.1 as
+	@# PKGLIBEXECDIR (/usr/local/libexec/webkit2gtk-4.1).  We copy the real
+	@# ELF binaries into lib-ARCH/webkit2gtk-4.1/ with a .real suffix, then
+	@# generate thin #!/bin/sh wrapper scripts that invoke the bundled ld-linux
+	@# linker, so every subprocess executes under the bundle's own glibc.
+	@if [ -n "$(TOOLCHAIN)" ]; then \
+		_wk_sysroot="/usr/$(TOOLCHAIN)"; _strip="$(TOOLCHAIN)-strip"; \
+	else \
+		_wk_sysroot=""; _strip="strip"; \
+	fi; \
+	WK_SRC=""; \
+	for _cand in \
+		"$${_wk_sysroot}/usr/local/libexec/webkit2gtk-4.1" \
+		"$${_wk_sysroot}/lib/webkit2gtk-4.1" \
+		"$${_wk_sysroot}/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1" \
+		"$${_wk_sysroot}/usr/lib/i386-linux-gnu/webkit2gtk-4.1" \
+	; do \
+		[ -f "$$_cand/WebKitWebProcess" ] && { WK_SRC="$$_cand"; break; }; \
+	done; \
+	[ -z "$$WK_SRC" ] && WK_SRC="$${_wk_sysroot}/usr/local/libexec/webkit2gtk-4.1"; \
+	WK_INJ_SRC="$$WK_SRC/injected-bundle"; \
+	if [ ! -f "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" ]; then \
+		WK_INJ_SRC="$${_wk_sysroot}/usr/local/lib/webkit2gtk-4.1/injected-bundle"; \
+	fi; \
+	WK_DST="$(BUILD_PATH)/lib-$(ARCH)/webkit2gtk-4.1"; \
+	mkdir -p "$$WK_DST"; \
+	_wk_count=0; \
+	for _helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do \
+		if [ -f "$$WK_SRC/$$_helper" ]; then \
+			cp -L "$$WK_SRC/$$_helper" "$$WK_DST/$$_helper.real"; \
+			chmod +x "$$WK_DST/$$_helper.real"; \
+			$$_strip --strip-unneeded "$$WK_DST/$$_helper.real" 2>/dev/null || true; \
+			_ld_f=$$(ls "$(BUILD_PATH)/lib-$(ARCH)/"ld-*.so* 2>/dev/null | head -1); \
+			if [ -n "$$_ld_f" ] && command -v patchelf >/dev/null 2>&1; then \
+				_ld_hash=$$(sha256sum "$$_ld_f" 2>/dev/null | cut -c1-16); \
+				if [ -n "$$_ld_hash" ]; then \
+					patchelf --set-interpreter "/tmp/.renweb/.so/$${_ld_hash}.so" "$$WK_DST/$$_helper.real" 2>/dev/null || true; \
+				fi; \
+			fi; \
+			printf '#!/bin/sh\n_D=$$(cd -P "$$(dirname "$$0")" && pwd)\nLIB_DIR="$$_D/.."\nBLD=""\nfor _l in "$$LIB_DIR"/ld-*.so*; do [ -f "$$_l" ] && [ -x "$$_l" ] && { BLD="$$_l"; break; }; done\nexec "$${BLD}" --library-path "$$LIB_DIR" "$$_D/%s.real" "$$@"\n' "$$_helper" > "$$WK_DST/$$_helper"; \
+			chmod +x "$$WK_DST/$$_helper"; \
+			_wk_count=$$((_wk_count + 1)); \
+		fi; \
+	done; \
+	if [ -f "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" ]; then \
+		cp -L "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" "$$WK_DST/"; \
+		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "WebKit Helpers" "$$_wk_count subprocess helpers + injected bundle"; \
+	else \
+		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "WebKit Helpers" "$$_wk_count subprocess helpers (injected bundle not found)"; \
+	fi
 	$(call step,Creating Launcher,Generating bundle_exec.sh)
+	@# ── Phase 4: Launcher script ─────────────────────────────────────────────
+	@# Substitute @EXE_NAME@, @EXE_VERSION@, @OS_NAME@ into the template.
+	@# The generated bundle_exec.sh sets all isolation env vars (GDK_BACKEND,
+	@# GST_*, GIO_*, GL_*, enchant, fontconfig, webkit) then execs the binary
+	@# under the bundled ld-linux dynamic linker with --library-path lib-ARCH/.
 	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
 	     -e 's/@EXE_VERSION@/$(EXE_VERSION)/g' \
 	     -e 's/@OS_NAME@/$(OS_NAME)/g' \

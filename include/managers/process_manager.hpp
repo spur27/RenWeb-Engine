@@ -352,6 +352,25 @@ inline /*static*/ void PM::cleanStaleEntries() {
             } catch (...) { }
         }
     } catch (const std::exception&) { }
+
+ // Stale ld symlinks under .renweb/.so/
+ // Dangling symlinks accumulate when bundles are uninstalled.  Remove any
+ // symlink whose target no longer exists.  Only removes symlinks we own
+ // (remove() fails silently with EPERM on sticky-bit dirs for others' files).
+    try {
+        std::filesystem::path so_dir = renweb_dir / ".so";
+        if (std::filesystem::exists(so_dir)) {
+            for (const auto& entry : std::filesystem::directory_iterator(so_dir)) {
+                if (!entry.is_symlink()) continue;
+                std::error_code ec;
+                bool target_exists = std::filesystem::exists(entry.path(), ec);
+                if (!target_exists) {
+                    std::error_code rem_ec;
+                    std::filesystem::remove(entry.path(), rem_ec);
+                }
+            }
+        }
+    } catch (const std::exception&) { }
 }
 
 // ----------------------------------------------------------

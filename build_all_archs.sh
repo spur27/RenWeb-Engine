@@ -35,10 +35,12 @@
 # based on the detected operating system and available cross-compilers.
 #
 # Usage:
-#   ./build_all_archs.sh [--bundle]
+#   ./build_all_archs.sh [--bundle-only | --executable-only]
 #
 # Options:
-#   --bundle    Bundle runtime libraries for portable deployment
+#   --bundle-only       Build bundles (with bundled libraries) only
+#   --executable-only   Build executables only, without bundled libraries
+#   (neither)           Build both executables and bundles (default)
 # =============================================================================
 
 set -e
@@ -47,7 +49,7 @@ set -e
 # Configuration
 # =============================================================================
 
-ENABLE_BUNDLE=false
+ENABLE_BUNDLE=true
 
 # Color codes for output
 RESET=$(printf '\033[0m')
@@ -68,6 +70,9 @@ LINUX_TOOLCHAINS="x86_64-linux-gnu i686-linux-gnu aarch64-linux-gnu arm-linux-gn
 
 MACOS_ARCHITECTURES="arm64 x86_64"
 WINDOWS_ARCHITECTURES="x64 x86 arm64 arm"
+
+# Arch filter — populated by --arch flags; empty = all architectures
+FILTER_ARCHS=""
 
 # =============================================================================
 # Helper Functions
@@ -105,6 +110,55 @@ command_exists() {
 
 toolchain_exists() {
     command_exists "$1-gcc" && command_exists "$1-g++"
+}
+
+# Normalize an arch name (alias or canonical) to the canonical makefile ARCH value.
+normalize_arch() {
+    case "$1" in
+        x86_64|x64|amd64)              echo "x86_64"    ;;
+        x86_32|x86|i686|i386|ia32)     echo "x86_32"    ;;
+        arm64|aarch64)                  echo "arm64"     ;;
+        arm32|armhf|armv7|armv7l)       echo "arm32"     ;;
+        mips32|mips)                    echo "mips32"    ;;
+        mips32el|mipsel)                echo "mips32el"  ;;
+        mips64)                         echo "mips64"    ;;
+        mips64el)                       echo "mips64el"  ;;
+        powerpc32|ppc|ppc32)            echo "powerpc32" ;;
+        powerpc64|ppc64)                echo "powerpc64" ;;
+        riscv64)                        echo "riscv64"   ;;
+        s390x)                          echo "s390x"     ;;
+        sparc64)                        echo "sparc64"   ;;
+        *)                              echo "$1"        ;;
+    esac
+}
+
+# Return 0 if arch should be built (FILTER_ARCHS is empty, or arch is listed).
+arch_matches() {
+    [ -z "$FILTER_ARCHS" ] && return 0
+    for _fa in $FILTER_ARCHS; do
+        [ "$_fa" = "$1" ] && return 0
+    done
+    return 1
+}
+
+# Map a Linux cross-compilation toolchain prefix to a canonical arch name.
+toolchain_to_arch() {
+    case "$1" in
+        arm-linux-gnueabihf)       echo "arm32"     ;;
+        aarch64-linux-gnu)         echo "arm64"     ;;
+        i686-linux-gnu)            echo "x86_32"    ;;
+        mips-linux-gnu)            echo "mips32"    ;;
+        mipsel-linux-gnu)          echo "mips32el"  ;;
+        mips64-linux-gnuabi64)     echo "mips64"    ;;
+        mips64el-linux-gnuabi64)   echo "mips64el"  ;;
+        powerpc-linux-gnu)         echo "powerpc32" ;;
+        powerpc64-linux-gnu)       echo "powerpc64" ;;
+        riscv64-linux-gnu)         echo "riscv64"   ;;
+        s390x-linux-gnu)           echo "s390x"     ;;
+        sparc64-linux-gnu)         echo "sparc64"   ;;
+        x86_64-linux-gnu)          echo "x86_64"    ;;
+        *)                         echo "$1"        ;;
+    esac
 }
 
 build_for_toolchain() {
@@ -201,14 +255,21 @@ build_linux() {
     local fail_count=0
     local total_count=0
     
-    print_header "Building for Linux - All Architectures (13 total)"
+    if [ -n "$FILTER_ARCHS" ]; then
+        print_header "Building for Linux — Selected: $FILTER_ARCHS"
+    else
+        print_header "Building for Linux - All Architectures (13 total)"
+    fi
     print_info "Host architecture: $HOST_ARCH"
     if [ "$ENABLE_BUNDLE" = true ]; then
-        print_info "Bundling enabled: Libraries will be bundled with each build"
+        print_info "Mode: executables + bundles"
+    else
+        print_info "Mode: executables only"
     fi
+    [ -n "$FILTER_ARCHS" ] && print_info "Arch filter: $FILTER_ARCHS"
     echo ""
-    
-    # Map host architecture to toolchain name to skip it later
+
+    # Map host architecture to toolchain name to skip it in the cross-compile loop
     local host_toolchain=""
     case "$HOST_ARCH" in
         x86_64) host_toolchain="x86_64-linux-gnu" ;;
@@ -225,24 +286,38 @@ build_linux() {
         s390x) host_toolchain="s390x-linux-gnu" ;;
         sparc64) host_toolchain="sparc64-linux-gnu" ;;
     esac
-    
-    print_info "Building native (host architecture: $HOST_ARCH)..."
-    total_count=$((total_count + 1))
-    if build_native "native ($HOST_ARCH)"; then
-        success_count=$((success_count + 1))
+
+    local native_canon
+    native_canon=$(normalize_arch "$HOST_ARCH")
+    if arch_matches "$native_canon"; then
+        print_info "Building native (host architecture: $HOST_ARCH)..."
+        total_count=$((total_count + 1))
+        if build_native "native ($HOST_ARCH)"; then
+            success_count=$((success_count + 1))
+        else
+            fail_count=$((fail_count + 1))
+        fi
+        echo ""
     else
-        fail_count=$((fail_count + 1))
+        print_info "Skipping native ($HOST_ARCH) — not in arch filter"
+        echo ""
     fi
-    echo ""
-    
+
     for toolchain in $LINUX_TOOLCHAINS; do
         if [ "$toolchain" = "$host_toolchain" ]; then
             print_info "Skipping $toolchain (already built natively)"
             continue
         fi
-        
+
+        local tc_arch
+        tc_arch=$(toolchain_to_arch "$toolchain")
+        if ! arch_matches "$tc_arch"; then
+            print_info "Skipping $toolchain ($tc_arch) — not in arch filter"
+            continue
+        fi
+
         total_count=$((total_count + 1))
-        
+
         if toolchain_exists "$toolchain"; then
             if build_for_toolchain "$toolchain" "$toolchain"; then
                 success_count=$((success_count + 1))
@@ -275,7 +350,9 @@ build_macos() {
     print_header "Building for macOS - Multiple Architectures"
     print_info "Host architecture: $HOST_ARCH"
     if [ "$ENABLE_BUNDLE" = true ]; then
-        print_info "Bundling enabled: Libraries will be bundled with each build"
+        print_info "Mode: executables + bundles"
+    else
+        print_info "Mode: executables only"
     fi
     echo ""
     
@@ -296,8 +373,15 @@ build_macos() {
     
     local ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
     
-    local SUPPORTED_ARCHS="arm64 x86_64"
-    
+    local SUPPORTED_ARCHS=""
+    for _a in arm64 x86_64; do
+        arch_matches "$_a" && SUPPORTED_ARCHS="${SUPPORTED_ARCHS:+$SUPPORTED_ARCHS }$_a"
+    done
+    if [ -z "$SUPPORTED_ARCHS" ]; then
+        print_warning "No macOS architectures match the arch filter"
+        return 0
+    fi
+
     print_info "Supported architectures: $SUPPORTED_ARCHS"
     print_info "Note: macOS cross-compilation uses -arch flag with Xcode SDK"
     echo ""
@@ -362,9 +446,13 @@ build_macos() {
 build_windows() {
     local success_count=0
     local fail_count=0
-    local total_count=3
-    
-    print_header "Building for Windows - All Architectures (3 total)"
+    local total_count=0
+
+    if [ -n "$FILTER_ARCHS" ]; then
+        print_header "Building for Windows — Selected: $FILTER_ARCHS"
+    else
+        print_header "Building for Windows - All Architectures (3 total)"
+    fi
     print_info "Detected Windows environment"
     echo ""
     
@@ -407,6 +495,11 @@ build_windows() {
         make_arch=$(printf '%s' "$arch_spec" | cut -d: -f2)
         vcvars=$(printf '%s' "$arch_spec" | cut -d: -f3)
 
+        if ! arch_matches "$make_arch"; then
+            print_info "Skipping $win_arch ($make_arch) — not in arch filter"
+            continue
+        fi
+        total_count=$((total_count + 1))
         echo ""
         print_building "$win_arch" "$vcvars"
         
@@ -458,30 +551,64 @@ EOF
 main() {
     while [ $# -gt 0 ]; do
         case $1 in
-            --bundle)
+            --bundle-only)
                 ENABLE_BUNDLE=true
                 shift
                 ;;
+            --executable-only)
+                ENABLE_BUNDLE=false
+                shift
+                ;;
+            --arch|-a)
+                if [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+                    print_error "--arch requires an architecture name"
+                    exit 1
+                fi
+                _fa=$(normalize_arch "$2")
+                FILTER_ARCHS="${FILTER_ARCHS:+$FILTER_ARCHS }$_fa"
+                shift 2
+                ;;
             --help|-h)
-                echo "Usage: $0 [--bundle]"
+                echo "Usage: $0 [--bundle] [--arch <arch>] ..."
                 echo ""
                 echo "Description:"
                 echo "  Automatically detects your operating system and builds release"
                 echo "  versions for all supported architectures on that platform."
                 echo ""
                 echo "Options:"
-                echo "  --bundle    Bundle runtime libraries for portable deployment"
+                echo "  --bundle-only        Build bundles (with bundled libraries) only"
+                echo "  --executable-only    Build executables only, without bundled libraries"
+                echo "  (neither)            Build both executables and bundles (default)"
+                echo "  --arch <arch>, -a    Build only the specified architecture (repeatable)."
+                echo "                       Accepts canonical names or common aliases."
+                echo ""
+                echo "Supported architectures:"
+                echo "  x86_64     (x64, amd64)"
+                echo "  x86_32     (x86, i686, i386, ia32)"
+                echo "  arm64      (aarch64)"
+                echo "  arm32      (armhf, armv7, armv7l)"
+                echo "  mips32     (mips)"
+                echo "  mips32el   (mipsel)"
+                echo "  mips64"
+                echo "  mips64el"
+                echo "  powerpc32  (ppc, ppc32)"
+                echo "  powerpc64  (ppc64)"
+                echo "  riscv64"
+                echo "  s390x"
+                echo "  sparc64"
                 echo ""
                 echo "Supported platforms:"
-                echo "  - Linux:   13 architectures"
-                echo "             x86_64, x86_32, arm64, arm32, mips32, mips32el, mips64,"
-                echo "             mips64el, powerpc32, powerpc64, riscv64, s390x, sparc64"
-                echo "  - macOS:   2 architectures (x86_64, arm64)"
-                echo "  - Windows: 3 architectures (x86_64, x86_32, arm64)"
+                echo "  - Linux:   all 13 architectures above"
+                echo "  - macOS:   arm64, x86_64"
+                echo "  - Windows: x86_64, x86_32, arm64"
                 echo ""
-                echo "Example:"
-                echo "  $0            # Build all architectures for current OS"
-                echo "  $0 --bundle   # Build with bundled libraries for portability"
+                echo "Examples:"
+                echo "  $0                            # Build all architectures for current OS"
+                echo "  $0 --bundle-only              # Build bundles only"
+                echo "  $0 --executable-only          # Build executables only"
+                echo "  $0 --arch arm64               # Build only arm64"
+                echo "  $0 --arch arm64 --arch x86_64 # Build arm64 and x86_64"
+                echo "  $0 -a aarch64 -a armhf        # Using aliases"
                 exit 0
                 ;;
             *)

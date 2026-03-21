@@ -95,6 +95,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── fpm — multi-format packager (deb, rpm, pacman, apk, freebsd, etc.) ────────
 RUN gem install --no-document fpm || true
 
+# ── nfpm — Go-native packager; used in place of fpm for APK (correct APKv2) ───
+# Download the pre-built amd64 binary directly from GitHub releases.
+# python3 is already present in the image (installed above).
+RUN NFPM_VER=$(curl -fsSL https://api.github.com/repos/goreleaser/nfpm/releases/latest \
+      | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))") \
+ && curl -fsSL \
+      "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
+      | tar -xz -C /usr/local/bin nfpm \
+ && chmod +x /usr/local/bin/nfpm
+
 # ── Project setup ─────────────────────────────────────────────────────────────
 WORKDIR /work
 COPY . /work
