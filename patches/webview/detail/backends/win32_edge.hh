@@ -577,9 +577,33 @@ private:
       m_com_init = {COINIT_APARTMENTTHREADED};
       enable_dpi_awareness();
 
-      HICON icon = (HICON)LoadImage(
-          hInstance, IDI_APPLICATION, IMAGE_ICON, GetSystemMetrics(SM_CXICON),
-          GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+      HICON icon = (HICON)LoadImageW(
+          hInstance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+          GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED);
+      if (!icon) {
+        icon = (HICON)LoadImageW(
+            hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+            LR_DEFAULTCOLOR | LR_SHARED);
+      }
+      if (!icon) {
+        icon = (HICON)LoadImage(
+            nullptr, IDI_APPLICATION, IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED);
+      }
+
+      HICON small_icon = (HICON)LoadImageW(
+          hInstance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+          GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR | LR_SHARED);
+      if (!small_icon) {
+        small_icon = (HICON)LoadImageW(
+            hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR | LR_SHARED);
+      }
+      if (!small_icon) {
+        small_icon = icon;
+      }
 
       // Create a top-level window.
       WNDCLASSEXW wc;
@@ -588,6 +612,7 @@ private:
       wc.hInstance = hInstance;
       wc.lpszClassName = L"webview";
       wc.hIcon = icon;
+      wc.hIconSm = small_icon;
       wc.lpfnWndProc = (WNDPROC)(+[](HWND hwnd, UINT msg, WPARAM wp,
                                      LPARAM lp) -> LRESULT {
         win32_edge_engine *w{};
@@ -668,6 +693,10 @@ private:
       if (!m_window) {
         throw exception{WEBVIEW_ERROR_INVALID_STATE, "Window is null"};
       }
+      SendMessageW(m_window, WM_SETICON, ICON_BIG,
+                   reinterpret_cast<LPARAM>(icon));
+      SendMessageW(m_window, WM_SETICON, ICON_SMALL,
+                   reinterpret_cast<LPARAM>(small_icon));
       // Start hidden; visibility is controlled by higher-level logic.
       ShowWindow(m_window, SW_HIDE);
       on_window_created();

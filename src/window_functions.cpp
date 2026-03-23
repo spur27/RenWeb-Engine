@@ -2115,7 +2115,11 @@ WF* WF::setNetworkCallbacks() {
                     std::string s = v;
                     if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s = s.substr(1);
                     int ma = 0, mi = 0, pa = 0;
-                    std::sscanf(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
+                    #if defined(_WIN32)
+                        sscanf_s(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
+                    #else
+                        std::sscanf(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
+                    #endif
                     return {ma, mi, pa};
                 };
                 return parse(b) > parse(a);

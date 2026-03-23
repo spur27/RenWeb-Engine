@@ -159,11 +159,61 @@ function toSnake(str) {
     return str.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
+/**
+ * Stable package identifier for Windows packaging metadata.
+ * Prefers info.app_id when present to avoid renaming drift across releases.
+ */
+function windowsPackageId(info) {
+    const raw = (info && typeof info.app_id === 'string' && info.app_id.trim())
+        ? info.app_id.trim().toLowerCase()
+        : toKebab((info && info.title) || 'app');
+    // Keep only characters widely accepted across NSIS/MSI/MSIX IDs.
+    return raw.replace(/[^a-z0-9.\-]/g, '-');
+}
+
+/** MSI/NSIS registry-safe identifier (no dots for path segments). */
+function windowsRegistryId(info) {
+    return windowsPackageId(info).replace(/\./g, '-');
+}
+
+function wingetArch(arch) {
+    if (arch === 'x86_64') return 'x64';
+    if (arch === 'x86_32') return 'x86';
+    if (arch === 'arm64') return 'arm64';
+    if (arch === 'arm32') return 'arm';
+    return 'neutral';
+}
+
+function inferGitHubReleaseUrl(repoUrl, version, filename) {
+    if (!repoUrl || !repoUrl.includes('github.com')) return '';
+    const ownerRepo = repoUrl.split('github.com/').pop().replace(/\.git$/, '').replace(/\/$/, '');
+    if (!ownerRepo || ownerRepo.split('/').length !== 2) return '';
+    return `https://github.com/${ownerRepo}/releases/download/v${version}/${filename}`;
+}
+
+function toWingetDate(d) {
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 /** Derive a stable RFC-4122-like UUID from a string using MD5. */
 function hashToUuid(str) {
     const h = crypto.createHash('md5').update(str).digest('hex');
     return [h.slice(0,8), h.slice(8,12), h.slice(12,16), h.slice(16,20), h.slice(20,32)]
         .join('-').toUpperCase();
+}
+
+/** Recursively sum file sizes under dirPath; returns total in KB (ceiling). */
+function getDirSizeKb(dirPath) {
+    let bytes = 0;
+    for (const e of fs.readdirSync(dirPath, { withFileTypes: true })) {
+        const p = path.join(dirPath, e.name);
+        if (e.isDirectory()) bytes += getDirSizeKb(p) * 1024;
+        else if (e.isFile()) bytes += fs.statSync(p).size;
+    }
+    return Math.ceil(bytes / 1024);
 }
 
 /**
@@ -214,7 +264,8 @@ function download(url, dest) {
 /** tar-extract an archive into a directory (creates dir if needed). */
 function extractTar(archive, destDir) {
     fs.mkdirSync(destDir, { recursive: true });
-    const r = spawnSync('tar', ['-xzf', archive, '-C', destDir], { stdio: 'inherit' });
+    const r = spawnSync('tar', ['-xzf', archive, '-C', destDir,
+        '--no-same-owner', '--no-same-permissions'], { stdio: 'inherit' });
     return r.status === 0;
 }
 
@@ -303,6 +354,18 @@ function findBuildDir() {
     }
 }
 
+/** Find the credentials/ directory by walking up from cwd (mirrors findBuildDir). */
+function findCredentialsDir() {
+    let cur = process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd();
+    while (true) {
+        const cand = path.join(cur, 'credentials');
+        if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) return cand;
+        const parent = path.dirname(cur);
+        if (parent === cur) return null;
+        cur = parent;
+    }
+}
+
 // ─── Argument parsing ────────────────────────────────────────────────────────
 
 /** Normalize ext aliases to a canonical lowercase form. */
@@ -365,13 +428,15 @@ function parseArgs(args) {
         oses           : new Set(),   // empty = all OS targets
         arches         : new Set(),   // empty = all architectures
         cache          : false,
+            noCredentials  : false,
     };
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
         if (a === '--bundle-only')                    { opts.bundleOnly = true;     continue; }
         if (a === '--executable-only')                { opts.executableOnly = true; continue; }
         if (a === '-c' || a === '--cache')            { opts.cache = true;          continue; }
-        if (a.startsWith('-e') && a.length > 2)       { opts.exts.add(normalizeExt(a.slice(2))); continue; }
+            if (a === '--no-credentials')                 { opts.noCredentials = true;  continue; }
+            if (a.startsWith('-e') && a.length > 2)       { opts.exts.add(normalizeExt(a.slice(2))); continue; }
         if (a === '-e' || a === '--ext')              { const v = args[++i]; if (v) opts.exts.add(normalizeExt(v)); continue; }
         if (a.startsWith('-o') && a.length > 2)       { opts.oses.add(a.slice(2).toLowerCase()); continue; }
         if (a === '-o' || a === '--os')               { const v = args[++i]; if (v) opts.oses.add(v.toLowerCase()); continue; }
@@ -488,7 +553,9 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     // 4. Place the engine executable (or extract bundle)
     if (engineAsset.isBundle) {
         console.log('  Extracting bundle archive…');
-        extractTar(engineAsset.localPath, stagingDir);
+        if (!extractTar(engineAsset.localPath, stagingDir)) {
+            throw new Error(`Failed to extract bundle archive: ${path.basename(engineAsset.localPath)}`);
+        }
     } else {
         const exeDest = path.join(stagingDir, engineAsset.filename);
         fs.copyFileSync(engineAsset.localPath, exeDest);
@@ -511,12 +578,14 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     if (wantTarGz) {
         const dest = path.join(outDir, `${stem}.tar.gz`);
         console.log(`  → ${path.relative(process.cwd(), dest)}`);
-        if (!makeTarGz(stagingDir, dest)) console.warn(`  ⚠ tar failed for ${stem}`);
+           if (!makeTarGz(stagingDir, dest)) console.warn(`  ⚠ tar failed for ${stem}`);
+           else if (targetOs === 'linux') gpgSign(opts, dest);
     }
     if (wantZip) {
         const dest = path.join(outDir, `${stem}.zip`);
         console.log(`  → ${path.relative(process.cwd(), dest)}`);
-        if (!makeZip(stagingDir, dest)) console.warn(`  ⚠ zip failed for ${stem}`);
+           if (!makeZip(stagingDir, dest)) console.warn(`  ⚠ zip failed for ${stem}`);
+           else if (targetOs === 'linux') gpgSign(opts, dest);
     }
 
     // 6. OS-specific native packages
@@ -532,15 +601,24 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     }
 
     if (targetOs === 'windows' || targetOs === 'win') {
-        // NSIS installer
-        const nsisOut = path.join(outDir, `${stem}-setup.exe`);
-        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, engineAsset.isBundle);
-        // MSI installer via wixl
-        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`), engineAsset.isBundle);
-        // MSIX / Windows Store package via makemsix
-        buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), engineAsset.isBundle, engineAsset.filename);
-        // Chocolatey nupkg (single file, root of windows output dir)
-        buildChocoPackage(opts, info, targetArch, nsisOut, outDir, engineAsset.isBundle);
+        // Windows native installers/packages are generated only from bare executable staging.
+        // Bootstrap bundles are archive-only outputs.
+        if (!engineAsset.isBundle) {
+            // NSIS installer
+            const nsisOut = path.join(outDir, `${stem}-setup.exe`);
+            buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, false);
+            // MSI installer via wixl
+            buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`), false);
+            // MSIX / Windows Store package via makemsix
+            const msixExeFile = engineAsset.filename;
+            buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), false, msixExeFile);
+            // Chocolatey nupkg (single file, root of windows output dir)
+            buildChocoPackage(opts, info, targetArch, nsisOut, outDir, false);
+            // NuGet nupkg (single file, root of windows output dir)
+            buildNugetPackage(opts, info, targetArch, outDir, nsisOut, false);
+            // winget manifests (for submission to microsoft/winget-pkgs)
+            buildWingetManifest(opts, info, targetArch, nsisOut, outDir, false);
+        }
     }
 
     if (targetOs === 'macos' || targetOs === 'darwin') {
@@ -562,7 +640,8 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                     '-p', pkgOut, '-C', stagingDir, '.',
                 ], { stdio: 'inherit' });
                 if (r.status === 0) console.log(`  [osxpkg] → ${path.relative(process.cwd(), pkgOut)}`);
-                else console.warn('  ⚠ fpm osxpkg failed');
+                else { console.warn('  ⚠ fpm osxpkg failed'); }
+                if (r.status === 0) macosProductsign(opts, pkgOut, 'osxpkg');
             }
         }
         // Homebrew formula — collect bottle info; formula written once after all archs
@@ -840,21 +919,8 @@ function patchWindowsExe(exePath, info) {
     if (author)    rcArgs.push('--set-version-string', 'CompanyName',    author);
     if (website)   rcArgs.push('--set-version-string', 'Comments',       website);
 
-    // Icon search order:
-    //   1. info.json "icon" field (absolute or relative to build dir)
-    //   2. staging dir resource/ subfolder (app.ico / icon.ico)
-    //   3. staging dir root
     const exeDir = path.dirname(exePath);
-    const iconCandidates = [
-        info.icon ? path.resolve(exeDir, info.icon) : null,
-        path.join(exeDir, 'resource',  'app.ico'),
-        path.join(exeDir, 'resource',  'icon.ico'),
-        path.join(exeDir, 'resources', 'app.ico'),
-        path.join(exeDir, 'resources', 'icon.ico'),
-        path.join(exeDir, 'app.ico'),
-        path.join(exeDir, 'icon.ico'),
-    ].filter(Boolean);
-    const iconPath = iconCandidates.find(p => fs.existsSync(p));
+    const iconPath = findWindowsIconPath(exeDir, info);
     if (iconPath) {
         rcArgs.push('--set-icon', iconPath);
         console.log(`  Using icon: ${path.relative(process.cwd(), iconPath)}`);
@@ -893,6 +959,204 @@ function patchWindowsExe(exePath, info) {
     else console.log('  PE resources patched: ProductName, FileDescription, CompanyName, version ' + winVer);
 }
 
+/** Resolve the preferred Windows .ico asset from a staged build tree. */
+function findUpAssetPath(relPath) {
+    let cur = process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd();
+    while (true) {
+        const cand = path.join(cur, relPath);
+        if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
+        const parent = path.dirname(cur);
+        if (parent === cur) return null;
+        cur = parent;
+    }
+}
+
+/** Resolve the preferred Windows .ico asset from a staged build tree. */
+function findWindowsIconPath(baseDir, info) {
+    const candidates = [
+        info.icon ? path.resolve(baseDir, info.icon) : null,
+        path.join(baseDir, 'resource',  'app.ico'),
+        path.join(baseDir, 'resource',  'icon.ico'),
+        path.join(baseDir, 'resources', 'app.ico'),
+        path.join(baseDir, 'resources', 'icon.ico'),
+        path.join(baseDir, 'app.ico'),
+        path.join(baseDir, 'icon.ico'),
+        findUpAssetPath(path.join('resource', 'app.ico')),
+        findUpAssetPath(path.join('resource', 'icon.ico')),
+    ].filter(Boolean);
+    return candidates.find(p => fs.existsSync(p)) || null;
+}
+
+/** Resolve the preferred PNG asset from a staged build tree. */
+function findWindowsPngPath(baseDir, info) {
+    const candidates = [
+        info.icon_png ? path.resolve(baseDir, info.icon_png) : null,
+        path.join(baseDir, 'resource',  'app.png'),
+        path.join(baseDir, 'resource',  'icon.png'),
+        path.join(baseDir, 'resources', 'app.png'),
+        path.join(baseDir, 'resources', 'icon.png'),
+        path.join(baseDir, 'app.png'),
+        path.join(baseDir, 'icon.png'),
+        findUpAssetPath(path.join('resource', 'app.png')),
+        findUpAssetPath(path.join('resource', 'icon.png')),
+    ].filter(Boolean);
+    return candidates.find(p => fs.existsSync(p)) || null;
+}
+
+// ─── Signing helpers ─────────────────────────────────────────────────────────
+
+/** Read a passphrase from <credDir>/<prefix>.pass, falling back to envVar. */
+function readPass(credDir, prefix, envVar) {
+    const passFile = path.join(credDir, prefix + '.pass');
+    if (fs.existsSync(passFile)) return fs.readFileSync(passFile, 'utf8').trimEnd();
+    return process.env[envVar] || null;
+}
+
+/**
+ * Sign a file with Authenticode using osslsigncode (cross-platform).
+ * Credential: credentials/windows.authenticode.pfx
+ * Passphrase:  credentials/windows.authenticode.pass  or  RENWEB_WIN_PFX_PASS
+ */
+function authenticodeSign(opts, filePath) {
+    if (!opts.credDir) return false;
+    const pfx = path.join(opts.credDir, 'windows.authenticode.pfx');
+    if (!fs.existsSync(pfx)) {
+        console.warn(`  \u26a0 Authenticode: windows.authenticode.pfx not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        return false;
+    }
+    if (!findBin('osslsigncode')) {
+        console.warn('  \u26a0 osslsigncode not found \u2014 skipping Authenticode signing');
+        return false;
+    }
+    const pass = readPass(opts.credDir, 'windows.authenticode', 'RENWEB_WIN_PFX_PASS') || '';
+    const tmp  = filePath + '._signtmp';
+    const r = spawnSync('osslsigncode', [
+        'sign', '-pkcs12', pfx, '-pass', pass,
+        '-h', 'sha256', '-t', 'http://timestamp.digicert.com',
+        '-in', filePath, '-out', tmp,
+    ], { stdio: 'inherit' });
+    if (r.status === 0) {
+        fs.renameSync(tmp, filePath);
+        console.log(`  \u2713 Authenticode-signed: ${path.basename(filePath)}`);
+        return true;
+    }
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    console.warn(`  \u26a0 osslsigncode failed \u2014 ${path.basename(filePath)} unsigned`);
+    return false;
+}
+
+/**
+ * Sign a macOS artifact (DMG / .app) using codesign.  macOS only.
+ * Credential: credentials/macos.developer-id-app.p12
+ * Passphrase:  credentials/macos.certs.pass  or  RENWEB_MACOS_CERTS_PASS
+ */
+function macosCodesign(opts, filePath) {
+    if (!opts.credDir || process.platform !== 'darwin') return false;
+    const p12 = path.join(opts.credDir, 'macos.developer-id-app.p12');
+    if (!fs.existsSync(p12)) {
+        console.warn(`  \u26a0 macOS codesign: macos.developer-id-app.p12 not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        return false;
+    }
+    const pass = readPass(opts.credDir, 'macos.certs', 'RENWEB_MACOS_CERTS_PASS') || '';
+    const kc = path.join(os.tmpdir(), '_renweb-sign-' + process.pid + '.keychain-db');
+    const kcPass = '_renweb_tmp';
+    try {
+        spawnSync('security', ['create-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
+        spawnSync('security', ['unlock-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
+        const imp = spawnSync('security', ['import', p12, '-k', kc, '-P', pass, '-T', '/usr/bin/codesign', '-A'], { stdio: 'pipe' });
+        if (imp.status !== 0) { console.warn('  \u26a0 Failed to import macOS signing cert'); return false; }
+        const listR = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning', kc], { encoding: 'utf8' });
+        const match = (listR.stdout || '').match(/"(Developer ID Application[^"]+)"/);
+        const identity = match ? match[1] : '-';
+        const r = spawnSync('codesign', ['--deep', '--force', '--sign', identity, '--keychain', kc, filePath], { stdio: 'inherit' });
+        if (r.status === 0) { console.log(`  \u2713 codesigned: ${path.basename(filePath)}`); return true; }
+        console.warn(`  \u26a0 codesign failed \u2014 ${path.basename(filePath)} unsigned`);
+        return false;
+    } finally {
+        try { spawnSync('security', ['delete-keychain', kc], { stdio: 'pipe' }); } catch (_) {}
+    }
+}
+
+/**
+ * Sign a macOS .pkg using productsign.  macOS only.
+ * certType 'osxpkg' uses macos.developer-id-installer.p12
+ * certType 'mas'    uses macos.app-distribution.p12
+ * Passphrase:  credentials/macos.certs.pass  or  RENWEB_MACOS_CERTS_PASS
+ */
+function macosProductsign(opts, filePath, certType) {
+    if (!opts.credDir || process.platform !== 'darwin') return false;
+    const p12Name = certType === 'mas' ? 'macos.app-distribution.p12' : 'macos.developer-id-installer.p12';
+    const p12 = path.join(opts.credDir, p12Name);
+    if (!fs.existsSync(p12)) {
+        console.warn(`  \u26a0 macOS productsign: ${p12Name} not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        return false;
+    }
+    const pass = readPass(opts.credDir, 'macos.certs', 'RENWEB_MACOS_CERTS_PASS') || '';
+    const kc = path.join(os.tmpdir(), '_renweb-sign-' + process.pid + '.keychain-db');
+    const kcPass = '_renweb_tmp';
+    try {
+        spawnSync('security', ['create-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
+        spawnSync('security', ['unlock-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
+        const imp = spawnSync('security', ['import', p12, '-k', kc, '-P', pass, '-T', '/usr/bin/productsign', '-A'], { stdio: 'pipe' });
+        if (imp.status !== 0) { console.warn('  \u26a0 Failed to import macOS signing cert'); return false; }
+        const searchStr = certType === 'mas' ? 'Mac App Distribution' : 'Developer ID Installer';
+        const listR = spawnSync('security', ['find-identity', '-v', kc], { encoding: 'utf8' });
+        const match = (listR.stdout || '').match(new RegExp('"(' + searchStr + '[^"]+)"'));
+        if (!match) { console.warn(`  \u26a0 ${searchStr} identity not found in cert`); return false; }
+        const signed = filePath.replace(/\.pkg$/, '._signtmp.pkg');
+        const r = spawnSync('productsign', ['--sign', match[1], '--keychain', kc, filePath, signed], { stdio: 'inherit' });
+        if (r.status === 0) {
+            fs.renameSync(signed, filePath);
+            console.log(`  \u2713 productsigned (${certType}): ${path.basename(filePath)}`);
+            return true;
+        }
+        try { fs.unlinkSync(signed); } catch (_) {}
+        console.warn('  \u26a0 productsign failed');
+        return false;
+    } finally {
+        try { spawnSync('security', ['delete-keychain', kc], { stdio: 'pipe' }); } catch (_) {}
+    }
+}
+
+/**
+ * Create a GPG detached ASCII-armoured signature (.asc) alongside a file.
+ * Credential: credentials/linux.gpg.asc  (ASCII-armoured private key)
+ * Passphrase:  credentials/linux.gpg.pass  or  RENWEB_GPG_PASS
+ * Imports the key into a temporary isolated GNUPGHOME to avoid polluting the user's keyring.
+ */
+function gpgSign(opts, filePath) {
+    if (!opts.credDir) return false;
+    const keyFile = path.join(opts.credDir, 'linux.gpg.asc');
+    if (!fs.existsSync(keyFile)) {
+        console.warn(`  \u26a0 GPG: linux.gpg.asc not found \u2014 ${path.basename(filePath)} will not be signed`);
+        return false;
+    }
+    if (!findBin('gpg')) { console.warn('  \u26a0 gpg not found \u2014 skipping GPG signing'); return false; }
+    const pass = readPass(opts.credDir, 'linux.gpg', 'RENWEB_GPG_PASS') || '';
+    const tmpGnupg = path.join(os.tmpdir(), '_renweb-gpg-' + process.pid);
+    fs.mkdirSync(tmpGnupg, { recursive: true, mode: 0o700 });
+    try {
+        const env = { ...process.env, GNUPGHOME: tmpGnupg };
+        const imp = spawnSync('gpg', ['--batch', '--import', keyFile], { env, stdio: 'pipe' });
+        if (imp.status !== 0) { console.warn('  \u26a0 GPG key import failed'); return false; }
+        const listR = spawnSync('gpg', ['--batch', '--list-secret-keys', '--with-colons'], { env, encoding: 'utf8' });
+        const fpLine = (listR.stdout || '').split('\n').find(l => l.startsWith('fpr'));
+        const fingerprint = fpLine ? fpLine.split(':')[9] : null;
+        const sigArgs = ['--batch', '--yes', '--armor', '--detach-sign',
+                         '--passphrase-fd', '0', '--pinentry-mode', 'loopback'];
+        if (fingerprint) sigArgs.push('-u', fingerprint);
+        sigArgs.push(filePath);
+        const r = spawnSync('gpg', sigArgs, { env, input: pass + '\n', stdio: ['pipe', 'inherit', 'inherit'] });
+        if (r.status === 0) { console.log(`  \u2713 GPG signed: ${path.basename(filePath)}.asc`); return true; }
+        console.warn('  \u26a0 GPG detach-sign failed');
+        return false;
+    } finally {
+        try { fs.rmSync(tmpGnupg, { recursive: true, force: true }); } catch (_) {}
+    }
+}
+
+// ─── Windows package builders ─────────────────────────────────────────────────
+
 /**
  * Generate a .nsi script and compile it with makensis (native Linux binary — no Wine).
  * Non-bundle packages silently download + install the WebView2 Bootstrapper if absent.
@@ -901,7 +1165,7 @@ function patchWindowsExe(exePath, info) {
  * ambiguity between JS template-literal ${} and NSIS $VAR / registry paths.
  */
 function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = false) {
-    if (opts.exts.size > 0 && !opts.exts.has('exe')) return;
+    if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
 
     if (spawnSync('which', ['makensis'], { encoding: 'utf8' }).status !== 0) {
         console.warn('  ⚠ makensis not found — skipping NSIS installer'); return;
@@ -910,21 +1174,32 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     const title   = info.title       || 'App';
     const version = (info.version    || '0.0.1').trim();
     const desc    = info.description || title;
-    const pkgId   = toKebab(info.title || 'app');
+    const pkgId   = windowsPackageId(info);
+    const regId   = windowsRegistryId(info);
+    const exeId   = toKebab(info.title || 'app');
     const author  = info.author      || title;
     const website = info.repository  || '';
+    const copyright = info.copyright || ('Copyright (C) ' + author);
     const winVer  = version.replace(/[^\d.]/g,'').split('.').concat(['0','0','0','0']).slice(0,4).join('.');
-    const exeName = pkgId + '-' + version + '-windows-' + arch + '.exe';
-    const ukey    = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + pkgId;
-
-    let iconLine = '';
-    for (const cand of [
-        path.join(stagingDir, 'resource',  'icon.ico'),
-        path.join(stagingDir, 'resource',  'app.ico'),
-        path.join(stagingDir, 'resources', 'icon.ico'),
-    ]) {
-        if (fs.existsSync(cand)) { iconLine = 'Icon "' + cand + '"'; break; }
+    const exeName = exeId + '-' + version + '-windows-' + arch + '.exe';
+    const ukey    = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + regId;
+    const bootstrapperName = 'MicrosoftEdgeWebview2Setup.exe';
+    const bootstrapperCandidates = [
+        path.join(process.cwd(), 'external', 'webview2_bootstraps', 'lib-' + arch, bootstrapperName),
+        path.join(stagingDir, 'lib', bootstrapperName),
+    ];
+    let bootstrapperPath = bootstrapperCandidates.find(p => fs.existsSync(p));
+    if (!isBundle && !bootstrapperPath) {
+        const cacheBootstrapper = path.join(os.tmpdir(), `_renweb-${bootstrapperName}`);
+        if (!fs.existsSync(cacheBootstrapper)) {
+            if (!download(WEBVIEW2_BOOTSTRAPPER_URL, cacheBootstrapper)) {
+                console.warn('  ⚠ Failed to fetch WebView2 bootstrapper; installer will not auto-install WebView2.');
+            }
+        }
+        if (fs.existsSync(cacheBootstrapper)) bootstrapperPath = cacheBootstrapper;
     }
+
+    const iconPath = findWindowsIconPath(stagingDir, info);
 
     const lines = [];
     const L = (s = '') => lines.push(s);
@@ -937,20 +1212,24 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     L();
     L('Name "' + title + '"');
     L('OutFile "' + outPath + '"');
-    L('InstallDir "$PROGRAMFILES64\\' + title  + '"');
-    L('InstallDirRegKey HKCU "Software\\' + pkgId + '" "InstallDir"');
-    L('RequestExecutionLevel admin');
-    if (iconLine) L(iconLine);
+    L('InstallDir "$LOCALAPPDATA\\' + title  + '"');
+    L('InstallDirRegKey HKCU "Software\\' + regId + '" "InstallDir"');
+    L('RequestExecutionLevel user');
+    if (iconPath) {
+        L('Icon "' + iconPath + '"');
+        L('UninstallIcon "' + iconPath + '"');
+    }
     L();
     L('VIProductVersion "' + winVer  + '"');
     L('VIAddVersionKey "ProductName"     "' + title   + '"');
     L('VIAddVersionKey "FileDescription" "' + desc    + '"');
     L('VIAddVersionKey "FileVersion"     "' + version + '"');
     L('VIAddVersionKey "ProductVersion"  "' + version + '"');
-    L('VIAddVersionKey "LegalCopyright"  "Copyright (C) ' + author + '"');
+    L('VIAddVersionKey "LegalCopyright"  "' + copyright + '"');
     if (author !== title) L('VIAddVersionKey "CompanyName"     "' + author + '"');
     L();
     L('!include "MUI2.nsh"');
+    L('!include "FileFunc.nsh"');
     L('!include "LogicLib.nsh"');
     L('!insertmacro MUI_PAGE_WELCOME');
     L('!insertmacro MUI_PAGE_DIRECTORY');
@@ -963,33 +1242,57 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     L('Section "Install"');
     L('  SetOutPath "$INSTDIR"');
     L('  File /r "' + stagingDir + '/"');
-    L('  WriteRegStr HKCU "Software\\' + pkgId + '" "InstallDir" "$INSTDIR"');
+    L('  WriteRegStr HKCU "Software\\' + regId + '" "InstallDir" "$INSTDIR"');
     L('  WriteUninstaller "$INSTDIR\\Uninstall.exe"');
-    L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '"');
-    L('  WriteRegStr HKLM "' + ukey + '" "DisplayName"    "' + title   + '"');
-    L('  WriteRegStr HKLM "' + ukey + '" "UninstallString" "$INSTDIR\\Uninstall.exe"');
-    L('  WriteRegStr HKLM "' + ukey + '" "DisplayVersion"  "' + version + '"');
-    L('  WriteRegStr HKLM "' + ukey + '" "Publisher"       "' + author  + '"');
-    if (website) L('  WriteRegStr HKLM "' + ukey + '" "URLInfoAbout"    "' + website + '"');
+    L('  CreateDirectory "$SMPROGRAMS\\' + title + '"');
+    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\Uninstall ' + title + '.lnk" "$INSTDIR\\Uninstall.exe"');
+    if (iconPath)
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+    else
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '"');
+    L('  WriteRegStr HKCU "' + ukey + '" "DisplayName"    "' + title   + '"');
+    L('  WriteRegStr HKCU "' + ukey + '" "UninstallString" "$INSTDIR\\Uninstall.exe"');
+    L('  WriteRegStr HKCU "' + ukey + '" "DisplayVersion"  "' + version + '"');
+    L('  WriteRegStr HKCU "' + ukey + '" "Publisher"       "' + author  + '"');
+    L('  WriteRegStr HKCU "' + ukey + '" "DisplayIcon" "$INSTDIR\\' + exeName + '"');
+    L('  WriteRegStr HKCU "' + ukey + '" "InstallLocation" "$INSTDIR"');
+    L('  WriteRegStr HKCU "' + ukey + '" "Comments" "' + desc + '"');
+    L('  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2');
+    L('  IntFmt $0 "0x%08X" $0');
+    L('  WriteRegDWORD HKCU "' + ukey + '" "EstimatedSize" "$0"');
+    if (website) L('  WriteRegStr HKCU "' + ukey + '" "URLInfoAbout"    "' + website + '"');
+    if (website) L('  WriteRegStr HKCU "' + ukey + '" "URLUpdateInfo"   "' + website + '"');
     if (!isBundle) {
         L();
-        L('  ; Check for WebView2 Runtime and install bootstrapper if missing');
+        L('  ; Check for WebView2 Runtime and install bundled bootstrapper if missing');
         L('  ReadRegStr $0 HKLM "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
         L('  ${If} $0 == ""');
         L('    ReadRegStr $0 HKCU "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
         L('  ${EndIf}');
-        L('  ${If} $0 == ""');
-        L('    NSISdl::download "' + WEBVIEW2_BOOTSTRAPPER_URL + '" "$TEMP\\MicrosoftEdgeWebview2Setup.exe"');
-        L('    ExecWait "$TEMP\\MicrosoftEdgeWebview2Setup.exe /silent /install"');
-        L('  ${EndIf}');
+        if (bootstrapperPath) {
+            L('  SetOutPath "$PLUGINSDIR"');
+            L('  File "' + bootstrapperPath + '"');
+            L('  SetOutPath "$INSTDIR"');
+            L('  ${If} $0 == ""');
+            L('    ExecWait "$\\"$PLUGINSDIR\\' + bootstrapperName + '$\\" /silent /install"');
+            L('  ${EndIf}');
+        } else {
+            L('  ${If} $0 == ""');
+            L('    MessageBox MB_ICONEXCLAMATION|MB_OK "Microsoft Edge WebView2 Runtime is required. Install ' + bootstrapperName + ' and re-run setup."');
+            L('  ${EndIf}');
+        }
     }
     L('SectionEnd');
     L();
     L('Section "Uninstall"');
     L('  RMDir /r "$INSTDIR"');
-    L('  DeleteRegKey HKCU "Software\\' + pkgId + '"');
-    L('  DeleteRegKey HKLM "' + ukey + '"');
+    L('  DeleteRegKey HKCU "Software\\' + regId + '"');
+    L('  DeleteRegKey HKCU "' + ukey + '"');
     L('  Delete "$DESKTOP\\' + title + '.lnk"');
+    L('  Delete "$SMPROGRAMS\\' + title + '\\' + title + '.lnk"');
+    L('  Delete "$SMPROGRAMS\\' + title + '\\Uninstall ' + title + '.lnk"');
+    L('  RMDir "$SMPROGRAMS\\' + title + '"');
     L('SectionEnd');
     L();
 
@@ -999,6 +1302,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     console.log('  [nsis] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync('makensis', [nsiPath], { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 makensis failed');
+        else authenticodeSign(opts, outPath);
     try { fs.unlinkSync(nsiPath); } catch (_) {}
 }
 
@@ -1015,9 +1319,12 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
     const title       = info.title    || 'App';
     const version     = (info.version || '0.0.1').trim();
     const desc        = info.description || title;
-    const pkgId       = toKebab(info.title || 'app');
+    const pkgId       = windowsPackageId(info);
+    const regId       = windowsRegistryId(info);
+    const exeId       = toKebab(info.title || 'app');
     const author      = info.author   || title;
     const website     = info.repository || '';
+    const exeName     = exeId + '-' + version + '-windows-' + arch + '.exe';
     const productCode = hashToUuid(pkgId + '-product-' + version);
     const upgradeCode = hashToUuid(pkgId + '-upgrade');
     const tmpBase     = path.join(path.dirname(outPath), '_msi-' + pkgId + '-' + arch);
@@ -1027,7 +1334,9 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
     // MSI version must be strictly numeric (max four dotted parts)
     const msiVersion   = version.replace(/[^\d.]/g, '').split('.').slice(0, 4)
                          .concat(['0','0','0','0']).slice(0, 4).join('.');
-    const progFilesDir = (arch === 'x86_32') ? 'ProgramFilesFolder' : 'ProgramFiles64Folder';
+    const installRootDir = 'LocalAppDataFolder';
+    const iconPath    = findWindowsIconPath(stagingDir, info);
+    const sizeKb      = getDirSizeKb(stagingDir);
 
     // ── Walk staging dir and generate a WXS fragment with every file ───────
     // wixl-heat v0.101 (Debian bullseye) has a bug where it produces empty
@@ -1076,17 +1385,38 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
 
     const dirBody  = buildDirBody(stagingDir, '      ');
     const filesWxs = path.join(tmpBase, 'files.wxs');
+    const shortcutsGuid = hashToUuid(pkgId + '-msi-shortcuts').toUpperCase();
     const filesContent = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">',
         '  <Fragment>',
         '    <DirectoryRef Id="APPDIR">',
         ...dirBody,
+        '      <Component Id="AppShortcuts" Guid="{' + shortcutsGuid + '}">',
+        '        <Shortcut Id="StartMenuShortcut"',
+        '                  Directory="ProgramMenuDir"',
+        '                  Name="' + xmlEscape(title) + '"',
+        '                  Description="' + xmlEscape(desc) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
+        '                  WorkingDirectory="APPDIR"/>',
+        '        <Shortcut Id="DesktopShortcut"',
+        '                  Directory="DesktopFolder"',
+        '                  Name="' + xmlEscape(title) + '"',
+        '                  Description="' + xmlEscape(desc) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
+        '                  WorkingDirectory="APPDIR"/>',
+        '        <RemoveFolder Id="ProgramMenuDir" On="uninstall"/>',
+        '        <RegistryValue Root="HKCU" Key="Software\\' + xmlEscape(regId) + '" Name="InstallDir" Type="string" Value="[APPDIR]"/>',
+        '        <RegistryValue Root="HKCU" Key="Software\\' + xmlEscape(regId) + '" Name="HasMsiShortcuts" Type="integer" Value="1" KeyPath="yes"/>',
+        '      </Component>',
         '    </DirectoryRef>',
         '  </Fragment>',
         '  <Fragment>',
         '    <ComponentGroup Id="AppFiles">',
         ...compIds.map(id => '      <ComponentRef Id="' + id + '"/>'),
+        '      <ComponentRef Id="AppShortcuts"/>',
         '    </ComponentGroup>',
         '  </Fragment>',
         '</Wix>',
@@ -1102,17 +1432,46 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
         '           UpgradeCode="{' + upgradeCode + '}"',
         '           Version="' + msiVersion + '" Language="1033" Manufacturer="' + xmlEscape(author) + '">',
         '    <Package Compressed="yes" InstallerVersion="200"/>',
+        ...(iconPath ? ['    <Icon Id="AppIcon" SourceFile="' + xmlEscape(iconPath) + '"/>'] : []),
+        '    <Property Id="ALLUSERS" Value="2"/>',
+        '    <Property Id="MSIINSTALLPERUSER" Value="1"/>',
         '    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed."/>',
+        '    <Property Id="ARPNOMODIFY" Value="1"/>',
+        '    <Property Id="ARPNOREPAIR" Value="1"/>',
+        '    <Property Id="ARPINSTALLLOCATION" Value="[APPDIR]"/>',
+        '    <Property Id="ARPSIZE" Value="' + sizeKb + '"/>',
+        '    <Property Id="ARPCOMMENTS" Value="' + xmlEscape(desc) + '"/>',
+        ...(iconPath ? ['    <Property Id="ARPPRODUCTICON" Value="AppIcon"/>'] : []),
         website ? '    <Property Id="ARPHELPLINK" Value="' + xmlEscape(website) + '"/>' : '',
+        website ? '    <Property Id="ARPURLINFOABOUT" Value="' + xmlEscape(website) + '"/>' : '',
+        website ? '    <Property Id="ARPURLUPDATEINFO" Value="' + xmlEscape(website) + '"/>' : '',
         '    <Media Id="1" Cabinet="app.cab" EmbedCab="yes"/>',
         '    <Directory Id="TARGETDIR" Name="SourceDir">',
-        '      <Directory Id="' + progFilesDir + '">',
+        '      <Directory Id="' + installRootDir + '">',
         '        <Directory Id="APPDIR" Name="' + xmlEscape(title) + '"/>',
         '      </Directory>',
+        '      <Directory Id="ProgramMenuFolder">',
+        '        <Directory Id="ProgramMenuDir" Name="' + xmlEscape(title) + '"/>',
+        '      </Directory>',
+        '      <Directory Id="DesktopFolder"/>',
         '    </Directory>',
         '    <Feature Id="Main" Level="1">',
         '      <ComponentGroupRef Id="AppFiles"/>',
         '    </Feature>',
+        // WebView2 prerequisite: require runtime for bare installers.
+        ...(isBundle ? [] : [
+            '    <Property Id="WV2_VERSION">',
+            '      <RegistrySearch Id="WV2SearchHklm" Root="HKLM"',
+            '        Key="SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
+            '        Name="pv" Type="raw"/>',
+            '    </Property>',
+            '    <Property Id="WV2_VERSION_USER">',
+            '      <RegistrySearch Id="WV2SearchHkcu" Root="HKCU"',
+            '        Key="Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
+            '        Name="pv" Type="raw"/>',
+            '    </Property>',
+            '    <Condition Message="Microsoft Edge WebView2 Runtime is required. Install MicrosoftEdgeWebview2Setup.exe and run setup again.">Installed OR REMOVE=&quot;ALL&quot; OR WV2_VERSION OR WV2_VERSION_USER</Condition>',
+        ]),
         '  </Product>',
         '</Wix>',
         '',
@@ -1123,6 +1482,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
     console.log('  [msi] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync('wixl', ['-o', outPath, productWxs, filesWxs], { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 wixl failed');
+        else authenticodeSign(opts, outPath);
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1142,7 +1502,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
     const title    = info.title    || 'App';
     const version  = (info.version || '0.0.1').trim();
     const desc     = info.description || title;
-    const pkgId    = toKebab(info.title || 'app');
+    const pkgId    = windowsPackageId(info);
     const author   = info.author   || title;
     // Identity Name: only letters, numbers, dots, hyphens
     const identity = pkgId.replace(/[^A-Za-z0-9.\-]/g, '-');
@@ -1157,28 +1517,50 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
                    : arch === 'arm32'  ? 'arm'
                    : 'neutral';
 
-    // Minimal 1×1 transparent PNG for required logo assets
+    // Minimal 1×1 transparent PNG fallback for required logo assets
     const minPng = Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQ' +
         'AABjkB6QAAAABJRU5ErkJggg==', 'base64'
     );
+    const pngIconPath = findWindowsPngPath(stagingDir, info);
 
     const tmpBase   = path.join(path.dirname(outPath), '_msix-' + pkgId + '-' + arch);
     const assetsDir = path.join(tmpBase, 'Assets');
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(assetsDir, { recursive: true });
 
-    copyDir(stagingDir, tmpBase);
-    fs.writeFileSync(path.join(assetsDir, 'StoreLogo.png'),        minPng);
-    fs.writeFileSync(path.join(assetsDir, 'Square44x44Logo.png'),  minPng);
-    fs.writeFileSync(path.join(assetsDir, 'Square150x150Logo.png'),minPng);
+    // Use cp -r for the staging copy: more reliable than copyDir on Docker volume mounts
+    // (avoids ENOENT due to Windows NTFS↔Linux volume caching inconsistencies).
+    const cpR = spawnSync('cp', ['-rL', '--no-preserve=ownership',
+        path.join(stagingDir, '.'), tmpBase], { stdio: 'inherit' });
+    if (cpR.status !== 0) {
+        // Fallback to Node.js recursive copy
+        copyDir(stagingDir, tmpBase);
+    }
+    const msixLogo = pngIconPath ? fs.readFileSync(pngIconPath) : minPng;
+    fs.writeFileSync(path.join(assetsDir, 'StoreLogo.png'),         msixLogo);
+    fs.writeFileSync(path.join(assetsDir, 'Square44x44Logo.png'),   msixLogo);
+    fs.writeFileSync(path.join(assetsDir, 'Square150x150Logo.png'), msixLogo);
+
+    // For bundles, the caller already provides the correct .exe filename (renweb-*.exe).
+    const msixExe = exeFilename;
+
+    const msixIgnorableNamespaces = isBundle ? 'rescap' : 'rescap win32dependencies';
+    const msixExternalDeps = isBundle ? [] : [
+        '    <win32dependencies:ExternalDependency',
+        '      Name="Microsoft.WebView2"',
+        '      Publisher="CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"',
+        '      MinVersion="1.0.0.0"',
+        '      Optional="true"/>',
+    ];
 
     const manifest = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"',
         '         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"',
         '         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"',
-        '         IgnorableNamespaces="rescap">',
+        '         xmlns:win32dependencies="http://schemas.microsoft.com/appx/manifest/externaldependencies"',
+        '         IgnorableNamespaces="' + msixIgnorableNamespaces + '">',
         '  <Identity Name="' + identity + '"',
         '            Publisher="' + publisher + '"',
         '            Version="' + msixVer + '"',
@@ -1192,12 +1574,13 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
         '  <Dependencies>',
         '    <TargetDeviceFamily Name="Windows.Desktop"',
         '      MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0"/>',
+        ...msixExternalDeps,
         '  </Dependencies>',
         '  <Resources>',
         '    <Resource Language="en-us"/>',
         '  </Resources>',
         '  <Applications>',
-        '    <Application Id="App" Executable="' + exeFilename + '"',
+        '    <Application Id="App" Executable="' + msixExe + '"',
         '                 EntryPoint="Windows.FullTrustApplication">',
         '      <uap:VisualElements',
         '        DisplayName="' + title + '"',
@@ -1220,7 +1603,8 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
     console.log('  [msix] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync(makemsix, ['pack', '-d', tmpBase, '-p', outPath], { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 makemsix failed');
-    else console.log('  \u2139 Note: MSIX is unsigned \u2014 sign with signtool before Store submission, or install with Add-AppxPackage -AllowUnsigned');
+        else if (!authenticodeSign(opts, outPath))
+            console.log('  \u2139 MSIX is unsigned \u2014 sign with signtool before Store submission, or install with Add-AppxPackage -AllowUnsigned');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1240,14 +1624,18 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
     const author  = info.author   || title;
     const website = info.repository || '';
     const exeFile = path.basename(nsisExePath || (pkgId + '-' + version + '-windows-' + arch + '-setup.exe'));
+    const regId   = windowsRegistryId(info);
 
     const tmpBase  = path.join(os.tmpdir(), '_renweb-choco-' + pkgId + '-' + arch);
     const toolsDir = path.join(tmpBase, 'tools');
     fs.mkdirSync(toolsDir, { recursive: true });
 
-    if (nsisExePath && fs.existsSync(nsisExePath)) {
-        fs.copyFileSync(nsisExePath, path.join(toolsDir, exeFile));
+    if (!nsisExePath || !fs.existsSync(nsisExePath)) {
+        console.warn('  ⚠ Chocolatey skipped — NSIS setup exe is missing (build with exe/choco formats together).');
+        try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+        return;
     }
+    fs.copyFileSync(nsisExePath, path.join(toolsDir, exeFile));
 
     const installPs1 = [
         "$ErrorActionPreference = 'Stop'",
@@ -1265,17 +1653,16 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
 
     const uninstallPs1 = [
         "$ErrorActionPreference = 'Stop'",
-        "Uninstall-ChocolateyPackage '" + pkgId + "' 'exe' '/S' " +
-        "\"$(Get-ItemPropertyValue 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + pkgId + "' UninstallString)\"",
+        "$uninst = $null",
+        "$hkcuPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + regId + "'",
+        "$hklmPath = 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + regId + "'",
+        "if (Test-Path $hkcuPath) { $uninst = Get-ItemPropertyValue $hkcuPath UninstallString }",
+        "elseif (Test-Path $hklmPath) { $uninst = Get-ItemPropertyValue $hklmPath UninstallString }",
+        "if (-not $uninst) { throw 'Unable to find uninstall command in registry.' }",
+        "Uninstall-ChocolateyPackage '" + pkgId + "' 'exe' '/S' \"$uninst\"",
         '',
     ].join('\n');
     fs.writeFileSync(path.join(toolsDir, 'chocolateyUninstall.ps1'), uninstallPs1, 'utf8');
-
-    const depBlock = isBundle ? '' : [
-        '    <dependencies>',
-        '      <dependency id="microsoft-edge-webview2-runtime"/>',
-        '    </dependencies>',
-    ].join('\n');
 
     const nuspec = [
         '<?xml version="1.0"?>',
@@ -1288,14 +1675,13 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
         '    <description>' + desc + '</description>',
         website ? '    <projectUrl>' + website + '</projectUrl>' : '',
         '    <requireLicenseAcceptance>false</requireLicenseAcceptance>',
-        depBlock,
         '  </metadata>',
         '</package>',
         '',
     ].filter(l => l !== '').join('\n');
     fs.writeFileSync(path.join(tmpBase, pkgId + '.nuspec'), nuspec, 'utf8');
 
-    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nupkg');
+    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.choco.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
     console.log('  [choco] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
@@ -1304,10 +1690,11 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
 }
 
 /**
- * Build a NuGet .nupkg (no PS scripts; for NuGet-aware toolchains / CI).
- * Non-bundle: declares Microsoft.Web.WebView2 as a dependency.
+ * Build a NuGet .nupkg for Windows distribution.
+ * Includes metadata and, when available, the NSIS setup executable under tools/.
+ * WebView2 is handled by the bundled setup.exe at install time.
  */
-function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
+function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '', isBundle = false) {
     if (opts.exts.size > 0 && !opts.exts.has('nuget')) return;
 
     const title   = info.title    || 'App';
@@ -1319,15 +1706,17 @@ function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
     const license = info.license  || 'BSL-1.0';
 
     const tmpBase = path.join(path.dirname(outDir), '_nuget-' + pkgId + '-' + arch);
+    if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(tmpBase, { recursive: true });
+    const toolsDir = path.join(tmpBase, 'tools');
+    fs.mkdirSync(toolsDir, { recursive: true });
 
-    const depBlock = isBundle ? '' : [
-        '    <dependencies>',
-        '      <group targetFramework="native">',
-        '        <dependency id="Microsoft.Web.WebView2" version="1.0.0"/>',
-        '      </group>',
-        '    </dependencies>',
-    ].join('\n');
+    const setupName = path.basename(nsisExePath || (toKebab(info.title || 'app') + '-' + version + '-windows-' + arch + '-setup.exe'));
+    if (nsisExePath && fs.existsSync(nsisExePath)) {
+        fs.copyFileSync(nsisExePath, path.join(toolsDir, setupName));
+    } else {
+        console.warn('  ⚠ NuGet package is metadata-only because NSIS setup exe was not found.');
+    }
 
     const nuspec = [
         '<?xml version="1.0"?>',
@@ -1342,19 +1731,103 @@ function buildNugetPackage(opts, info, arch, outDir, isBundle = false) {
         license ? '    <license type="expression">' + license + '</license>' : '',
         '    <requireLicenseAcceptance>false</requireLicenseAcceptance>',
         '    <tags>desktop native</tags>',
-        depBlock,
         '  </metadata>',
         '</package>',
         '',
     ].filter(l => l !== '').join('\n');
     fs.writeFileSync(path.join(tmpBase, pkgId + '.nuspec'), nuspec, 'utf8');
 
-    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nupkg');
+    const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nuget.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
     console.log('  [nuget] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 NuGet nupkg failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+}
+
+/**
+ * Generate winget YAML manifests for microsoft/winget-pkgs submission.
+ * This creates metadata only; publishing still requires pushing those manifests.
+ */
+function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = false) {
+    if (opts.exts.size > 0 && !opts.exts.has('winget')) return;
+    if (isBundle) return;
+    if (!nsisExePath || !fs.existsSync(nsisExePath)) {
+        console.warn('  ⚠ winget manifest skipped — NSIS setup exe is missing.');
+        return;
+    }
+
+    const id = windowsPackageId(info);
+    const version = (info.version || '0.0.1').trim();
+    const title = info.title || 'App';
+    const author = info.author || title;
+    const description = info.description || title;
+    const website = info.repository || '';
+    const license = info.license || 'Proprietary';
+
+    const setupName = path.basename(nsisExePath);
+    const autoUrl = inferGitHubReleaseUrl(website, version, setupName);
+    const installerUrl = process.env.RENWEB_WINGET_INSTALLER_URL || autoUrl || `https://example.com/releases/${setupName}`;
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(nsisExePath)).digest('hex').toUpperCase();
+    const date = toWingetDate(new Date());
+    const manifestRoot = path.join(outDir, 'winget', id, version);
+    fs.mkdirSync(manifestRoot, { recursive: true });
+
+    const installerManifest = [
+        '# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json',
+        `PackageIdentifier: ${id}`,
+        `PackageVersion: ${version}`,
+        'InstallerType: exe',
+        'Installers:',
+        `  - Architecture: ${wingetArch(arch)}`,
+        `    InstallerUrl: ${installerUrl}`,
+        `    InstallerSha256: ${sha256}`,
+        '    InstallerSwitches:',
+        '      Silent: /S',
+        '      SilentWithProgress: /S',
+        '    Scope: user',
+        'ManifestType: installer',
+        'ManifestVersion: 1.9.0',
+        '',
+    ].join('\n');
+
+    const localeManifest = [
+        '# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json',
+        `PackageIdentifier: ${id}`,
+        `PackageVersion: ${version}`,
+        'PackageLocale: en-US',
+        `Publisher: ${author}`,
+        `PackageName: ${title}`,
+        `ShortDescription: ${description}`,
+        `License: ${license}`,
+        website ? `PackageUrl: ${website}` : '',
+        `ReleaseDate: ${date}`,
+        'ManifestType: defaultLocale',
+        'ManifestVersion: 1.9.0',
+        '',
+    ].filter(Boolean).join('\n');
+
+    const versionManifest = [
+        '# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json',
+        `PackageIdentifier: ${id}`,
+        `PackageVersion: ${version}`,
+        'DefaultLocale: en-US',
+        'ManifestType: version',
+        'ManifestVersion: 1.9.0',
+        '',
+    ].join('\n');
+
+    const baseName = `${id}`;
+    const installerPath = path.join(manifestRoot, `${baseName}.installer.yaml`);
+    const localePath = path.join(manifestRoot, `${baseName}.locale.en-US.yaml`);
+    const versionPath = path.join(manifestRoot, `${baseName}.yaml`);
+    fs.writeFileSync(installerPath, installerManifest, 'utf8');
+    fs.writeFileSync(localePath, localeManifest, 'utf8');
+    fs.writeFileSync(versionPath, versionManifest, 'utf8');
+    console.log('  [winget] → ' + path.relative(process.cwd(), manifestRoot));
+    if (!process.env.RENWEB_WINGET_INSTALLER_URL && !autoUrl) {
+        console.log('  ℹ Set RENWEB_WINGET_INSTALLER_URL to your public setup.exe URL before submitting to winget.');
+    }
 }
 
 // ─── macOS packaging ──────────────────────────────────────────────────────────
@@ -1394,6 +1867,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath) {
     // The resulting ISO-format image mounts normally on macOS.
     const r = spawnSync(isoCmd, isoArgs, { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 DMG creation failed');
+        else macosCodesign(opts, outPath);
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1592,7 +2066,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
     console.log('  [mas] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('productbuild', ['--component', appBundle, '/Applications', outFile], { stdio: 'inherit' });
     if (r.status === 0)
-        console.log('  \u2139 Sign with productsign --sign <Mac Installer Distribution cert> before App Store upload');
+           macosProductsign(opts, outFile, 'mas');
     else
         console.warn('  \u26a0 productbuild failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
@@ -2179,6 +2653,11 @@ function run(args) {
     if (opts.arches.size > 0) console.log(`  arch filter: ${[...opts.arches].join(', ')}`);
     if (opts.cache)           console.log('  cache     : enabled (.package/)');
 
+        opts.credDir = opts.noCredentials ? null : findCredentialsDir();
+        if (opts.noCredentials)       console.log('  signing   : disabled (--no-credentials)');
+        else if (opts.credDir)        console.log(`  signing   : ${opts.credDir}`);
+        else                          console.log('  signing   : credentials/ not found — outputs will be unsigned');
+
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
     const cacheDir    = path.join(projectRoot, '.package');          // all working files
@@ -2221,6 +2700,7 @@ function run(args) {
     for (const [key, group] of engineGroups) {
         const targetOs   = key.split('-')[0];
         const targetArch = key.slice(targetOs.length + 1);
+        const isWindowsTarget = targetOs === 'windows' || targetOs === 'win';
         // OS filter
         if (opts.oses.size > 0 && !opts.oses.has(targetOs)) {
             console.log(`  skip (os filter): ${key}`); continue;
@@ -2234,19 +2714,33 @@ function run(args) {
         const picks = [];
         if (!opts.bundleOnly && group.bare)
             picks.push({ ...group.bare,      isBundle: false, isBootstrap: false });
-        if (!opts.executableOnly && group.bundle)
+        if (!opts.executableOnly && group.bundle && !isWindowsTarget)
             picks.push({ ...group.bundle,    isBundle: true,  isBootstrap: false });
         if (!opts.executableOnly && group.bootstrap)
             picks.push({ ...group.bootstrap, isBundle: true,  isBootstrap: true  });
+        if (!opts.executableOnly && group.bundle && isWindowsTarget) {
+            console.log(`  ℹ  ${key}: skipping fixed-runtime bundle asset (bootstrap bundles only)`);
+        }
         // Graceful fallback: if the requested type doesn't exist in this release
         if (picks.length === 0) {
-            const fallback = group.bundle || group.bootstrap || group.bare;
+            const fallback = (!opts.executableOnly && group.bootstrap)
+                ? group.bootstrap
+                : (!opts.bundleOnly && group.bare)
+                    ? group.bare
+                    : (!isWindowsTarget ? group.bundle : null);
             if (fallback) {
-                const fb = { ...fallback, isBundle: !!group.bundle || !!group.bootstrap,
-                             isBootstrap: !!group.bootstrap && !group.bundle };
+                const fb = {
+                    ...fallback,
+                    isBundle: !!fallback.bootstrap || fallback === group.bundle || fallback === group.bootstrap,
+                    isBootstrap: fallback === group.bootstrap,
+                };
                 picks.push(fb);
-                const kind = group.bundle ? 'bundle' : group.bootstrap ? 'bundle-bootstrap' : 'bare';
+                const kind = fallback === group.bootstrap ? 'bundle-bootstrap'
+                    : fallback === group.bundle ? 'bundle'
+                    : 'bare';
                 console.log(`  ℹ  ${key}: requested type unavailable, using ${kind}`);
+            } else if (isWindowsTarget && group.bundle && !group.bootstrap && !opts.executableOnly) {
+                console.log(`  ℹ  ${key}: only fixed-runtime bundle available; skipped by policy`);
             }
         }
 

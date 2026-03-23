@@ -125,7 +125,17 @@ namespace RenWeb {
          * @throws std::runtime_error if the executable path cannot be determined.
          */
         inline std::filesystem::path executable() {
+          #if defined(_WIN32)
+            char* env_path = nullptr;
+            size_t len = 0;
+            if (_dupenv_s(&env_path, &len, "RENWEB_EXECUTABLE_PATH") == 0 && env_path) {
+                std::filesystem::path path(env_path);
+                std::free(env_path);
+                return path;
+            }
+          #else
             const char* env_path = std::getenv("RENWEB_EXECUTABLE_PATH");
+          #endif
             if (env_path && *env_path)
                 return std::filesystem::path(env_path);
             const int length = wai_getExecutablePath(nullptr, 0, nullptr);

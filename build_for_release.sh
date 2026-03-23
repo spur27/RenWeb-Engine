@@ -196,13 +196,9 @@ generate_bundle_exec() {
     local version=$2
     local os_name=$3
     local output_file=$4
-    local bundle_type=${5:-bootstrap}  # bootstrap | full
 
     if [ "$os_name" = "windows" ]; then
-        if [ "$bundle_type" = "bootstrap" ]; then
-            # Bootstrap bat: check registry for WebView2, run installer if missing,
-            # then delete the installer once installation is confirmed via registry.
-            cat > "$output_file" <<'EOF'
+        cat > "$output_file" <<'EOF'
 @echo off
 setlocal enabledelayedexpansion
 
@@ -227,26 +223,8 @@ if "!WV2_INSTALLED!"=="0" (
 :: If not installed, run the bootstrapper
 if "!WV2_INSTALLED!"=="0" (
     echo WebView2 runtime not found. Installing...
-    set "INSTALLER_PATH="
-    for %%f in ("!SCRIPT_DIR!lib\MicrosoftEdgeWebView2RuntimeInstaller*.exe") do (
-        set "INSTALLER_PATH=%%f"
+    for %%f in ("!SCRIPT_DIR!lib\MicrosoftEdgeWebview2Setup*.exe") do (
         "%%f" /silent /install
-    )
-    :: Re-check registry to confirm the runtime is now present
-    set "WV2_NOW_INSTALLED=0"
-    for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-        if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
-    )
-    if "!WV2_NOW_INSTALLED!"=="0" (
-        for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-            if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
-        )
-    )
-    if "!WV2_NOW_INSTALLED!"=="1" (
-        echo Installation verified. Removing installer to free space...
-        if defined INSTALLER_PATH del /f /q "!INSTALLER_PATH!" 2>nul
-    ) else (
-        echo Warning: WebView2 installation could not be verified. Installer kept.
     )
     echo Installation complete.
 )
@@ -255,23 +233,6 @@ if "!WV2_INSTALLED!"=="0" (
 
 endlocal
 EOF
-        else
-            # Standard bat: just add lib to PATH and launch
-            cat > "$output_file" <<'EOF'
-@echo off
-setlocal
-
-set "SCRIPT_DIR=%~dp0"
-
-if exist "%SCRIPT_DIR%lib" (
-    set "PATH=%SCRIPT_DIR%lib;%PATH%"
-)
-
-"%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
-
-endlocal
-EOF
-        fi
     else
         if [ -f "./script_templates/bundle_exec.template.sh" ]; then
             cp "./script_templates/bundle_exec.template.sh" "$output_file"
@@ -342,23 +303,6 @@ copy_webview2_loader() {
 
     print_warning "  ⚠ WebView2Loader.dll not found to bundle"
     return 1
-}
-
-# Copy pre-extracted WebView2 fixed runtime from external/webview2_runtimes into lib-<arch>/WebView2Runtime
-copy_webview2_fixed_runtime() {
-    local arch=$1
-    local lib_dir=$2
-
-    local local_root="./external/webview2_runtimes/lib-${arch}"
-    if [ ! -d "$local_root" ]; then
-        print_warning "  ⚠ No local WebView2 runtime found at $local_root"
-        return 1
-    fi
-
-    mkdir -p "$lib_dir/WebView2Runtime"
-    cp -r "$local_root/." "$lib_dir/WebView2Runtime/"
-    print_info "  ✓ Copied WebView2Runtime for $arch from external/webview2_runtimes"
-    return 0
 }
 
 # Copy evergreen WebView2 bootstrapper installer into the bundle lib directory.
@@ -697,9 +641,7 @@ main() {
     
     # ==========================================================================
     # Step 11: Create bundle archives for each executable
-    # Windows: generates two bundles per arch:
-    #   bundle-<v>-windows-<arch>           full fixed WebView2 runtime (~280 MB)
-    #   bundle-bootstrap-<v>-windows-<arch> bootstrapper installer (~3 MB)
+    # Windows: generates bootstrap bundles only.
     # Other platforms: one bundle per arch.
     # ==========================================================================
     print_step "11. Creating bundle archives for each executable"
@@ -740,27 +682,14 @@ main() {
 
             if [ "$os" = "windows" ]; then
 
-                # ------------------------------------------------------------------
-                # bundle-bootstrap: bootstrapper installer
-                # ------------------------------------------------------------------
+                # Windows: bootstrap bundle only
                 print_info "  [bundle-bootstrap]"
                 mkdir -p ./build/tmp
                 cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "bootstrap"
+                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat"
                 copy_webview2_loader "$arch" "./build/tmp/lib"
                 copy_webview2_bootstrapper "$arch" "./build/tmp/lib"
                 _make_bundle "bundle-bootstrap-${VERSION}-${os}-${arch}"
-                rm -rf ./build/tmp
-
-                # ------------------------------------------------------------------
-                # bundle: full fixed WebView2 runtime
-                # ------------------------------------------------------------------
-                print_info "  [bundle]"
-                mkdir -p ./build/tmp
-                cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "full"
-                copy_webview2_fixed_runtime "$arch" "./build/tmp/lib"
-                _make_bundle "bundle-${VERSION}-${os}-${arch}"
                 rm -rf ./build/tmp
 
             else

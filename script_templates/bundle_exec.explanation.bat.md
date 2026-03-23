@@ -7,13 +7,14 @@ The template is processed at bundle time by `make BUNDLE=true` on Windows via
 | Token | Replaced with | Example |
 |---|---|---|
 | `@EXE_NAME@` | application name from `info.json`, lowercased/hyphenated | `renweb` |
-| `@EXE_VERSION@` | version string from `info.json` | `0.0.7` |
+| `@EXE_VERSION@` | version string from `info.json` | `x.y.z` |
 | `@OS_NAME@` | always `windows` on Windows builds | `windows` |
 
 On Windows the bundle does not deal with musl/glibc isolation — the runtime is
 WebView2 (Microsoft Edge's Blink engine), which is a system component.  The
-launcher's only jobs are to select the correct architecture executable, put
-`lib-<arch>/` on `PATH`, and point WebView2 at its bundled runtime directory.
+launcher's jobs are to select the correct architecture executable, put
+`lib-<arch>/` on `PATH`, and bootstrap-install WebView2 when the runtime is
+missing.
 
 ---
 
@@ -197,35 +198,59 @@ forward compatibility.
 ## LIB_DIR
 
 ```bat
-set "LIB_DIR=%SCRIPT_DIR%lib"
-if not exist "!LIB_DIR!" (echo Error: Library directory not found: lib & exit /b 1)
+set "EXE_ARCH=!FNAME:@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-=!"
+set "LIB_DIR="
+if exist "%SCRIPT_DIR%lib-!EXE_ARCH!" (set "LIB_DIR=%SCRIPT_DIR%lib-!EXE_ARCH!")
+if "!LIB_DIR!"=="" if exist "%SCRIPT_DIR%lib" (set "LIB_DIR=%SCRIPT_DIR%lib")
+if "!LIB_DIR!"=="" (echo Warning: No lib-!EXE_ARCH! or lib directory found.)
 ```
 
 Points at the `lib\` subdirectory of the bundle.  On Windows the lib directory
-holds `WebView2Loader.dll` and optionally a `WebView2Runtime\` subdirectory.
+holds `WebView2Loader.dll` and a WebView2 Evergreen bootstrapper
+(`MicrosoftEdgeWebview2Setup.exe`) for first-run install when needed.
 Unlike the Linux launcher, Windows does not use a three-tier resolution because
 Windows bundles are always uniform (no cross-arch `.dll` sets) and `lib\` is
-the single canonical location.  A missing lib directory is a hard error.
+the single canonical location.  If no matching lib directory exists, the
+launcher warns and falls back to system paths.
 
 ---
 
-## WebView2 runtime path
+## WebView2 on-demand installation
 
 ```bat
-if exist "!LIB_DIR!\WebView2Runtime" set "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=!LIB_DIR!\WebView2Runtime"
+set "WV2_INSTALLED=0"
+reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-...}" >nul 2>&1 && set "WV2_INSTALLED=1"
+if "!WV2_INSTALLED!"=="0" (
+    reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-...}" >nul 2>&1 && set "WV2_INSTALLED=1"
+)
+if "!WV2_INSTALLED!"=="0" (
+    set "BOOTSTRAP_FOUND=0"
+    for %%f in ("!LIB_DIR!\MicrosoftEdgeWebview2Setup*.exe") do (
+        set "BOOTSTRAP_FOUND=1"
+        "%%f" /silent /install
+    )
+    if "!BOOTSTRAP_FOUND!"=="0" (
+        echo Warning: WebView2 runtime not detected and no bootstrapper found.
+    )
+)
 ```
 
-`WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` is an official WebView2 environment
-variable.  When set, the WebView2 loader uses the provided directory as the
-browser executable folder instead of the system-installed Edge.  This enables
-a fully self-contained deployment: if `lib\WebView2Runtime\` was populated by
-`make BUNDLE=true` (which downloads and extracts the WebView2 standalone
-installer), the application runs without requiring Edge or any system WebView2
-installation.
+This block handles first-run dependency bootstrap. It runs when WebView2 is not
+already installed for either machine-wide or per-user scope.
 
-If `WebView2Runtime\` does not exist, the variable is not set and WebView2 falls
-back to the system Edge installation.  This allows the batch file to work
-correctly in both scenarios (bundled runtime and system runtime).
+**Registry check** — the GUID `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}` is the
+well-known product GUID for the Evergreen WebView2 Runtime.  The check inspects
+both the machine-wide key (`HKLM\...\WOW6432Node`) and the per-user key
+(`HKCU`).  If either is present, WebView2 is already installed and no installer
+is run.
+
+**Bootstrapper** (`MicrosoftEdgeWebview2Setup.exe`) — the evergreen bootstrapper
+is a small downloader that installs or updates WebView2 from Microsoft's CDN.
+It is run silently with `/silent /install` and is **kept** after execution so it
+can be re-run for updates.
+
+If no bootstrapper exists in `lib\`, the launcher prints a warning and proceeds.
+In that case WebView2 must already be present on the target machine.
 
 ---
 

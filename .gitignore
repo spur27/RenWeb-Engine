@@ -31,3 +31,13 @@ cli/pkg
 cli/.package
 cli/release
 cli/package
+
+credentials/*.pfx
+credentials/*.p12
+credentials/*.asc
+credentials/*.key
+credentials/*.pass
+credentials/*.token
+credentials/*.rsa
+credentials/*.rsa.pub
+credentials/*.json

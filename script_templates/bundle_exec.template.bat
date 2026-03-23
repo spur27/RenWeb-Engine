@@ -52,8 +52,34 @@ if !COUNT! gtr 1 (
     for %%F in ("%SCRIPT_DIR%!PATTERN!") do set "EXE=%%F"
 )
 for %%F in ("!EXE!") do set "FNAME=%%~nF"
-set "LIB_DIR=%SCRIPT_DIR%lib"
-if not exist "!LIB_DIR!" (echo Error: Library directory not found: lib & exit /b 1)
-if exist "!LIB_DIR!\WebView2Runtime" set "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=!LIB_DIR!\WebView2Runtime"
-set "PATH=!LIB_DIR!;%PATH%"
+set "EXE_ARCH=!FNAME:@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-=!"
+set "LIB_DIR="
+if exist "%SCRIPT_DIR%lib-!EXE_ARCH!" (set "LIB_DIR=%SCRIPT_DIR%lib-!EXE_ARCH!")
+if "!LIB_DIR!"=="" if exist "%SCRIPT_DIR%lib" (set "LIB_DIR=%SCRIPT_DIR%lib")
+if "!LIB_DIR!"=="" (
+    echo Warning: No lib-!EXE_ARCH! or lib directory found. Using system library paths only.
+) else (
+    set "WV2_INSTALLED=0"
+    for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+        if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
+    )
+    if "!WV2_INSTALLED!"=="0" (
+        for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
+            if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
+        )
+    )
+    if "!WV2_INSTALLED!"=="0" (
+        set "BOOTSTRAP_FOUND=0"
+        for %%f in ("!LIB_DIR!\MicrosoftEdgeWebview2Setup*.exe") do (
+            set "BOOTSTRAP_FOUND=1"
+            echo WebView2 runtime not found. Installing via bootstrapper...
+            "%%f" /silent /install
+            echo Installation complete. Bootstrapper retained for future updates.
+        )
+        if "!BOOTSTRAP_FOUND!"=="0" (
+            echo Warning: WebView2 runtime not detected and no bootstrapper found in !LIB_DIR!.
+        )
+    )
+    set "PATH=!LIB_DIR!;%PATH%"
+)
 "!EXE!" %*
