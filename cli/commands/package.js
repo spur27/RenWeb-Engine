@@ -5,7 +5,7 @@ const fs     = require('fs');
 const path   = require('path');
 const os     = require('os');
 const crypto = require('crypto');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -153,6 +153,10 @@ const RCEDIT_EXE = '/opt/rcedit-x64.exe';
 
 function toKebab(str) {
     return str.trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+function xmlEscapeSimple(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function toSnake(str) {
@@ -622,26 +626,91 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     }
 
     if (targetOs === 'macos' || targetOs === 'darwin') {
-        // DMG disk image
+        // DMG disk image — proper .app bundle built inside via buildMacAppBundle
         const dmgOut = path.join(outDir, `${stem}.dmg`);
-        buildMacDmg(opts, info, stagingDir, targetArch, dmgOut);
-        // macOS .pkg installer via fpm osxpkg — requires pkgbuild (macOS-only binary)
+        buildMacDmg(opts, info, stagingDir, targetArch, dmgOut, engineAsset.isBundle, engineAsset.filename);
+        // macOS .pkg installer via pkgbuild (macOS-only binary, always at /usr/bin/pkgbuild)
         if (opts.exts.size === 0 || opts.exts.has('osxpkg') || opts.exts.has('pkg')) {
-            const pkgbuildOk = spawnSync('which', ['pkgbuild'], { encoding: 'utf8' }).status === 0;
-            if (!pkgbuildOk) {
+            if (!findBin('pkgbuild')) {
                 console.log('  [osxpkg] skipped — pkgbuild not available (macOS only)');
             } else {
-                const pkgOut = path.join(outDir, `${stem}.pkg`);
-                const r = spawnSync('fpm', [
-                    '-s', 'dir', '-t', 'osxpkg',
-                    '-n', toKebab(info.title || 'app'),
-                    '-v', (info.version || '0.0.1').trim(),
-                    '--description', info.description || info.title || 'App',
-                    '-p', pkgOut, '-C', stagingDir, '.',
+                const exeFor   = engineAsset.isBundle ? 'bundle_exec.sh' : engineAsset.filename;
+                const pkgOut   = path.join(outDir, `${stem}.pkg`);
+                const pkgTmp   = path.join(tmpDir, `${stem}-osxpkg`);
+                if (fs.existsSync(pkgTmp)) fs.rmSync(pkgTmp, { recursive: true, force: true });
+                fs.mkdirSync(pkgTmp, { recursive: true });
+                const appBundle = buildMacAppBundle(stagingDir, exeFor, info, pkgTmp);
+                const bundleId  = info.app_id || info.bundle_id
+                    || ('com.' + toKebab(info.author || 'app').replace(/-/g, '.') + '.' + toKebab(info.title || 'app'));
+                const pkgVersion = (info.version || '0.0.1').trim();
+
+                // Step 1: build flat component pkg
+                const componentPkg = pkgOut.replace(/\.pkg$/, '-component.pkg');
+                const pkgR = spawnSync('pkgbuild', [
+                    '--component',        appBundle,
+                    '--install-location', '/Applications',
+                    '--identifier',       bundleId,
+                    '--version',          pkgVersion,
+                    componentPkg,
                 ], { stdio: 'inherit' });
-                if (r.status === 0) console.log(`  [osxpkg] → ${path.relative(process.cwd(), pkgOut)}`);
-                else { console.warn('  ⚠ fpm osxpkg failed'); }
-                if (r.status === 0) macosProductsign(opts, pkgOut, 'osxpkg');
+
+                if (pkgR.status === 0) {
+                    // Step 2: wrap with productbuild to add license screen
+                    const licSrc = path.join(stagingDir, 'licenses', 'LICENSE');
+                    const bgPkgSrc = ['bk_pkg.png', 'bk-pkg.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
+                    const distXmlPath = path.join(pkgTmp, 'distribution.xml');
+                    const distXml = [
+                        '<?xml version="1.0" encoding="utf-8"?>',
+                        '<installer-gui-script minSpecVersion="1">',
+                        `  <title>${xmlEscapeSimple(info.title || 'App')}</title>`,
+                        fs.existsSync(licSrc)
+                            ? `  <license file="LICENSE"/>` : '',
+                        fs.existsSync(bgPkgSrc)
+                            ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
+                        '  <options customize="never" require-scripts="false"/>',
+                        '  <choices-outline>',
+                        '    <line choice="default"/>',
+                        '  </choices-outline>',
+                        '  <choice id="default" visible="false">',
+                        `    <pkg-ref id="${xmlEscapeSimple(bundleId)}"/>`,
+                        '  </choice>',
+                        `  <pkg-ref id="${xmlEscapeSimple(bundleId)}" version="${xmlEscapeSimple(pkgVersion)}" onConclusion="none">${xmlEscapeSimple(path.basename(componentPkg))}</pkg-ref>`,
+                        '</installer-gui-script>',
+                        '',
+                    ].filter(Boolean).join('\n');
+                    fs.writeFileSync(distXmlPath, distXml, 'utf8');
+
+                    const prodbuildArgs = [
+                        '--distribution', distXmlPath,
+                        '--package-path', path.dirname(componentPkg),
+                    ];
+                    const hasPkgResources = fs.existsSync(licSrc) || fs.existsSync(bgPkgSrc);
+                    if (hasPkgResources) {
+                        const pkgResDir = path.join(pkgTmp, 'pkg-resources');
+                        const pkgLprojDir = path.join(pkgResDir, 'en.lproj');
+                        fs.mkdirSync(pkgLprojDir, { recursive: true });
+                        if (fs.existsSync(licSrc)) fs.copyFileSync(licSrc, path.join(pkgLprojDir, 'LICENSE'));
+                        if (fs.existsSync(bgPkgSrc)) {
+                            // Copy to resources root so <background file="bk_pkg.png"/> resolves correctly
+                            fs.copyFileSync(bgPkgSrc, path.join(pkgResDir, 'bk_pkg.png'));
+                        }
+                        prodbuildArgs.push('--resources', pkgResDir);
+                    }
+                    prodbuildArgs.push(pkgOut);
+
+                    const prodR = spawnSync('productbuild', prodbuildArgs, { stdio: 'inherit' });
+                    try { fs.unlinkSync(componentPkg); } catch (_) {}
+                    try { fs.rmSync(pkgTmp, { recursive: true, force: true }); } catch (_) {}
+                    if (prodR.status === 0) {
+                        console.log(`  [osxpkg] \u2192 ${path.relative(process.cwd(), pkgOut)}`);
+                        macosProductsign(opts, pkgOut, 'osxpkg');
+                    } else {
+                        console.warn('  \u26a0 productbuild (distribution) failed');
+                    }
+                } else {
+                    try { fs.rmSync(pkgTmp, { recursive: true, force: true }); } catch (_) {}
+                    console.warn('  \u26a0 pkgbuild failed');
+                }
             }
         }
         // Homebrew formula — collect bottle info; formula written once after all archs
@@ -1201,6 +1270,18 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
 
     const iconPath = findWindowsIconPath(stagingDir, info);
 
+    const nsisBgPng = ['bk_setup-exe.png', 'bk-setup-exe.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
+    let nsisBgBmp = null;
+    if (nsisBgPng) {
+        const tmpBmp = path.join(os.tmpdir(), `_renweb-nsis-bg-${pkgId}-${arch}.bmp`);
+        const sipsR = spawnSync('sips', ['-s', 'format', 'bmp', nsisBgPng, '--out', tmpBmp], { stdio: 'pipe' });
+        if (sipsR.status === 0) nsisBgBmp = tmpBmp;
+        else {
+            const conv = spawnSync('convert', [nsisBgPng, tmpBmp], { stdio: 'pipe' });
+            if (conv.status === 0) nsisBgBmp = tmpBmp;
+        }
+    }
+
     const lines = [];
     const L = (s = '') => lines.push(s);
 
@@ -1231,7 +1312,16 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     L('!include "MUI2.nsh"');
     L('!include "FileFunc.nsh"');
     L('!include "LogicLib.nsh"');
+    if (nsisBgBmp) {
+        L('!define MUI_WELCOMEFINISHPAGE_BITMAP "' + nsisBgBmp + '"');
+        L('!define MUI_UNWELCOMEFINISHPAGE_BITMAP "' + nsisBgBmp + '"');
+    }
+    const nsisLicensePath = path.join(stagingDir, 'licenses', 'LICENSE');
     L('!insertmacro MUI_PAGE_WELCOME');
+    if (fs.existsSync(nsisLicensePath)) {
+        L('!define MUI_LICENSEPAGE_CHECKBOX');
+        L('!insertmacro MUI_PAGE_LICENSE "' + nsisLicensePath + '"');
+    }
     L('!insertmacro MUI_PAGE_DIRECTORY');
     L('!insertmacro MUI_PAGE_INSTFILES');
     L('!insertmacro MUI_PAGE_FINISH');
@@ -1304,6 +1394,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     if (r.status !== 0) console.warn('  \u26a0 makensis failed');
         else authenticodeSign(opts, outPath);
     try { fs.unlinkSync(nsiPath); } catch (_) {}
+    if (nsisBgBmp) { try { fs.unlinkSync(nsisBgBmp); } catch (_) {} }
 }
 
 /**
@@ -1446,6 +1537,13 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
         website ? '    <Property Id="ARPURLINFOABOUT" Value="' + xmlEscape(website) + '"/>' : '',
         website ? '    <Property Id="ARPURLUPDATEINFO" Value="' + xmlEscape(website) + '"/>' : '',
         '    <Media Id="1" Cabinet="app.cab" EmbedCab="yes"/>',
+        // WiX/wixl does not support a native license-agreement dialog via the
+        // minimal WiX3 UI (WixUI_Minimal uses UIRef which wixl ignores). The
+        // LicenseAgreement text is surfaced via the ARPREADME property so the
+        // user can open it from Programs & Features, and the license file is
+        // installed alongside the app so it is always present on-disk.
+        ...(fs.existsSync(path.join(stagingDir, 'licenses', 'LICENSE'))
+            ? ['    <Property Id="ARPREADME" Value="[APPDIR]licenses\\LICENSE"/>'] : []),
         '    <Directory Id="TARGETDIR" Name="SourceDir">',
         '      <Directory Id="' + installRootDir + '">',
         '        <Directory Id="APPDIR" Name="' + xmlEscape(title) + '"/>',
@@ -1833,41 +1931,295 @@ function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = f
 // ─── macOS packaging ──────────────────────────────────────────────────────────
 
 /**
- * Build a macOS DMG-style distributable using xorrisofs/genisoimage with
- * Apple HFS extensions.  This produces an ISO-9660 image mountable by macOS
- * Finder without requiring a real HFS+ filesystem or macOS toolchain.
+ * Build a proper macOS .app bundle inside destDir.
+ *
+ * Layout (required by RenWeb — Locate::currentDirectory() = executable().parent_path()):
+ *   <Title>.app/
+ *     Contents/
+ *       MacOS/         ← ALL staging files go here as siblings of the binary
+ *         <exe>        ← primary executable (CFBundleExecutable)
+ *         content/     ← web content
+ *         config.json
+ *         info.json
+ *         plugins/
+ *         ...
+ *       Info.plist     ← generated from info.json (including permissions)
+ *
+ * @param {string} stagingDir  Populated staging tree.
+ * @param {string} exeFilename Binary filename inside stagingDir (CFBundleExecutable).
+ *                             Pass 'bundle_exec.sh' for bundle builds.
+ * @param {object} info        Parsed info.json.
+ * @param {string} destDir     Directory in which <Title>.app is created.
+ * @returns {string}           Absolute path to the created .app bundle.
  */
-function buildMacDmg(opts, info, stagingDir, arch, outPath) {
+function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
+    const title        = info.title    || 'App';
+    // Launcher script name: strip non-identifier chars (macOS convention, no spaces)
+    const launcherName = title.replace(/[^A-Za-z0-9_-]/g, '') || 'App';
+    const version      = (info.version || '0.0.1').trim();
+    // Prefer app_id (RenWeb convention) then bundle_id, then derive from author+title
+    const bundleId     = info.app_id || info.bundle_id
+        || ('com.' + toKebab(info.author || 'app').replace(/-/g, '.') + '.' + toKebab(title));
+    const copyright    = info.copyright
+        || ('Copyright \u00a9 ' + new Date().getFullYear() + ' ' + (info.author || title));
+
+    const appBundle    = path.join(destDir, title + '.app');
+    const contentsDir  = path.join(appBundle, 'Contents');
+    const macosDir     = path.join(contentsDir, 'MacOS');
+    const resourcesDir = path.join(contentsDir, 'Resources');
+    // All app data lives in Resources/data/ so the mutable working copy can be
+    // bootstrapped to ~/Library/Application Support/<title>/ on first launch.
+    const dataDir      = path.join(resourcesDir, 'data');
+
+    if (fs.existsSync(appBundle)) fs.rmSync(appBundle, { recursive: true, force: true });
+    fs.mkdirSync(macosDir,  { recursive: true });
+    fs.mkdirSync(dataDir,   { recursive: true });
+
+    // Copy ALL stage files into Resources/data/ (real binary + content + config + plugins …)
+    copyDir(stagingDir, dataDir);
+
+    // Ensure the real binary (and bundle launcher if applicable) are +x
+    const realExe = path.join(dataDir, exeFilename);
+    if (fs.existsSync(realExe)) {
+        try { fs.chmodSync(realExe, 0o755); } catch (_) {}
+    }
+
+    // Use a pre-built app.icns provided by the user in resource/ (same convention
+    // as app.rc / app.manifest / app.ico on Windows).  Icon generation is the
+    // developer's responsibility; if no file is present the bundle ships without
+    // a CFBundleIconFile entry and macOS shows the default placeholder.
+    let iconFile = null;
+    const icnsSrc = path.join(dataDir, 'resource', 'app.icns');
+    if (fs.existsSync(icnsSrc)) {
+        try {
+            fs.copyFileSync(icnsSrc, path.join(resourcesDir, 'AppIcon.icns'));
+            iconFile = 'AppIcon';
+        } catch (_) {}
+    }
+
+    // Launcher script placed in Contents/MacOS/ (what macOS actually executes).
+    // On first run it bootstraps ~/Library/Application Support/<title>/ from the
+    // frozen defaults in Resources/data/, then exec-replaces itself with the real
+    // binary running from that fully-writable directory — matching the behaviour of
+    // Linux's /opt/ install and Windows's %APPDATA%/Local install.
+    const launcher = [
+        '#!/bin/sh',
+        `APP_NAME="${title}"`,
+        `EXE_NAME="${exeFilename}"`,
+        'DATA_DIR="$HOME/Library/Application Support/$APP_NAME"',
+        'BUNDLE_DATA="$(cd "$(dirname "$0")/../Resources/data" && pwd)"',
+        '# Bootstrap mutable data directory on first launch',
+        'if [ ! -f "$DATA_DIR/$EXE_NAME" ]; then',
+        '    mkdir -p "$DATA_DIR"',
+        '    cp -a "$BUNDLE_DATA/." "$DATA_DIR/"',
+        '    chmod +x "$DATA_DIR/$EXE_NAME" 2>/dev/null || true',
+        'fi',
+        'exec "$DATA_DIR/$EXE_NAME" "$@"',
+    ].join('\n') + '\n';
+
+    const launcherPath = path.join(macosDir, launcherName);
+    fs.writeFileSync(launcherPath, launcher, 'utf8');
+    try { fs.chmodSync(launcherPath, 0o755); } catch (_) {}
+
+    // Build permission-aware Info.plist from info.json
+    const perms = (info.permissions && typeof info.permissions === 'object')
+        ? info.permissions : {};
+    const nsKeys = [];
+    if (perms.geolocation)   nsKeys.push(
+        '  <key>NSLocationWhenInUseUsageDescription</key>',
+        '  <string>This app uses your location.</string>');
+    if (perms.media_devices) nsKeys.push(
+        '  <key>NSCameraUsageDescription</key>',
+        '  <string>This app uses the camera.</string>',
+        '  <key>NSMicrophoneUsageDescription</key>',
+        '  <string>This app uses the microphone.</string>');
+    if (perms.notifications) nsKeys.push(
+        '  <key>NSUserNotificationUsageDescription</key>',
+        '  <string>This app sends notifications.</string>');
+    if (iconFile) nsKeys.push(
+        '  <key>CFBundleIconFile</key>',
+        '  <string>' + iconFile + '</string>');
+
+    const plist = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
+        '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0"><dict>',
+        '  <key>CFBundleIdentifier</key>        <string>' + bundleId     + '</string>',
+        '  <key>CFBundleName</key>              <string>' + title        + '</string>',
+        '  <key>CFBundleDisplayName</key>       <string>' + title        + '</string>',
+        '  <key>CFBundleVersion</key>           <string>' + version      + '</string>',
+        '  <key>CFBundleShortVersionString</key><string>' + version      + '</string>',
+        '  <key>CFBundleExecutable</key>        <string>' + launcherName + '</string>',
+        '  <key>CFBundlePackageType</key>       <string>APPL</string>',
+        '  <key>NSPrincipalClass</key>          <string>NSApplication</string>',
+        '  <key>NSHighResolutionCapable</key>   <true/>',
+        '  <key>LSMinimumSystemVersion</key>    <string>10.15</string>',
+        '  <key>NSHumanReadableCopyright</key>  <string>' + copyright    + '</string>',
+        ...nsKeys,
+        '</dict></plist>',
+    ].join('\n');
+    fs.writeFileSync(path.join(contentsDir, 'Info.plist'), plist, 'utf8');
+
+    return appBundle;
+}
+
+/**
+ * Build a macOS DMG distributable.
+ *
+ * On macOS: uses hdiutil (native, produces a proper HFS+ UDZO image).
+ * On Linux/Docker: uses xorrisofs or genisoimage (ISO-9660 image, mounts on
+ *   macOS but is not a true HFS+ DMG — suitable for CI artifact storage).
+ *
+ * In both cases the DMG contains a proper .app bundle built via buildMacAppBundle().
+ */
+function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('dmg')) return;
 
-    // Prefer xorrisofs (newer), fall back to genisoimage
+    const title  = info.title || 'App';
+    const exeFor = isBundle ? 'bundle_exec.sh' : exeFilename;
+
+    // tmpBase holds only <Title>.app/ so hdiutil/-srcfolder sees a clean folder
+    const tmpBase = path.join(path.dirname(outPath), `_dmg-${arch}`);
+    if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
+    fs.mkdirSync(tmpBase, { recursive: true });
+    buildMacAppBundle(stagingDir, exeFor, info, tmpBase);
+
+    console.log(`  [dmg] \u2192 ${path.relative(process.cwd(), outPath)}`);
+
+    // Prefer native hdiutil on macOS — produces a proper HFS+ UDZO DMG.
+    const volname       = title.slice(0, 27);
+    const appName       = title + '.app';
+    const hasCreateDmg  = spawnSync('which', ['create-dmg'], { encoding: 'utf8' }).status === 0;
+    const hasHdiutil    = spawnSync('which', ['hdiutil'],    { encoding: 'utf8' }).status === 0;
+
+    // ── Primary: create-dmg ────────────────────────────────────────────────
+    // Produces the classic drag-to-install look: small window, app icon on the
+    // left, an arrow, and the Applications shortcut on the right.
+    // Install via: brew install create-dmg
+    if (hasCreateDmg) {
+        try { fs.unlinkSync(outPath); } catch (_) {}
+
+        const cdArgs = [
+            '--volname',      volname,
+            '--window-pos',   '200', '140',
+            '--window-size',  '600', '400',
+            '--icon-size',    '128',
+            '--icon',         appName, '175', '185',
+            '--hide-extension', appName,
+            '--app-drop-link', '425', '185',   // draws the arrow + Applications shortcut
+        ];
+
+        // Optional developer-supplied background (1200×800 for Retina @2x, 600×400 for non-Retina).
+        // Place resource/bk_dmg.png (or bk-dmg.png) alongside app.icns to use it.
+        const bgSrc = ['bk_dmg.png', 'bk-dmg.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p));
+        if (bgSrc) cdArgs.push('--background', bgSrc);
+
+        cdArgs.push(outPath, tmpBase);
+        const r = spawnSync('create-dmg', cdArgs, { stdio: 'inherit' });
+        // create-dmg exits 2 when the DMG was created but ad-hoc signing was skipped;
+        // treat that as success when the output file actually exists.
+        if ((r.status === 0 || r.status === 2) && fs.existsSync(outPath)) {
+            macosCodesign(opts, outPath);
+            try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+            return;
+        }
+        console.warn('  \u26a0 create-dmg failed — falling back to hdiutil');
+    } else {
+        console.warn('  \u26a0 create-dmg not found; install via `brew install create-dmg` for the classic drag-to-install DMG look. Falling back to plain hdiutil.');
+    }
+
+    // ── Fallback: hdiutil 3-step UDRW → AppleScript → UDZO ────────────────
+    if (hasHdiutil) {
+        // create-dmg adds its own Applications symlink; for the plain hdiutil
+        // path we add it ourselves so Finder shows the drag-to-install target.
+        try { fs.symlinkSync('/Applications', path.join(tmpBase, 'Applications')); } catch (_) {}
+
+        try { fs.unlinkSync(outPath); } catch (_) {}
+
+        const rwPath = outPath.replace(/\.dmg$/, '-rw.dmg');
+        try { fs.unlinkSync(rwPath); } catch (_) {}
+        const rw = spawnSync('hdiutil', [
+            'create', '-volname', volname, '-srcfolder', tmpBase,
+            '-ov', '-format', 'UDRW', rwPath,
+        ], { stdio: 'pipe' });
+        if (rw.status !== 0) {
+            console.warn('  \u26a0 DMG creation failed (hdiutil UDRW)');
+            try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+            try { fs.unlinkSync(rwPath); } catch (_) {}
+            return;
+        }
+
+        const attachResult = spawnSync('hdiutil', [
+            'attach', '-readwrite', '-noverify', '-noautoopen', rwPath,
+        ], { encoding: 'utf8', stdio: 'pipe' });
+
+        let mountPoint = null;
+        if (attachResult.status === 0) {
+            for (const line of (attachResult.stdout || '').split('\n')) {
+                const m = line.match(/\t(\/Volumes\/.+)$/);
+                if (m) { mountPoint = m[1].trim(); break; }
+            }
+
+            if (mountPoint) {
+                const applescript = [
+                    `tell application "Finder"`,
+                    `  tell disk "${volname}"`,
+                    `    open`,
+                    `    set current view of container window to icon view`,
+                    `    set toolbar visible of container window to false`,
+                    `    set statusbar visible of container window to false`,
+                    `    set the bounds of container window to {400, 200, 1000, 600}`,
+                    `    set theViewOptions to icon view options of container window`,
+                    `    set arrangement of theViewOptions to not arranged`,
+                    `    set icon size of theViewOptions to 100`,
+                    `    set position of item "${appName}" of container window to {175, 185}`,
+                    `    set position of item "Applications" of container window to {425, 185}`,
+                    `    update without registering applications`,
+                    `    close`,
+                    `  end tell`,
+                    `end tell`,
+                ].join('\n');
+                spawnSync('osascript', ['-e', applescript], { stdio: 'pipe', timeout: 20000 });
+                spawnSync('sync', [], { stdio: 'pipe' });
+            }
+
+            const detach = spawnSync('hdiutil', ['detach', mountPoint || rwPath, '-force'],
+                { stdio: 'pipe' });
+            if (detach.status !== 0 && mountPoint) {
+                spawnSync('diskutil', ['unmount', 'force', mountPoint], { stdio: 'pipe' });
+                spawnSync('hdiutil', ['detach', mountPoint, '-force'], { stdio: 'pipe' });
+            }
+            spawnSync('sleep', ['1'], { stdio: 'pipe' });
+        }
+
+        const conv = spawnSync('hdiutil', [
+            'convert', rwPath, '-format', 'UDZO', '-imagekey', 'zlib-level=9', '-o', outPath,
+        ], { stdio: 'inherit' });
+        try { fs.unlinkSync(rwPath); } catch (_) {}
+
+        if (conv.status !== 0) console.warn('  \u26a0 DMG conversion to UDZO failed');
+        else macosCodesign(opts, outPath);
+        try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+        return;
+    }
+
+    // Linux/Docker fallback: xorrisofs (newer) or genisoimage
     let isoCmd = null;
     for (const cmd of ['xorrisofs', 'genisoimage']) {
         if (spawnSync('which', [cmd], { encoding: 'utf8' }).status === 0) { isoCmd = cmd; break; }
     }
-    if (!isoCmd) { console.warn('  \u26a0 xorrisofs/genisoimage not found — skipping DMG'); return; }
-
-    const title   = info.title   || 'App';
-
-    // Put staging content inside a <Title>.app folder so Finder sees it as an app bundle
-    const tmpBase = path.join(path.dirname(outPath), `_dmg-${arch}`);
-    const appDir  = path.join(tmpBase, `${title}.app`);
-    if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
-    copyDir(stagingDir, appDir);
-
-    console.log(`  [dmg] \u2192 ${path.relative(process.cwd(), outPath)}`);
-    const isoArgs = [
-        '-V',     title.slice(0, 32),
-        '-D',
-        '-R',                       // Rock Ridge (preserves Unix permissions)
-        '-o',     outPath,
-        tmpBase,                    // burn dir containing <Title>.app/
-    ];
+    if (!isoCmd) {
+        console.warn('  \u26a0 hdiutil/xorrisofs/genisoimage not found — skipping DMG');
+        try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+        return;
+    }
     // Note: '-apple' HFS extensions are not supported by xorriso on Linux.
-    // The resulting ISO-format image mounts normally on macOS.
-    const r = spawnSync(isoCmd, isoArgs, { stdio: 'inherit' });
+    const r = spawnSync(isoCmd,
+        ['-V', title.slice(0, 32), '-D', '-R', '-o', outPath, tmpBase],
+        { stdio: 'inherit' });
     if (r.status !== 0) console.warn('  \u26a0 DMG creation failed');
-        else macosCodesign(opts, outPath);
+    else macosCodesign(opts, outPath);
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -2020,55 +2372,82 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
         return;
     }
 
-    const title     = info.title    || 'App';
-    const version   = (info.version || '0.0.1').trim();
-    const pkgId     = toKebab(info.title || 'app');
-    const bundleId  = info.bundle_id || ('com.example.' + pkgId.replace(/-/g, '.'));
-    const author    = info.author   || title;
-    const copyright = 'Copyright \u00a9 ' + new Date().getFullYear() + ' ' + author;
-    const stem      = pkgId + '-' + version + '-macos-' + arch + '-mas';
+    const pkgId  = toKebab(info.title || 'app');
+    const version = (info.version || '0.0.1').trim();
+    const stem   = pkgId + '-' + version + '-macos-' + arch + '-mas';
+    // For bundle builds the entry point is bundle_exec.sh, not the archive filename
+    const exeFor = isBundle ? 'bundle_exec.sh' : exeFilename;
 
-    const tmpBase      = path.join(os.tmpdir(), '_renweb-mas-' + pkgId + '-' + arch);
-    const appBundle    = path.join(tmpBase, title + '.app');
-    const contentsDir  = path.join(appBundle, 'Contents');
-    const macosDir     = path.join(contentsDir, 'MacOS');
-    const resourcesDir = path.join(contentsDir, 'Resources');
+    const tmpBase = path.join(os.tmpdir(), '_renweb-mas-' + pkgId + '-' + arch);
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
-    fs.mkdirSync(macosDir,     { recursive: true });
-    fs.mkdirSync(resourcesDir, { recursive: true });
+    fs.mkdirSync(tmpBase, { recursive: true });
 
-    copyDir(stagingDir, macosDir);
-    const exe = path.join(macosDir, exeFilename);
-    if (fs.existsSync(exe)) { try { fs.chmodSync(exe, 0o755); } catch (_) {} }
-
-    const plist = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
-        '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-        '<plist version="1.0"><dict>',
-        '  <key>CFBundleIdentifier</key>        <string>' + bundleId    + '</string>',
-        '  <key>CFBundleName</key>              <string>' + title       + '</string>',
-        '  <key>CFBundleDisplayName</key>       <string>' + title       + '</string>',
-        '  <key>CFBundleVersion</key>           <string>' + version     + '</string>',
-        '  <key>CFBundleShortVersionString</key><string>' + version     + '</string>',
-        '  <key>CFBundleExecutable</key>        <string>' + exeFilename + '</string>',
-        '  <key>CFBundlePackageType</key>       <string>APPL</string>',
-        '  <key>NSPrincipalClass</key>          <string>NSApplication</string>',
-        '  <key>NSHighResolutionCapable</key>   <true/>',
-        '  <key>LSMinimumSystemVersion</key>    <string>10.14</string>',
-        '  <key>NSHumanReadableCopyright</key>  <string>' + copyright   + '</string>',
-        '</dict></plist>',
-    ].join('\n');
-    fs.writeFileSync(path.join(contentsDir, 'Info.plist'), plist, 'utf8');
+    const appBundle = buildMacAppBundle(stagingDir, exeFor, info, tmpBase);
 
     fs.mkdirSync(outDir, { recursive: true });
     const outFile = path.join(outDir, stem + '.pkg');
     console.log('  [mas] \u2192 ' + path.relative(process.cwd(), outFile));
-    const r = spawnSync('productbuild', ['--component', appBundle, '/Applications', outFile], { stdio: 'inherit' });
-    if (r.status === 0)
-           macosProductsign(opts, outFile, 'mas');
-    else
-        console.warn('  \u26a0 productbuild failed');
+
+    // Wrap with a distribution XML so productbuild shows a license agreement screen.
+    const masLicSrc   = path.join(stagingDir, 'licenses', 'LICENSE');
+    const masBgPkgSrc = ['bk_pkg.png', 'bk-pkg.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
+    const masDistPath = path.join(tmpBase, 'mas-distribution.xml');
+    const masBundleId = info.app_id || info.bundle_id
+        || ('com.' + toKebab(info.author || 'app').replace(/-/g, '.') + '.' + toKebab(info.title || 'app'));
+    const masVersion  = (info.version || '0.0.1').trim();
+
+    // Step 1: flat component pkg
+    const masComponentPkg = outFile.replace(/\.pkg$/, '-component.pkg');
+    const masCompR = spawnSync('pkgbuild', [
+        '--component',        appBundle,
+        '--install-location', '/Applications',
+        '--identifier',       masBundleId,
+        '--version',          masVersion,
+        masComponentPkg,
+    ], { stdio: 'inherit' });
+
+    if (masCompR.status === 0) {
+        const masDistXml = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            '<installer-gui-script minSpecVersion="1">',
+            `  <title>${xmlEscapeSimple(info.title || 'App')}</title>`,
+            fs.existsSync(masLicSrc) ? `  <license file="LICENSE"/>` : '',
+            fs.existsSync(masBgPkgSrc) ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
+            '  <options customize="never" require-scripts="false"/>',
+            '  <choices-outline>',
+            '    <line choice="default"/>',
+            '  </choices-outline>',
+            '  <choice id="default" visible="false">',
+            `    <pkg-ref id="${xmlEscapeSimple(masBundleId)}"/>`,
+            '  </choice>',
+            `  <pkg-ref id="${xmlEscapeSimple(masBundleId)}" version="${xmlEscapeSimple(masVersion)}" onConclusion="none">${xmlEscapeSimple(path.basename(masComponentPkg))}</pkg-ref>`,
+            '</installer-gui-script>',
+            '',
+        ].filter(Boolean).join('\n');
+        fs.writeFileSync(masDistPath, masDistXml, 'utf8');
+
+        const masHasResources = fs.existsSync(masLicSrc) || fs.existsSync(masBgPkgSrc);
+        const masArgs = ['--distribution', masDistPath, '--package-path', path.dirname(masComponentPkg)];
+        if (masHasResources) {
+            const masResDir = path.join(tmpBase, 'mas-resources');
+            const masLprojDir = path.join(masResDir, 'en.lproj');
+            fs.mkdirSync(masLprojDir, { recursive: true });
+            if (fs.existsSync(masLicSrc)) fs.copyFileSync(masLicSrc, path.join(masLprojDir, 'LICENSE'));
+            if (fs.existsSync(masBgPkgSrc)) {
+                // Copy to resources root so <background file="bk_pkg.png"/> resolves correctly
+                fs.copyFileSync(masBgPkgSrc, path.join(masResDir, 'bk_pkg.png'));
+            }
+            masArgs.push('--resources', masResDir);
+        }
+        masArgs.push(outFile);
+
+        const r = spawnSync('productbuild', masArgs, { stdio: 'inherit' });
+        try { fs.unlinkSync(masComponentPkg); } catch (_) {}
+        if (r.status === 0) macosProductsign(opts, outFile, 'mas');
+        else console.warn('  \u26a0 productbuild (mas distribution) failed');
+    } else {
+        console.warn('  \u26a0 pkgbuild (mas component) failed');
+    }
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -2849,4 +3228,158 @@ function run(args) {
     if (opts.cache) console.log(`  Cache:  ${path.relative(process.cwd(), cacheDir)}/`);
 }
 
-module.exports = { run };
+// ─── Docker / native dispatch ─────────────────────────────────────────────────
+// Owns the decision of whether to run natively (macOS-only targets) or via
+// Docker (Linux / Windows targets), or both.  Called by the CLI entry point.
+function dispatch(args) {
+    function normalizePathForDocker(p) {
+        if (process.platform !== 'win32') return p;
+        const m = p.match(/^([A-Za-z]):\\?(.*)$/);
+        if (!m) return p.replace(/\\/g, '/');
+        const drive = m[1].toLowerCase();
+        const rest  = m[2].replace(/\\/g, '/');
+        return `/${drive}/${rest}`;
+    }
+
+    // If already executing inside the container, skip dispatch entirely.
+    if (process.env.IN_DOCKER === '1') {
+        run(args);
+        return;
+    }
+
+    const MACOS_OSES    = new Set(['macos', 'darwin']);
+    const requestedOses = [];
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === '--os' || a === '-o') {
+            if (args[i + 1]) requestedOses.push(args[i + 1].toLowerCase());
+        } else if (a.startsWith('--os=')) {
+            requestedOses.push(a.slice(5).toLowerCase());
+        } else if (a.startsWith('-o') && a.length > 2) {
+            requestedOses.push(a.slice(2).toLowerCase());
+        }
+    }
+
+    const allMacos = requestedOses.length > 0 && requestedOses.every(o => MACOS_OSES.has(o));
+    const anyMacos = requestedOses.length === 0 || requestedOses.some(o => MACOS_OSES.has(o));
+
+    function argsWithOs(osValues) {
+        const stripped = [];
+        for (let i = 0; i < args.length; i++) {
+            const a = args[i];
+            if (a === '--os' || a === '-o') { i++; continue; }
+            if (a.startsWith('--os=') || (a.startsWith('-o') && a.length > 2)) continue;
+            stripped.push(a);
+        }
+        return [...stripped, ...osValues.flatMap(o => ['--os', o])];
+    }
+
+    function runNative(nativeArgs) {
+        console.log('\n── Running natively for macOS packages (hdiutil / pkgbuild / productbuild) ──');
+        run(nativeArgs);
+    }
+
+    function runInDocker(dockerArgs, onExit) {
+        let dockerOk = false;
+        try { dockerOk = spawnSync('docker', ['--version'], { stdio: 'ignore' }).status === 0; } catch (e) {}
+        if (!dockerOk) {
+            console.error('docker is required to build Linux / Windows packages. Please install Docker and try again.');
+            process.exit(2);
+        }
+
+        // __dirname is cli/commands/ — go one level up to reach the cli/ folder (where the Dockerfile lives)
+        const cliDir  = path.resolve(__dirname, '..');
+        const hostDir = normalizePathForDocker(cliDir);
+        const hostCwd = normalizePathForDocker(path.resolve(process.cwd()));
+        const image   = process.env.RENWEB_IMAGE || 'renweb-cli';
+
+        let imageExists = false;
+        try {
+            const inspect = spawnSync('docker', ['images', '-q', image], { encoding: 'utf8' });
+            imageExists   = Boolean(inspect.stdout && inspect.stdout.trim().length > 0);
+        } catch (e) {}
+
+        if (!imageExists) {
+            console.log(`Docker image '${image}' not found locally — building it now.`);
+            const buildRes = spawnSync('docker', ['build', '-t', image, cliDir], { stdio: 'inherit' });
+            if (buildRes.status !== 0) {
+                console.error('Failed to build docker image; cannot continue.');
+                process.exit(buildRes.status || 3);
+            }
+        }
+
+        if (process.platform !== 'win32') {
+            const pkgCache = path.join(process.cwd(), '.package');
+            try {
+                fs.mkdirSync(pkgCache, { recursive: true });
+            } catch (e) {
+                if (e.code === 'EACCES') {
+                    console.error(
+                        `Error: ${pkgCache} is owned by root from a previous run.\n` +
+                        `Fix with: sudo chown -R $USER "${pkgCache}"`
+                    );
+                    process.exit(4);
+                }
+            }
+        }
+
+        const userFlag      = process.platform !== 'win32'
+            ? ['--user', `${process.getuid()}:${process.getgid()}`]
+            : [];
+        const containerName = `renweb-pkg-${Date.now()}`;
+        const dockerRunArgs = [
+            'run', '--rm',
+            '--name', containerName,
+            '-e', 'IN_DOCKER=1',
+            '-e', 'RENWEB_CWD=/project',
+            ...userFlag,
+            '-v', `${hostCwd}:/project`,
+            '-v', `${hostDir}:/work`,
+            '-w', '/project',
+            image,
+            'package', ...dockerArgs,
+        ];
+
+        function killContainer() {
+            try { spawnSync('docker', ['kill', containerName], { stdio: 'ignore' }); } catch (_) {}
+        }
+        process.on('SIGINT',  killContainer);
+        process.on('SIGTERM', killContainer);
+
+        const child = spawn('docker', dockerRunArgs, { stdio: 'inherit' });
+        child.on('exit', (code, signal) => {
+            process.off('SIGINT',  killContainer);
+            process.off('SIGTERM', killContainer);
+            onExit(code ?? (signal ? 1 : 0));
+        });
+    }
+
+    if (allMacos) {
+        runNative(args);
+    } else if (!anyMacos) {
+        runInDocker(args, (code) => process.exit(code));
+    } else {
+        const macosOses    = requestedOses.filter(o => MACOS_OSES.has(o));
+        const nonMacosOses = requestedOses.filter(o => !MACOS_OSES.has(o));
+
+        const dockerArgs = requestedOses.length === 0
+            ? argsWithOs(['linux', 'windows'])
+            : argsWithOs(nonMacosOses);
+        const nativeArgs = requestedOses.length === 0
+            ? argsWithOs(['macos'])
+            : argsWithOs(macosOses.length > 0 ? macosOses : ['macos']);
+
+        if (process.platform !== 'darwin') {
+            console.log('── Packaging: running Docker (linux/windows) — macOS packages require a macOS host ──');
+            runInDocker(args, (code) => process.exit(code));
+            return;
+        }
+        console.log('── Packaging: running Docker (linux/windows) then native (macos) ──');
+        runInDocker(dockerArgs, (dockerCode) => {
+            if (dockerCode !== 0) console.warn(`⚠ Docker packaging exited with code ${dockerCode}`);
+            runNative(nativeArgs);
+        });
+    }
+}
+
+module.exports = { run, dispatch };

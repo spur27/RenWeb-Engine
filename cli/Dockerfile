@@ -32,10 +32,12 @@ RUN flatpak remote-add --if-not-exists flathub \
  || true
 
 # ── Wine64 — runs rcedit to patch Windows PE version info + icons ─────────────
-# We only need wine64 (no i386 required) since rcedit-x64.exe is a 64-bit PE.
-# On Debian bullseye the package installs the binary as wine64-stable; create a
+# wine64 on Debian bullseye requires i386 multiarch even for 64-bit-only use
+# because the wine loader ships 32-bit components as i386 packages.
+# On Debian bullseye the binary may be installed as wine64-stable; create a
 # canonical wine64 symlink so all scripts can use the same name.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN dpkg --add-architecture i386 \
+ && apt-get update && apt-get install -y --no-install-recommends \
     wine64 \
  && rm -rf /var/lib/apt/lists/* \
  && ([ -x /usr/bin/wine64 ] || ln -sf /usr/bin/wine64-stable /usr/bin/wine64)
@@ -78,7 +80,8 @@ ENV APPIMAGE_EXTRACT_AND_RUN=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build libssl-dev zlib1g-dev libicu-dev \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.sh \
+ && CMAKE_ARCH=$(uname -m) \
+ && curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-${CMAKE_ARCH}.sh" \
       -o /tmp/cmake.sh \
  && sh /tmp/cmake.sh --prefix=/usr/local --skip-license \
  && rm /tmp/cmake.sh \
