@@ -1270,15 +1270,17 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
 
     const iconPath = findWindowsIconPath(stagingDir, info);
 
-    const nsisBgPng = ['bk_setup-exe.png', 'bk-setup-exe.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
-    let nsisBgBmp = null;
-    if (nsisBgPng) {
-        const tmpBmp = path.join(os.tmpdir(), `_renweb-nsis-bg-${pkgId}-${arch}.bmp`);
-        const sipsR = spawnSync('sips', ['-s', 'format', 'bmp', nsisBgPng, '--out', tmpBmp], { stdio: 'pipe' });
-        if (sipsR.status === 0) nsisBgBmp = tmpBmp;
-        else {
-            const conv = spawnSync('convert', [nsisBgPng, tmpBmp], { stdio: 'pipe' });
-            if (conv.status === 0) nsisBgBmp = tmpBmp;
+    let nsisBgBmp = ['bk_setup-exe.bmp', 'bk-setup-exe.bmp'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
+    if (!nsisBgBmp) {
+        const nsisBgPng = ['bk_setup-exe.png', 'bk-setup-exe.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
+        if (nsisBgPng) {
+            const tmpBmp = path.join(os.tmpdir(), `_renweb-nsis-bg-${pkgId}-${arch}.bmp`);
+            const sipsR = spawnSync('sips', ['-s', 'format', 'bmp', nsisBgPng, '--out', tmpBmp], { stdio: 'pipe' });
+            if (sipsR.status === 0) nsisBgBmp = tmpBmp;
+            else {
+                const conv = spawnSync('convert', [nsisBgPng, tmpBmp], { stdio: 'pipe' });
+                if (conv.status === 0) nsisBgBmp = tmpBmp;
+            }
         }
     }
 

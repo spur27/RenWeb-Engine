@@ -31,9 +31,8 @@ Each background file is looked up under the below filenames:
 | Filename | Dimensions |
 |-----------------|-----------------|
 | `bk_dmg.png` | 600×400 px |
-| `bk_pkg.png` | 568×323 px |
+| `bk_pkg.png` | 620×413 px |
 | `bk_setup-exe.png` | 164x314 px |
-| `bk_msi.png` | 493x312 px |
 
 You can also use hyphens instead of underscores. The underscore variant is checked first; if absent, the hyphen variant is tried.
 If neither exists the installer falls back to its default visuals.
