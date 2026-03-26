@@ -30,7 +30,7 @@ Each background file is looked up under the below filenames:
 
 | Filename | Dimensions |
 |-----------------|-----------------|
-| `bk_dmg.png` | 600×375 px (the macOS title bar consumes ~25 px of the 600×400 window height) |
+| `bk_dmg.png` | 600×400 px |
 | `bk_pkg.png` | 620×413 px |
 | `bk_setup-exe.png` | 164x314 px |
 

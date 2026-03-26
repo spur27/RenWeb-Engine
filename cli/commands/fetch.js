@@ -7,7 +7,7 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 const { spawnSync } = require('child_process');
-const { download, fetchLatestRelease, detectTarget, GITHUB_RAW } = require('./shared');
+const { download, fetchRelease, detectTarget, GITHUB_RAW, resolveEngineRepo, engineRawBase } = require('./shared');
 
 const TEMPLATE_INFO = {
     title:          'My RenWeb App',
@@ -18,7 +18,7 @@ const TEMPLATE_INFO = {
     categories:     ['Utility'],
     app_id:         'io.github.user.my_renweb_app',
     repository:     '',
-    starting_pages: ['my_renweb_app'],
+    starting_pages: ['main'],
     permissions: {
         geolocation: false, notifications: true, media_devices: false,
         pointer_lock: false, install_missing_media_plugins: true, device_info: true,
@@ -95,7 +95,8 @@ function fetchBundle(release, cwd) {
 }
 
 function fetchPlugin(cwd) {
-    const url  = `${GITHUB_RAW}/include/plugin.hpp`;
+    const rawBase = engineRawBase(resolveEngineRepo());
+    const url  = `${rawBase}/include/plugin.hpp`;
     const dest = path.join(cwd, 'plugin.hpp');
     console.log(`  Downloading: plugin.hpp`);
     if (!download(url, dest)) {
@@ -106,8 +107,9 @@ function fetchPlugin(cwd) {
 }
 
 function fetchApi(cwd) {
+    const rawBase = engineRawBase(resolveEngineRepo());
     for (const file of API_FILES) {
-        const url  = `${GITHUB_RAW}/web/api/${file}`;
+        const url  = `${rawBase}/web/api/${file}`;
         const dest = path.join(cwd, file);
         console.log(`  Downloading: ${file}`);
         if (!download(url, dest)) {
@@ -127,6 +129,9 @@ function run(args) {
     const hasApi    = args.includes('--api');
     const defaultMode = !hasExe && !hasBundle && !hasPlugin && !hasApi;
 
+    const verIdx = args.indexOf('--version');
+    const tag    = verIdx !== -1 ? args[verIdx + 1] : null;
+
     const cwd = process.cwd();
 
     if (hasPlugin) {
@@ -141,16 +146,18 @@ function run(args) {
 
     if (hasBundle) {
         const { os: tOs, arch: tArch } = detectTarget();
-        console.log(`\nFetching latest RenWeb bundle for ${tOs}-${tArch}…`);
-        const release = fetchLatestRelease();
+        const label = tag ? `v${tag}` : 'latest';
+        console.log(`\nFetching RenWeb bundle (${label}) for ${tOs}-${tArch}…`);
+        const release = fetchRelease(tag);
         if (!release) { console.error('Could not reach GitHub — aborting.'); process.exit(1); }
         fetchBundle(release, cwd);
     }
 
     if (hasExe || defaultMode) {
         const { os: tOs, arch: tArch } = detectTarget();
-        console.log(`\nFetching latest RenWeb executable for ${tOs}-${tArch}…`);
-        const release = fetchLatestRelease();
+        const label = tag ? `v${tag}` : 'latest';
+        console.log(`\nFetching RenWeb executable (${label}) for ${tOs}-${tArch}…`);
+        const release = fetchRelease(tag);
         if (!release) { console.error('Could not reach GitHub — aborting.'); process.exit(1); }
         fetchExecutable(release, cwd);
     }

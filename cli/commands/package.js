@@ -11,18 +11,36 @@ const { spawnSync, spawn } = require('child_process');
 
 const DEFAULT_ENGINE_REPO = 'https://github.com/spur27/RenWeb-Engine';
 
-/** Runtime deps shown in install.sh; ugly/bad are listed as "recommended". */
-const LINUX_DEPS_REQUIRED = [
-    'libgtk-3-0',
-    'libwebkit2gtk-4.1-0',
-    'libegl1',                       // Wayland/EGL path (libepoxy lazy-dlopen)
-    'gstreamer1.0-plugins-base',
-    'gstreamer1.0-plugins-good',
-];
-const LINUX_DEPS_RECOMMENDED = [
-    'gstreamer1.0-plugins-bad',
-    'gstreamer1.0-plugins-ugly',   // patent-free to recommend; installs from distro repos
-];
+// Runtime dependencies for bare (non-bundle) builds, keyed by fpm/nfpm format.
+// Bundle releases carry their own .so libs and declare no runtime deps.
+// Package names differ between formats; each entry uses the canonical name for
+// that format's package manager: apt (deb), dnf/zypper (rpm), pacman, apk (nfpm), pkg (freebsd).
+const LINUX_DEPS = {
+    deb: {
+        required:    ['libgtk-3-0', 'libwebkit2gtk-4.1-0', 'libegl1', 'gstreamer1.0-plugins-base', 'gstreamer1.0-plugins-good'],
+        recommended: ['gstreamer1.0-plugins-bad', 'gstreamer1.0-plugins-ugly'],
+    },
+    rpm: {
+        // Fedora / RHEL / openSUSE (dnf / zypper) — names differ from apt
+        required:    ['gtk3', 'webkit2gtk4.1', 'mesa-libEGL', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
+        recommended: [],
+    },
+    pacman: {
+        // Arch Linux (pacman) — no Recommends concept
+        required:    ['gtk3', 'webkit2gtk-4.1', 'mesa', 'gst-plugins-base', 'gst-plugins-good'],
+        recommended: [],
+    },
+    apk: {
+        // Alpine Linux (apk via nfpm) — musl-based; EGL comes from mesa-egl
+        required:    ['gtk+3.0', 'webkit2gtk', 'mesa-egl', 'gst-plugins-base', 'gst-plugins-good'],
+        recommended: [],
+    },
+    freebsd: {
+        // FreeBSD (pkg) — webkit2-gtk3 is the port name for WebKit2GTK
+        required:    ['gtk3', 'webkit2-gtk3', 'mesa-libs', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
+        recommended: [],
+    },
+};
 
 // Asset filename patterns produced by the engine's build system:
 //   bare executable : {name}-{version}-{os}-{arch}[.exe]
@@ -648,7 +666,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                 const componentPkg = pkgOut.replace(/\.pkg$/, '-component.pkg');
                 const pkgR = spawnSync('pkgbuild', [
                     '--component',        appBundle,
-                    '--install-location', '/Applications',
+                    '--install-location', '~/Applications',
                     '--identifier',       bundleId,
                     '--version',          pkgVersion,
                     componentPkg,
@@ -862,11 +880,13 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         if (license) fpmArgs.push('--license', license);
         const fpmArch = FPM_ARCH_MAP[targetArch];
         if (fpmArch) fpmArgs.push('--architecture', fpmArch);
-        // Bundle releases carry their own .so libs — no runtime deps needed
+        // Bundle releases carry their own .so libs — no runtime deps needed.
+        // Dep names differ per format; LINUX_DEPS provides the correct name for each.
         if (!isBundle) {
-            for (const dep of LINUX_DEPS_REQUIRED) fpmArgs.push('--depends', dep);
+            const fmtDeps = LINUX_DEPS[fmt] || { required: [], recommended: [] };
+            for (const dep of fmtDeps.required) fpmArgs.push('--depends', dep);
             if (fmt === 'deb') {
-                for (const dep of LINUX_DEPS_RECOMMENDED) fpmArgs.push('--deb-recommends', dep);
+                for (const dep of fmtDeps.recommended) fpmArgs.push('--deb-recommends', dep);
             }
         }
         const postInstallScript = path.join(os.tmpdir(), `_renweb-postinstall-${pkgId}-${fmt}.sh`);
@@ -937,7 +957,7 @@ function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
         website ? `homepage: "${website}"` : null,
         license ? `license: "${license}"` : null,
         // Bare APKs declare runtime deps; bundle APKs carry them in lib/.
-        ...(!isBundle ? [`depends:`, `  - libatomic`] : []),
+        ...(!isBundle ? [`depends:`, ...LINUX_DEPS.apk.required.map(d => `  - ${d}`)] : []),
         `scripts:`,
         `  postinstall: "${postInstallScript}"`,
         `  postremove: "${postRemoveScript}"`,
@@ -2402,7 +2422,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
     const masComponentPkg = outFile.replace(/\.pkg$/, '-component.pkg');
     const masCompR = spawnSync('pkgbuild', [
         '--component',        appBundle,
-        '--install-location', '/Applications',
+        '--install-location', '~/Applications',
         '--identifier',       masBundleId,
         '--version',          masVersion,
         masComponentPkg,
@@ -2879,12 +2899,25 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     copyDir(stagingDir, appFiles);
     // Make the target executable
     try { fs.chmodSync(path.join(appFiles, binTarget), 0o755); } catch (_) {}
-    // bin/<pkgId> wrapper that execs from the Flatpak /app prefix
+    // bin/<pkgId> wrapper: copy app to $XDG_DATA_HOME once per version so the
+    // engine can write log.txt and other runtime files next to its executable.
+    // Inside the Flatpak sandbox $XDG_DATA_HOME resolves to
+    // ~/.var/app/<appId>/data/ — a per-app writable directory that is cleaned
+    // up automatically on `flatpak uninstall --delete-data`.
     const wrapperSh = [
         '#!/bin/sh',
+        'SRC="/app/opt/' + pkgId + '"',
+        'DEST="${XDG_DATA_HOME:-$HOME/.local/share}/' + pkgId + '"',
+        'STAMP="$DEST/.version"',
+        '# Copy app tree once per version into writable XDG_DATA_HOME.',
+        'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
+        '    rm -rf "$DEST" && mkdir -p "$DEST"',
+        '    cp -a "$SRC/." "$DEST/" || { echo "flatpak: copy failed" >&2; exit 1; }',
+        '    echo "' + version + '" > "$STAMP"',
+        'fi',
         '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
         '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
-        'exec "/app/opt/' + pkgId + '/' + binTarget + '" "$@"',
+        'exec "$DEST/' + binTarget + '" "$@"',
         '',
     ].join('\n');
     const binWrapper = path.join(binDir, pkgId);
@@ -2905,6 +2938,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         '--socket=fallback-x11',
         '--socket=pulseaudio',
         '--device=dri',
+        '--filesystem=xdg-data:create',
         buildDir,
     ], { stdio: 'inherit' });
     if (finishR.status !== 0) {
@@ -3032,16 +3066,18 @@ function run(args) {
     if (opts.exts.size > 0)   console.log(`  formats   : ${[...opts.exts].join(', ')}`);
     if (opts.oses.size > 0)   console.log(`  os filter : ${[...opts.oses].join(', ')}`);
     if (opts.arches.size > 0) console.log(`  arch filter: ${[...opts.arches].join(', ')}`);
-    if (opts.cache)           console.log('  cache     : enabled (.package/)');
+    if (opts.cache)           console.log('  cache     : enabled (.rw/package/)');
 
         opts.credDir = opts.noCredentials ? null : findCredentialsDir();
         if (opts.noCredentials)       console.log('  signing   : disabled (--no-credentials)');
         else if (opts.credDir)        console.log(`  signing   : ${opts.credDir}`);
         else                          console.log('  signing   : credentials/ not found — outputs will be unsigned');
+    if (process.env.IN_DOCKER !== '1')
+        console.log('\n  Tip: run `rw build` first to ensure build/ is up to date before packaging.');
 
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
-    const cacheDir    = path.join(projectRoot, '.package');          // all working files
+    const cacheDir    = path.join(projectRoot, '.rw', 'package');    // all working files
     const tmpDir      = path.join(cacheDir, 'staging');             // staging (always wiped)
     const pkgDir  = path.join(projectRoot, 'package');
     const enginesDir  = path.join(cacheDir, 'engines');
@@ -3161,6 +3197,17 @@ function run(args) {
         const dest = path.join(buildSrcDir, name);
         if (entry.isDirectory()) copyDir(src, dest); else fs.copyFileSync(src, dest);
         console.log(`  copy: ${name}`);
+    }
+
+    // Warn when build/plugins/ has plugin files but no plugin-repositories are configured,
+    // since those files will be excluded from all packages.
+    if (pluginRepos.length === 0) {
+        const buildPluginsDir = path.join(buildDir, 'plugins');
+        if (fs.existsSync(buildPluginsDir)) {
+            const pluginFiles = fs.readdirSync(buildPluginsDir).filter(f => /\.(so|dll)$/.test(f));
+            if (pluginFiles.length > 0)
+                console.warn(`\n  ⚠ build/plugins/ has ${pluginFiles.length} plugin file(s) but no "plugin-repositories" in info.json — plugins will be excluded from packages.`);
+        }
     }
 
     // ── 6. Download plugins → .package/plugins/0, /1, … (with optional cache) ─
@@ -3311,7 +3358,7 @@ function dispatch(args) {
         }
 
         if (process.platform !== 'win32') {
-            const pkgCache = path.join(process.cwd(), '.package');
+            const pkgCache = path.join(process.cwd(), '.rw', 'package');
             try {
                 fs.mkdirSync(pkgCache, { recursive: true });
             } catch (e) {

@@ -5,7 +5,8 @@
 const fs            = require('fs');
 const path          = require('path');
 const { spawnSync } = require('child_process');
-const { findProjectRoot, findProjectExecutable, loadInfo } = require('./shared');
+const { findProjectExecutable } = require('./shared');
+const { ProjectState } = require('../project/project_state');
 
 const PASS = '\u2713'; // ✓
 const FAIL = '\u2717'; // ✗
@@ -53,46 +54,49 @@ function run() {
 
     // ── Project checks ──────────────────────────────────────────────────────
     function checkProject() {
-        const projectRoot = findProjectRoot();
-        if (!projectRoot) {
+        const state = ProjectState.detect();
+        if (!state) {
             warn('Not inside a RenWeb project (no info.json found) — project checks skipped');
             return;
         }
         sect('Project');
 
-        const info = loadInfo(projectRoot);
-        if (!info) { fail('info.json missing or unreadable'); return; }
-        ok(`info.json  (${info.title} v${info.version})`);
+        if (!state.info) { fail('info.json missing or unreadable'); return; }
+        ok(`info.json  (${state.info.title} v${state.info.version})`);
 
-        const configPath = path.join(projectRoot, 'build', 'config.json');
-        if (fs.existsSync(configPath)) {
-            try { JSON.parse(fs.readFileSync(configPath, 'utf8')); ok('build/config.json'); }
-            catch (_) { fail('build/config.json — invalid JSON'); }
-        } else {
-            fail('build/config.json missing');
+        if (!state.config) { fail('config.json missing'); }
+        else {
+            try { ok(`config.json  (${Object.keys(state.config).filter(k => k !== '__defaults__').length} page(s))`); }
+            catch (_) { fail('config.json — invalid JSON'); }
         }
 
-        const buildDir = path.join(projectRoot, 'build');
-        const exeName  = findProjectExecutable(buildDir);
-        if (exeName) {
-            const stat   = fs.statSync(path.join(buildDir, exeName));
+        // Report detected project dimensions
+        const dim_parts = [state.framework];
+        if (state.build_tool !== 'none') dim_parts.push(state.build_tool);
+        if (state.js_engine  !== 'none') dim_parts.push(`[${state.js_engine}]`);
+        ok(`State: ${dim_parts.join(' + ')}`);
+
+        const build_dir = path.join(state.root, 'build');
+        const exe_name  = findProjectExecutable(build_dir);
+        if (exe_name) {
+            const stat   = fs.statSync(path.join(build_dir, exe_name));
             const execOk = process.platform === 'win32' || !!(stat.mode & 0o111);
-            if (execOk) ok(`Engine: ${exeName}  (${(stat.size / 1024).toFixed(0)} KB)`);
-            else        fail(`Engine: ${exeName} exists but is not executable — run: chmod +x build/${exeName}`);
+            if (execOk) ok(`Engine: ${exe_name}  (${(stat.size / 1024).toFixed(0)} KB)`);
+            else        fail(`Engine: ${exe_name} exists but is not executable — run: chmod +x build/${exe_name}`);
         } else {
-            fail('No engine executable found in build/ — run `rw update`');
+            fail('No engine executable found in build/ — run `rw fetch` to download it');
         }
 
-        const pages = info.starting_pages || [];
+        const pages  = (state.info && state.info.starting_pages) || [];
+        const layout = state.layout();
         for (const page of pages.slice(0, 3)) {
-            const built = path.join(buildDir, 'content', page, 'index.html');
-            if (fs.existsSync(built)) ok(`build/content/${page}/index.html`);
-            else                      warn(`build/content/${page}/index.html not found`);
+            if (layout.pageExists(page)) ok(`content: ${page}/index.html`);
+            else                         warn(`content: ${page}/index.html not found`);
         }
 
-        const plugDir = path.join(buildDir, 'plugins');
-        if (fs.existsSync(plugDir)) {
-            const plugins = fs.readdirSync(plugDir)
+        const plug_dir = path.join(state.root, 'build', 'plugins');
+        if (fs.existsSync(plug_dir)) {
+            const plugins = fs.readdirSync(plug_dir)
                 .filter(f => ['.so', '.dylib', '.dll'].some(e => f.endsWith(e)));
             ok(`Plugins: ${plugins.length} installed`);
         } else {
@@ -103,11 +107,19 @@ function run() {
     // ── Run all checks ──────────────────────────────────────────────────────
     sect('Environment');
     checkNodeVersion();
-    checkBin('curl',   'needed for downloads');
-    checkBinOptional('wget',     'fallback downloader');
-    checkBin('git',    'needed for `rw create repo`');
-    checkBinOptional('docker',   'needed for `rw package`');
-    checkBinOptional('xdg-open', 'needed for `rw doc` on Linux');
+
+    // curl and wget are interchangeable; only report failure if neither exists
+    const hasCurl = spawnSync('curl', ['--version'], { stdio: 'ignore' }).status === 0;
+    const hasWget = spawnSync('wget', ['--version'], { stdio: 'ignore' }).status === 0;
+    if      (hasCurl && hasWget) ok('curl + wget  (both available)');
+    else if (hasCurl)            ok('curl  (downloader)');
+    else if (hasWget)            ok('wget  (downloader)');
+    else                         fail('curl / wget — at least one is required for downloads');
+
+    checkBin('git',    'needed for `rw create engine` and `rw plugin add`');
+    checkBinOptional('npm',     'needed for Vite-based projects (react / vue / svelte / preact)');
+    if (process.platform === 'linux')
+        checkBinOptional('xdg-open', 'needed for `rw doc`');
     checkBinOptional('make',     'needed for building plugins');
     checkBinOptional('cmake',    'needed for CMake-based plugins');
 

@@ -13,9 +13,12 @@ const program = new Command();
 program.name('rw').description('RenWeb CLI — create, develop, and package RenWeb projects').version(version);
 
 program
-  .command('create <type>')
-  .description('Scaffold a new RenWeb project (vanilla | react | vue | svelte | preact | plugin | repo)')
+  .command('create [type]')
+  .description('Scaffold a new RenWeb project (default: vanilla | react | vue | svelte | preact | plugin | engine)')
   .option('--dir <path>', 'Output directory (default: cwd)')
+  .option('--skip-submodules', 'Skip --recurse-submodules when cloning the engine repository (engine type only)')
+  .option('--node', 'Add package.json with the renweb npm package as a dependency')
+  .option('--deno', 'Add deno.json with the renweb jsr package as an import')
   .allowUnknownOption(true)
   .action((type) => {
     const idx       = process.argv.indexOf('create');
@@ -24,20 +27,11 @@ program
   });
 
 program
-  .command('init')
-  .description('Add RenWeb to an existing Vite/vanilla project in the current directory')
-  .option('--type <type>', 'Project type: vanilla | react | vue | svelte | preact (auto-detected if omitted)')
-  .allowUnknownOption(true)
-  .action(() => {
-    const idx = process.argv.indexOf('init');
-    require('./commands/init').run(process.argv.slice(idx + 1));
-  });
-
-program
   .command('update')
-  .description('Update the engine executable and/or web API in an existing project')
-  .option('--engine-only', 'Only update the engine executable')
-  .option('--api-only',    'Only update the web API files')
+  .description('Update the engine executable and/or bundle libs in an existing project')
+  .option('--bundle-only',     'Only update the bundle archive (libs + launcher + exe)')
+  .option('--executable-only', 'Only update the bare executable')
+  .option('--version <tag>',   'Pin to a specific release tag (default: latest)')
   .action(() => {
     const idx = process.argv.indexOf('update');
     require('./commands/update').run(process.argv.slice(idx + 1));
@@ -45,8 +39,7 @@ program
 
 program
   .command('run')
-  .description('Kill any tracked engine instance and relaunch it')
-  .option('--page <name>', 'Override the starting page for this run')
+  .description('Launch the engine (Vite projects: starts watch mode and waits for initial build first)')
   .action(() => {
     const idx = process.argv.indexOf('run');
     require('./commands/run').run(process.argv.slice(idx + 1));
@@ -55,20 +48,39 @@ program
 program
   .command('build')
   .description('Run vite build from anywhere inside a RenWeb project')
-  .option('-w, --watch', 'Run in watch mode (continuous rebuild)')
   .action(() => {
     const idx = process.argv.indexOf('build');
     require('./commands/build').run(process.argv.slice(idx + 1));
   });
 
 program
-  .command('plugin <subcommand>')
-  .description('Manage plugins: add <repo-url> | remove <name> | list')
+  .command('add <type>')
+  .description('Add a page or plugin: rw add page <name> | rw add plugin <repo-url>')
   .allowUnknownOption(true)
-  .action((subcommand) => {
-    const idx       = process.argv.indexOf('plugin');
-    const remaining = [subcommand, ...process.argv.slice(idx + 2)];
-    require('./commands/plugin').run(remaining);
+  .action((type) => {
+    const idx       = process.argv.indexOf('add');
+    const remaining = [type, ...process.argv.slice(idx + 2)];
+    require('./commands/add').run(remaining);
+  });
+
+program
+  .command('remove <type>')
+  .description('Remove a page or plugin: rw remove page <name> | rw remove plugin <name>')
+  .allowUnknownOption(true)
+  .action((type) => {
+    const idx       = process.argv.indexOf('remove');
+    const remaining = [type, ...process.argv.slice(idx + 2)];
+    require('./commands/remove').run(remaining);
+  });
+
+program
+  .command('list [type]')
+  .description('List pages and/or plugins: rw list | rw list pages | rw list plugins')
+  .allowUnknownOption(true)
+  .action((type) => {
+    const idx       = process.argv.indexOf('list');
+    const remaining = type ? [type, ...process.argv.slice(idx + 2)] : [];
+    require('./commands/list').run(remaining);
   });
 
 program
@@ -96,10 +108,8 @@ program
 // `in-docker` command removed — `package` runs in Docker when required.
 
 program
-  .command('doc')
-  .description('Open the RenWeb documentation in the default browser')
-  .option('--js',     'Open the JS API reference page')
-  .option('--plugin', 'Open the plugin development reference page')
+  .command('doc [pages...]')
+  .description('Open RenWeb docs in the default browser (rw doc js, rw doc usage, etc.; no arg = home)')
   .allowUnknownOption(true)
   .action(() => {
     const idx = process.argv.indexOf('doc');
@@ -109,10 +119,11 @@ program
 program
   .command('fetch')
   .description('Download the latest RenWeb engine, bundle, plugin header, or JS/TS API files')
-  .option('--executable', 'Download the latest engine executable + template info.json to build/')
-  .option('--bundle',     'Download the latest engine bundle (with libs) + template info.json to build/')
-  .option('--plugin',     'Download plugin.hpp to the current directory')
-  .option('--api',        'Download the JS/TS API files (index.js, .ts, .d.ts, .js.map) to the current directory')
+  .option('--executable',    'Download the engine executable + template info.json to build/')
+  .option('--bundle',        'Download the engine bundle (with libs) + template info.json to build/')
+  .option('--plugin',        'Download plugin.hpp to the current directory')
+  .option('--api',           'Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)')
+  .option('--version <tag>', 'Pin to a specific release tag (default: latest)')
   .allowUnknownOption(true)
   .action(() => {
     const idx = process.argv.indexOf('fetch');

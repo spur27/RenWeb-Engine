@@ -3,63 +3,20 @@
 
 const fs            = require('fs');
 const path          = require('path');
-const os            = require('os');
 const readline      = require('readline');
 const { spawnSync, spawn } = require('child_process');
+const {
+    GITHUB_RAW, GITHUB_API, GITHUB_API_BASE,
+    download, downloadText, detectTarget, toSnake, toKebab, prompt, copyDir,
+    fetchRelease, resolveEngineRepo, engineRawBase, engineApiBase,
+} = require('./shared');
+const { ProjectState } = require('../project/project_state');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const GITHUB_RAW     = 'https://raw.githubusercontent.com/spur27/RenWeb-Engine/main';
-const GITHUB_API     = 'https://api.github.com/repos/spur27/RenWeb-Engine/releases/latest';
 const FRONTEND_TYPES = ['vanilla', 'react', 'vue', 'svelte', 'preact'];
 const VITE_TEMPLATE  = { react: 'react', vue: 'vue', svelte: 'svelte', preact: 'preact' };
-const ALL_TYPES      = [...FRONTEND_TYPES, 'plugin', 'repo'];
-
-// ─── Low-level utils ─────────────────────────────────────────────────────────
-
-function download(url, dest) {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    for (const [cmd, args] of [
-        ['curl',  ['-fsSL', '--output', dest, url]],
-        ['wget',  ['-q',    '-O',       dest, url]],
-    ]) {
-        try {
-            const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'inherit'] });
-            if (r.status === 0) return true;
-        } catch (_) {}
-    }
-    return false;
-}
-
-function downloadText(url) {
-    const tmp = path.join(os.tmpdir(), `renweb-create-${Date.now()}.txt`);
-    if (!download(url, tmp)) return null;
-    try {
-        const text = fs.readFileSync(tmp, 'utf8');
-        fs.unlinkSync(tmp);
-        return text;
-    } catch (_) { return null; }
-}
-
-function prompt(rl, question, fallback = '') {
-    return new Promise(resolve => {
-        const display = fallback ? `${question} [${fallback}]: ` : `${question}: `;
-        rl.question(display, ans => resolve(ans.trim() || fallback));
-    });
-}
-
-function toSnake(s) { return s.trim().toLowerCase().replace(/[\s\-]+/g, '_'); }
-function toKebab(s) { return s.trim().toLowerCase().replace(/[\s_]+/g, '-'); }
-
-// ─── Platform detection ──────────────────────────────────────────────────────
-
-function detectTarget() {
-    const plat = process.platform;
-    const arch  = process.arch;
-    const targetOs   = plat === 'win32' ? 'windows' : plat === 'darwin' ? 'macos' : 'linux';
-    const targetArch = arch === 'x64' ? 'x86_64' : arch === 'ia32' ? 'x86_32' : arch; // arm64 stays
-    return { os: targetOs, arch: targetArch };
-}
+const ALL_TYPES      = [...FRONTEND_TYPES, 'plugin', 'engine'];
 
 // ─── Interactive prompts ─────────────────────────────────────────────────────
 
@@ -104,8 +61,9 @@ async function promptInfo(rl, extra = [], yes = false) {
 function fetchWebApi(renwebDir) {
     console.log('  Fetching RenWeb JS API…');
     fs.mkdirSync(renwebDir, { recursive: true });
+    const rawBase = engineRawBase(resolveEngineRepo());
     for (const file of ['index.js', 'index.d.ts']) {
-        const ok = download(`${GITHUB_RAW}/web/api/${file}`, path.join(renwebDir, file));
+        const ok = download(`${rawBase}/web/api/${file}`, path.join(renwebDir, file));
         if (!ok) console.warn(`  ⚠ Failed to fetch ${file} — skipping`);
     }
 }
@@ -114,10 +72,9 @@ function fetchEngineExecutable(buildDir, info) {
     const { os: tOs, arch: tArch } = detectTarget();
     console.log(`  Fetching latest RenWeb engine for ${tOs}-${tArch}…`);
 
-    const metaText = downloadText(GITHUB_API);
-    if (!metaText) { console.warn('  ⚠ Could not reach GitHub — download the engine executable manually'); return null; }
-    const release  = JSON.parse(metaText);
-    const ver      = release.tag_name || release.name || 'latest';
+    const release = fetchRelease(null);
+    if (!release) { console.warn('  ⚠ Could not reach GitHub — download the engine executable manually'); return null; }
+    const ver     = release.tag_name || release.name || 'latest';
     const ext      = tOs === 'windows' ? '.exe' : '';
     // Asset naming: <name>-<version>-<os>-<arch>[.exe]
     // We match any name that ends with -<os>-<arch>[.exe]
@@ -142,16 +99,91 @@ function fetchEngineExecutable(buildDir, info) {
 function fetchPluginHpp(includeDir) {
     console.log('  Fetching plugin.hpp…');
     fs.mkdirSync(includeDir, { recursive: true });
-    const ok = download(`${GITHUB_RAW}/include/plugin.hpp`, path.join(includeDir, 'plugin.hpp'));
+    const rawBase = engineRawBase(resolveEngineRepo());
+    const ok = download(`${rawBase}/include/plugin.hpp`, path.join(includeDir, 'plugin.hpp'));
     if (!ok) console.warn('  ⚠ Failed to fetch plugin.hpp');
 }
 
-function copyDir(src, dest) {
-    fs.mkdirSync(dest, { recursive: true });
-    for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-        const s = path.join(src, e.name), d = path.join(dest, e.name);
-        e.isDirectory() ? copyDir(s, d) : fs.copyFileSync(s, d);
+function fetchGitHubDirectory(repoPath, localDir) {
+    const apiBase = engineApiBase(resolveEngineRepo());
+    const text = downloadText(`${apiBase}/contents/${repoPath}`);
+    if (!text) { console.warn(`  ⚠ Could not list ${repoPath} from GitHub — skipping`); return; }
+    let entries;
+    try { entries = JSON.parse(text); } catch (_) { console.warn(`  ⚠ Could not parse ${repoPath} listing — skipping`); return; }
+    fs.mkdirSync(localDir, { recursive: true });
+    for (const entry of entries) {
+        if (entry.type === 'file' && entry.download_url) {
+            if (!download(entry.download_url, path.join(localDir, entry.name)))
+                console.warn(`  ⚠ Failed to fetch ${entry.name}`);
+        }
     }
+}
+
+function makeCopilotInstructions(info, pageName) {
+    const fence = '```';
+    return [
+        `# ${info.title} — Copilot Instructions`,
+        '',
+        'This project is a **RenWeb** desktop application. RenWeb is a cross-platform',
+        'framework for building native GUI apps with an HTML/CSS/JS frontend and a',
+        'C++ backend. The engine is a sub-2 MB native executable with no Chromium',
+        'dependency.',
+        '',
+        '## JS API (`window.renweb`)',
+        '',
+        'The engine injects `window.renweb` into every page at startup.',
+        '',
+        '| Namespace | Purpose |',
+        '|-----------|---------|',
+        '| `renweb.window`   | Resize, focus, minimize, maximize, set title / opacity |',
+        '| `renweb.log`      | Structured logging → spdlog (trace / debug / info / warn / error) |',
+        '| `renweb.fs`       | Read, write, list files and directories |',
+        '| `renweb.config`   | Read / write window config properties at runtime |',
+        '| `renweb.system`   | Clipboard, shell exec, open URL, system info |',
+        '| `renweb.process`  | Spawn additional windows, manage child processes |',
+        '| `renweb.navigate` | Navigate to a different page |',
+        '| `renweb.network`  | HTTP requests and WebSocket from JS |',
+        '| `renweb.debug`    | Developer utilities |',
+        '| `renweb.plugins`  | Call functions exported by loaded native plugins |',
+        '',
+        'Full API reference: https://spur27.github.io/RenWeb-Engine/?page=api',
+        '',
+        '## Architecture',
+        '',
+        '- The engine serves web content from `build/content/<page>/` via an embedded',
+        '  HTTP server bound to `127.0.0.1`.',
+        '- `info.json` (project root) controls app metadata; `config.json` controls',
+        '  window properties. Both are copied to `build/` at setup time.',
+        '- Plugins are shared libraries (`.so`/`.dll`/`.dylib`) in `build/plugins/` —',
+        '  they extend the JS API without modifying the engine.',
+        '',
+        '## Project Structure',
+        '',
+        fence,
+        `${toSnake(info.title)}/`,
+        '├── .github/',
+        '│   └── copilot-instructions.md   ← this file',
+        '├── licenses/                     ← engine dependency licences',
+        '├── resource/                     ← platform resources (manifests, icons)',
+        '├── credentials/                  ← credential documentation template',
+        '├── src/',
+        '│   ├── content/',
+        `│   │   └── ${pageName}/          ← page HTML, CSS, JS`,
+        '│   ├── assets/                   ← shared images, fonts, audio',
+        '│   └── modules/                  ← shared JS modules',
+        '│       └── renweb/               ← RenWeb JS API',
+        '├── build/                        ← generated by rw build (git-ignored)',
+        '│   ├── renweb-<exe>              ← engine executable (platform + arch specific)',
+        '│   ├── info.json',
+        '│   ├── config.json',
+        '│   └── content/',
+        `│       └── ${pageName}/          ← served web content (starting page)`,
+        '├── info.json                     ← project metadata',
+        '├── config.json                   ← window configuration',
+        '└── .gitignore',
+        fence,
+        '',
+    ].join('\n');
 }
 
 // ─── Config / info JSON generators ───────────────────────────────────────────
@@ -189,91 +221,6 @@ function makeInfoJson(info, pageName) {
     }, null, 4);
 }
 
-// ─── .renweb/dev.js template ─────────────────────────────────────────────────
-
-function makeDevScript() {
-    return `#!/usr/bin/env node
-'use strict';
-// RenWeb dev launcher — generated by renweb create
-// Scans build/ for the engine executable, then launches it.
-// For Vite projects: also starts vite build --watch for hot rebuilds.
-const fs   = require('fs');
-const path = require('path');
-const { spawn } = require('child_process');
-
-const ROOT     = path.resolve(__dirname, '..');
-const buildDir = path.join(ROOT, 'build');
-const pidFile  = path.join(buildDir, '.engine.pid');
-
-function findExe() {
-    const plat = process.platform;
-    const arch  = process.arch;
-    const os   = plat === 'win32' ? 'windows' : plat === 'darwin' ? 'macos' : 'linux';
-    const cpu  = arch === 'x64' ? 'x86_64' : arch === 'ia32' ? 'x86_32' : arch;
-    const pat  = new RegExp(\`-\${os}-\${cpu}(\\\\.exe)?$\`, 'i');
-    return fs.readdirSync(buildDir).find(f => pat.test(f) && fs.statSync(path.join(buildDir, f)).isFile()) || null;
-}
-
-function isViteProject() {
-    try {
-        const pkg  = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-        return !!(deps['vite'] || deps['@vitejs/plugin-react'] || deps['@vitejs/plugin-vue'] || deps['@sveltejs/vite-plugin-svelte'] || deps['@preact/preset-vite']);
-    } catch (_) { return false; }
-}
-
-(async () => {
-    // Kill previous engine instance
-    if (fs.existsSync(pidFile)) {
-        const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-        if (pid) { try { process.kill(pid, 'SIGTERM'); } catch (_) {} }
-        try { fs.unlinkSync(pidFile); } catch (_) {}
-    }
-
-    const exeName = findExe();
-    if (!exeName) { console.error('No engine executable found in build/'); process.exit(1); }
-    const exePath = path.join(buildDir, exeName);
-    try { fs.chmodSync(exePath, 0o755); } catch (_) {}
-
-    const isWin   = process.platform === 'win32';
-    let viteProc  = null;
-
-    if (isViteProject()) {
-        const npm = isWin ? 'npm.cmd' : 'npm';
-        viteProc  = spawn(npm, ['run', 'build', '--', '--watch'], {
-            cwd: ROOT, stdio: ['ignore', 'inherit', 'inherit'], detached: false,
-        });
-        // Detect starting page from info.json
-        let startPage = 'app';
-        try { startPage = JSON.parse(fs.readFileSync(path.join(buildDir, 'info.json'), 'utf8')).starting_pages[0] || startPage; } catch (_) {}
-        const outIndex = path.join(buildDir, 'content', startPage, 'index.html');
-        console.log('Waiting for initial Vite build...');
-        let waited = 0;
-        while (!fs.existsSync(outIndex) && waited < 60000) {
-            await new Promise(r => setTimeout(r, 500));
-            waited += 500;
-        }
-        if (!fs.existsSync(outIndex)) console.warn('Warning: build output not found — engine may show a blank page');
-    }
-
-    const engineProc = spawn(exePath, [], {
-        cwd: buildDir, stdio: 'inherit', detached: false,
-    });
-    fs.writeFileSync(pidFile, String(engineProc.pid), 'utf8');
-    console.log(\`RenWeb engine started (PID \${engineProc.pid}). Press Ctrl+C to stop.\`);
-
-    const cleanup = (code) => {
-        if (viteProc) try { viteProc.kill('SIGTERM'); } catch (_) {}
-        try { fs.unlinkSync(pidFile); } catch (_) {}
-        process.exit(code ?? 0);
-    };
-    process.on('SIGINT',  () => { engineProc.kill('SIGTERM'); cleanup(0); });
-    process.on('SIGTERM', () => { engineProc.kill('SIGTERM'); cleanup(0); });
-    engineProc.on('exit', code => cleanup(code));
-})();
-`;
-}
-
 // ─── Vite config generators ───────────────────────────────────────────────────
 
 function makeViteConfig(type, pageName) {
@@ -302,8 +249,9 @@ export default defineConfig({
 
 // ─── Front-end project scaffolder ────────────────────────────────────────────
 
-async function createFrontend(type, projectDir, info) {
-    const pageName = toSnake(info.title);
+async function createFrontend(type, projectDir, info, flags = {}) {
+    const { node = false, deno = false } = flags;
+    const pageName = 'main';
     const isVite   = type !== 'vanilla';
     const pkgName  = toKebab(info.title);
 
@@ -333,25 +281,44 @@ async function createFrontend(type, projectDir, info) {
             const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
             pkg.scripts = {
                 ...pkg.scripts,
-                start: 'node .renweb/dev.js',
-                dev:   'node .renweb/dev.js',
+                dev:   'rw dev',
                 run:   'rw run',
             };
             fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
         }
     } else {
-        // Vanilla: create the dir and a minimal package.json ourselves
+        // Vanilla: source-organized structure under src/
         fs.mkdirSync(projectDir, { recursive: true });
-        const pkg = {
-            name: pkgName, version: info.version, private: true,
-            scripts: { start: 'node .renweb/dev.js', dev: 'node .renweb/dev.js', run: 'rw run' },
-        };
-        fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 
-        // Minimal HTML page
-        const contentDir = path.join(projectDir, 'build', 'content', pageName);
-        fs.mkdirSync(contentDir, { recursive: true });
-        fs.writeFileSync(path.join(contentDir, 'index.html'),
+        // ── src/ structure ─────────────────────────────────────────────────────
+        const srcContent = path.join(projectDir, 'src', 'content', pageName);
+        const srcAssets  = path.join(projectDir, 'src', 'assets');
+        fs.mkdirSync(srcContent, { recursive: true });
+        fs.mkdirSync(srcAssets,  { recursive: true });
+
+        // ── Runtime manifest (if requested) ──────────────────────────────────
+        if (node) {
+            const pkg = {
+                name: pkgName, version: info.version, private: true,
+                dependencies: { renweb: 'latest' },
+                scripts: { run: 'rw run', dev: 'rw dev' },
+            };
+            fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        } else if (deno) {
+            const denoJson = {
+                imports: { renweb: 'jsr:@renweb/api' },
+                tasks:   { run: 'rw run', dev: 'rw dev' },
+            };
+            fs.writeFileSync(path.join(projectDir, 'deno.json'), JSON.stringify(denoJson, null, 2) + '\n', 'utf8');
+        }
+
+        // ── Starter HTML page ─────────────────────────────────────────────────
+        // Modules are copied by rw build into build/content/<page>/modules/,
+        // so the import path uses ./modules/renweb/index.js (resolved post-build).
+        const apiImport = (node || deno)
+            ? `// import { Log, Window, FS } from 'renweb'; // requires a bundler`
+            : `import { Log, Window, FS } from './modules/renweb/index.js';`;
+        fs.writeFileSync(path.join(srcContent, 'index.html'),
 `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -360,44 +327,57 @@ async function createFrontend(type, projectDir, info) {
   <title>${info.title}</title>
 </head>
 <body>
-  <h1>${info.title}</h1>
-  <script type="module" src="../../renweb/index.js"></script>
+  <h1>Hello from ${info.title}!</h1>
   <script type="module">
-    // RenWeb JS API is available via window.RenWeb
+    ${apiImport}
     console.log('RenWeb app started');
   </script>
 </body>
 </html>
 `, 'utf8');
+
+        // ── JS API modules ────────────────────────────────────────────────────
+        if (!node && !deno) {
+            fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
+        }
+
+        // ── Extra directories from engine repo ────────────────────────────────
+        console.log('  Fetching licenses…');
+        fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
+        console.log('  Fetching resource files…');
+        fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
+        console.log('  Fetching credentials template…');
+        fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
+
+        // ── Copilot instructions ──────────────────────────────────────────────
+        const githubDir = path.join(projectDir, '.github');
+        fs.mkdirSync(githubDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(githubDir, 'copilot-instructions.md'),
+            makeCopilotInstructions(info, pageName),
+            'utf8',
+        );
     }
 
-    // ── build/ structure ──────────────────────────────────────────────────────
-    const buildDir = path.join(projectDir, 'build');
-    fs.mkdirSync(path.join(buildDir, 'content', pageName), { recursive: true });
-    fs.writeFileSync(path.join(buildDir, 'config.json'), makeConfigJson(info, pageName), 'utf8');
-    const infoText = makeInfoJson(info, pageName);
-    fs.writeFileSync(path.join(projectDir, 'info.json'), infoText, 'utf8');
-    fs.writeFileSync(path.join(buildDir, 'info.json'),   infoText, 'utf8');
+    // ── info.json / config.json — always written to project root ─────────────
+    const configText = makeConfigJson(info, pageName);
+    const infoText   = makeInfoJson(info, pageName);
+    fs.writeFileSync(path.join(projectDir, 'info.json'),   infoText,   'utf8');
+    fs.writeFileSync(path.join(projectDir, 'config.json'), configText, 'utf8');
 
-    // ── renweb/ API ───────────────────────────────────────────────────────────
-    fetchWebApi(path.join(projectDir, 'renweb'));
-
-    // ── Engine executable ─────────────────────────────────────────────────────
-    fetchEngineExecutable(buildDir, info);
-
-    // ── .renweb/ dev script (no meta.json) ───────────────────────────────────
-    const renwebDir = path.join(projectDir, '.renweb');
-    fs.mkdirSync(renwebDir, { recursive: true });
-    fs.writeFileSync(path.join(renwebDir, 'dev.js'), makeDevScript(), 'utf8');
+    if (isVite) {
+        // ── Vite: create build/ targets, fetch engine, seed build files ───────
+        const buildDir = path.join(projectDir, 'build');
+        fs.mkdirSync(path.join(buildDir, 'content', pageName), { recursive: true });
+        fs.writeFileSync(path.join(buildDir, 'config.json'), configText, 'utf8');
+        fs.writeFileSync(path.join(buildDir, 'info.json'),   infoText,   'utf8');
+        fetchEngineExecutable(buildDir, info);
+    }
 
     // ── .gitignore ────────────────────────────────────────────────────────────
-    const gitignoreLines = [
-        'node_modules/',
-        'build/.engine.pid',
-        `build/content/${pageName}/`,
-        '',
-    ];
-    if (isVite) gitignoreLines.unshift('dist/');
+    const gitignoreLines = isVite
+        ? ['dist/', 'node_modules/', '.rw/', 'build/.engine.pid', `build/content/${pageName}/`, '']
+        : ['build/', '.rw/', ...(node ? ['node_modules/'] : []), ''];
     const giPath = path.join(projectDir, '.gitignore');
     if (!fs.existsSync(giPath)) {
         fs.writeFileSync(giPath, gitignoreLines.join('\n'), 'utf8');
@@ -1334,50 +1314,71 @@ function fetchPluginTestEnv(projectDir, info, pluginName) {
     fetchEngineExecutable(buildDir, info);
 }
 
-// ─── Repo cloner ─────────────────────────────────────────────────────────────
+// ─── Engine repo cloner ───────────────────────────────────────────────────────
 
-function createRepo(projectDir) {
+function createEngine(projectDir, skipSubmodules) {
     const gitOk = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
-    if (!gitOk) { console.error('git is required for `renweb create repo`'); process.exit(1); }
+    if (!gitOk) { console.error('git is required for `rw create engine`'); process.exit(1); }
 
-    const parent = path.dirname(projectDir);
-    const name   = path.basename(projectDir);
-    console.log(`\nCloning RenWeb Engine repository into ${name}/…`);
-    const r = spawnSync('git', ['clone', 'https://github.com/spur27/RenWeb-Engine', name],
-        { cwd: parent, stdio: 'inherit' });
+    const parent    = path.dirname(projectDir);
+    const name      = path.basename(projectDir);
+    const repoUrl   = resolveEngineRepo();
+    const cloneArgs = skipSubmodules
+        ? ['clone', repoUrl, name]
+        : ['clone', '--recurse-submodules', repoUrl, name];
+
+    console.log(`\nCloning RenWeb Engine repository into ${name}/…${skipSubmodules ? '' : ' (including submodules)'}`);
+    const r = spawnSync('git', cloneArgs, { cwd: parent, stdio: 'inherit' });
     if (r.status !== 0) { console.error('git clone failed'); process.exit(r.status); }
 }
 
 // ─── Argument parsing ─────────────────────────────────────────────────────────
 
 function parseArgs(args) {
-    const [type, ...rest] = args;
-    const yes     = rest.includes('-y') || rest.includes('--yes');
-    const dirFlag = rest.indexOf('--dir');
-    const dir     = dirFlag >= 0 ? rest[dirFlag + 1] : null;
-    return { type: (type || '').toLowerCase(), dir, yes };
+    const [rawType, ...rest] = args;
+    const yes            = rest.includes('-y') || rest.includes('--yes');
+    const skipSubmodules = rest.includes('--skip-submodules');
+    const node           = rest.includes('--node');
+    const deno           = rest.includes('--deno');
+    const dirFlag        = rest.indexOf('--dir');
+    const dir            = dirFlag >= 0 ? rest[dirFlag + 1] : null;
+    const type           = (rawType || 'vanilla').toLowerCase();
+    return { type, dir, yes, skipSubmodules, node, deno };
 }
 
 // ─── Entry ────────────────────────────────────────────────────────────────────
 
 async function run(args) {
-    const { type, dir, yes } = parseArgs(args);
+    const { type, dir, yes, skipSubmodules, node, deno } = parseArgs(args);
 
-    if (!type || !ALL_TYPES.includes(type)) {
-        console.log(`Usage: renweb create <type> [--dir <path>] [-y]\n`);
-        console.log(`Types:\n  ${FRONTEND_TYPES.join(', ')}  — front-end projects`);
+    if (!ALL_TYPES.includes(type)) {
+        console.log(`Usage: renweb create [type] [--dir <path>] [-y]\n`);
+        console.log(`Types:\n  ${FRONTEND_TYPES.join(', ')}  — front-end projects (default: vanilla)`);
         console.log(`  plugin                             — C++ plugin scaffold`);
-        console.log(`  repo                               — clone the engine repository`);
+        console.log(`  engine                             — clone the engine repository`);
         process.exit(1);
     }
 
     // Default output directory: cwd
     const projectDir = path.resolve(dir || process.cwd());
 
-    if (type === 'repo') {
-        createRepo(projectDir);
+    if (type === 'engine') {
+        createEngine(projectDir, skipSubmodules);
         console.log('\n✓ Repository cloned.');
         return;
+    }
+
+    // ── Detect existing project state in the target directory ─────────────────
+    const existing = ProjectState.detect_any(projectDir);
+
+    if (FRONTEND_TYPES.includes(type) && existing.has_renweb) {
+        console.error(`\nError: A RenWeb project is already present at ${existing.root}.`);
+        console.error(`  Use 'rw add page <name>' to add pages, or 'rw update' to update the engine.\n`);
+        process.exit(1);
+    }
+
+    if (FRONTEND_TYPES.includes(type) && existing.framework !== 'vanilla') {
+        console.log(`\nNote: Existing ${existing.framework} project detected — adding RenWeb engine layer.\n`);
     }
 
     const rl = yes ? null : readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -1406,7 +1407,7 @@ async function run(args) {
     if (rl) rl.close();
 
     console.log(`\nScaffolding ${type} project at: ${projectDir}`);
-    await createFrontend(type, projectDir, info);
+    await createFrontend(type, projectDir, info, { node, deno });
 
     const isVite = type !== 'vanilla';
     console.log('\n✓ Project scaffolded.');
@@ -1414,10 +1415,11 @@ async function run(args) {
     if (isVite) {
         console.log(`  cd ${path.basename(projectDir)}`);
         console.log(`  npm install`);
-        console.log(`  npm run dev     # builds and launches RenWeb engine with hot rebuilds`);
+        console.log(`  rw dev          # builds and launches RenWeb engine with hot rebuilds`);
     } else {
         console.log(`  cd ${path.basename(projectDir)}`);
-        console.log(`  npm run dev     # launches the RenWeb engine`);
+        if (node) console.log(`  npm install     # install renweb API package`);
+        console.log(`  rw run          # launch the engine`);
     }
     console.log('');
 }

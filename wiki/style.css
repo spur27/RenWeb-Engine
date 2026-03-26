@@ -1158,6 +1158,16 @@ h4 code {
     color: var(--tree-purple-lighter);
 }
 
+h2 code,
+h3 code {
+    background: var(--bg-purple-alpha);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 1em;
+    color: var(--tree-purple-lighter);
+}
+
 .copy-btn {
     position: absolute;
     top: var(--spacing-sm);

@@ -1,6 +1,7 @@
 'use strict';
 // renweb update [--bundle-only | --executable-only]
 // Updates the engine executable (and bundle libs/launcher) in an existing RenWeb project.
+// Also updates npm/deno packages, vanilla JS API modules, and all registered plugins.
 // Auto-detects bundle vs bare install; macOS always uses executable-only.
 
 const fs   = require('fs');
@@ -8,10 +9,14 @@ const path = require('path');
 const os   = require('os');
 const { spawnSync } = require('child_process');
 const {
-    download, fetchLatestRelease,
-    detectTarget, findProjectRoot, findProjectExecutable,
+    download, fetchRelease, fetchLatestRelease,
+    detectTarget, findProjectExecutable,
     loadInfo, saveInfo, copyDir,
+    rwPluginsDir, ensureRwGitignore,
+    parseGitHubUrl,
+    engineRawBase, resolveEngineRepo,
 } = require('./shared');
+const { ProjectState } = require('../project/project_state');
 
 // ─── Bundle detection ─────────────────────────────────────────────────────────
 
@@ -151,22 +156,127 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
 
 // ─── Entry ────────────────────────────────────────────────────────────────────
 
+// ─── Vanilla module update ────────────────────────────────────────────────────
+
+/**
+ * Re-download the RenWeb JS API files from GitHub raw into src/modules/renweb/.
+ * Silently skips if the directory does not exist (non-vanilla or Vite project).
+ */
+function updateVanillaModules(projectRoot) {
+    const renwebDir = path.join(projectRoot, 'src', 'modules', 'renweb');
+    if (!fs.existsSync(renwebDir)) return;
+    console.log('Updating RenWeb JS API modules…');
+    const rawBase = engineRawBase(resolveEngineRepo(projectRoot));
+    let updated = 0;
+    for (const file of ['index.js', 'index.d.ts']) {
+        const dest = path.join(renwebDir, file);
+        const url  = `${rawBase}/web/api/${file}`;
+        if (download(url, dest)) {
+            console.log(`  ✓ ${file}`);
+            updated++;
+        } else {
+            console.warn(`  ⚠ Failed to update ${file}`);
+        }
+    }
+    if (updated > 0) console.log(`  ✓ JS API modules updated (${updated} file${updated !== 1 ? 's' : ''})`);
+}
+
+// ─── Plugin update ────────────────────────────────────────────────────────────
+
+/**
+ * Update all plugins listed in info.json["plugins"].
+ * Each entry is a GitHub URL; for each, downloads all release assets to
+ * .rw/plugins/<owner>-<repo>/ and copies the host-arch binary to build/plugins/.
+ */
+function updatePlugins(projectRoot, buildDir) {
+    const info    = loadInfo(projectRoot);
+    const plugins = (info && Array.isArray(info.plugins)) ? info.plugins : [];
+    if (plugins.length === 0) return;
+
+    const { os: tOs, arch: tArch } = detectTarget();
+    const pluginCacheRoot = rwPluginsDir(projectRoot);
+    const buildPluginsDir = path.join(buildDir, 'plugins');
+    fs.mkdirSync(pluginCacheRoot, { recursive: true });
+    fs.mkdirSync(buildPluginsDir, { recursive: true });
+    ensureRwGitignore(projectRoot);
+
+    console.log(`\nUpdating ${plugins.length} plugin${plugins.length !== 1 ? 's' : ''}…`);
+
+    for (const repoUrl of plugins) {
+        const parsed = parseGitHubUrl(repoUrl);
+        if (!parsed) { console.warn(`  ⚠ Cannot parse plugin URL: ${repoUrl}`); continue; }
+        const { owner, repo } = parsed;
+        const cacheDir = path.join(pluginCacheRoot, `${owner}-${repo}`);
+        fs.mkdirSync(cacheDir, { recursive: true });
+
+        console.log(`  ${owner}/${repo}`);
+        const rel = fetchLatestRelease(repoUrl);
+        if (!rel) { console.warn(`    ⚠ Could not fetch release metadata`); continue; }
+
+        // Download all assets to cache
+        for (const asset of (rel.assets || [])) {
+            const name = (asset.name || '').trim();
+            const url  = asset.browser_download_url;
+            if (!name || !url) continue;
+            const destPath = path.join(cacheDir, name);
+            if (!download(url, destPath)) {
+                console.warn(`    ⚠ Failed to download ${name}`);
+            } else {
+                console.log(`    ✓ ${name}`);
+            }
+        }
+
+        // Copy the host-arch binary to build/plugins/
+        const hostPattern = new RegExp(`[_.-]${tOs}[_.-]${tArch}`, 'i');
+        let entries;
+        try { entries = fs.readdirSync(cacheDir); } catch (_) { entries = []; }
+        const hostBinary = entries.find(f => hostPattern.test(f) && /\.(so|dll)$/.test(f));
+        if (hostBinary) {
+            fs.copyFileSync(path.join(cacheDir, hostBinary), path.join(buildPluginsDir, hostBinary));
+            console.log(`    ✓ Installed: ${hostBinary}`);
+        }
+    }
+}
+
+// ─── Entry ────────────────────────────────────────────────────────────────────
+
 function run(args) {
     const bundleOnly     = args.includes('--bundle-only');
     const executableOnly = args.includes('--executable-only');
 
-    const projectRoot = findProjectRoot();
-    if (!projectRoot) {
+    const verIdx = args.indexOf('--version');
+    const tag    = verIdx !== -1 ? args[verIdx + 1] : null;
+
+    const state = ProjectState.detect();
+    if (!state) {
         console.error('Not inside a RenWeb project (no info.json found).');
         process.exit(1);
     }
+    const projectRoot = state.root;
+
+    // ── 1. Package manager update ─────────────────────────────────────────────
+    const pm = state.pkg_manager();
+    if (pm && pm.name() !== 'none') {
+        console.log(`\nUpdating ${pm.name()} packages…`);
+        const r = pm.install();
+        if (r && r.status !== 0) console.warn('  ⚠ Package install returned non-zero');
+        else if (r) console.log('  ✓ Packages up to date');
+    }
+
+    // ── 2. Vanilla JS API modules ─────────────────────────────────────────────
+    if (state.isVanilla()) {
+        updateVanillaModules(projectRoot);
+    }
+
+    // ── 3. Engine / bundle update ─────────────────────────────────────────────
 
     const { os: tOs, arch: tArch } = detectTarget();
     const buildDir = path.join(projectRoot, 'build');
     const isMacOs  = process.platform === 'darwin';
 
-    console.log(`\nChecking for latest release (${tOs}-${tArch})…`);
-    const release = fetchLatestRelease();
+    const label = tag ? `v${tag}` : 'latest';
+    console.log(`\nChecking for release ${label} (${tOs}-${tArch})…`);
+    const release = fetchRelease(tag);
     if (!release) {
         console.error('Could not reach GitHub — aborting.');
         process.exit(1);
@@ -176,6 +286,7 @@ function run(args) {
     if (isMacOs) {
         if (bundleOnly) console.warn('  ⚠ Bundles are not used on macOS — running executable-only update');
         updateExeOnly(projectRoot, buildDir, tOs, tArch, release);
+        updatePlugins(projectRoot, buildDir);
         console.log('\nDone.');
         return;
     }
@@ -191,6 +302,9 @@ function run(args) {
     } else {
         updateExeOnly(projectRoot, buildDir, tOs, tArch, release);
     }
+
+    // ── 4. Plugin update ──────────────────────────────────────────────────────
+    updatePlugins(projectRoot, buildDir);
 
     console.log('\nDone.');
 }
