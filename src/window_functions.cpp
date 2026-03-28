@@ -2028,382 +2028,386 @@ WF* WF::setNetworkCallbacks() {
     }))->add("update",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             json::object settings = this->getSingleParameter(req).as_object();
-            bool include_ui      = settings.contains("include_ui")      ? settings.at("include_ui").as_bool()      : true;
-            bool include_engine  = settings.contains("include_engine")  ? settings.at("include_engine").as_bool()  : true;
-            bool include_plugins = settings.contains("include_plugins") ? settings.at("include_plugins").as_bool() : true;
+            bool update_app     = settings.contains("update_app")     ? settings.at("update_app").as_bool()     : false;
+            bool update_engine  = settings.contains("update_engine")  ? settings.at("update_engine").as_bool()  : false;
+            bool update_plugins = settings.contains("update_plugins") ? settings.at("update_plugins").as_bool() : false;
 
-            json::object updates = {};
-
-            // ── helpers ──────────────────────────────────────────────────────
+            json::object result = {};
 
             // Parse "https://github.com/owner/repo" → {owner, repo}
-            auto parseGitHubRepo = [](const std::string& url) -> std::pair<std::string, std::string> {
+            auto parseRepo = [](const std::string& url) -> std::pair<std::string,std::string> {
                 std::string s = url;
                 while (!s.empty() && s.back() == '/') s.pop_back();
                 size_t last = s.rfind('/');
-                if (last == std::string::npos) return {"", ""};
-                std::string repo  = s.substr(last + 1);
+                if (last == std::string::npos) return {"",""};
+                std::string r = s.substr(last + 1);
                 size_t prev = s.rfind('/', last - 1);
-                if (prev == std::string::npos) return {"", ""};
-                std::string owner = s.substr(prev + 1, last - prev - 1);
-                return {owner, repo};
+                if (prev == std::string::npos) return {"",""};
+                return {s.substr(prev + 1, last - prev - 1), r};
             };
 
-            // Fetch /repos/{owner}/{repo}/releases/latest from GitHub API
-            auto fetchLatestRelease = [&](const std::string& owner, const std::string& repo) -> json::value {
+            // Fetch /repos/{owner}/{repo}/releases/latest JSON
+            auto fetchRelease = [&](const std::string& owner, const std::string& repo) -> json::value {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                httplib::SSLClient client("api.github.com");
-                client.set_follow_location(true);
-                client.enable_server_certificate_verification(false);
-                auto res = client.Get(
-                    "/repos/" + owner + "/" + repo + "/releases/latest",
-                    httplib::Headers{{"User-Agent", "RenWeb-Engine"}, {"Accept", "application/vnd.github+json"}});
+                httplib::SSLClient cl("api.github.com");
+                cl.set_follow_location(true);
+                cl.enable_server_certificate_verification(false);
+                auto res = cl.Get("/repos/" + owner + "/" + repo + "/releases/latest",
+                    httplib::Headers{{"User-Agent","RenWeb-Engine"},{"Accept","application/vnd.github+json"}});
                 if (!res || res->status != 200) {
-                    this->logger->error("[update] Failed to fetch release for " + owner + "/" + repo + (res ? " (HTTP " + std::to_string(res->status) + ")" : " (no response)"));
+                    this->logger->error("[update] Failed to fetch release: " + owner + "/" + repo);
                     return json::value(nullptr);
                 }
                 try { return json::parse(res->body); }
-                catch (...) {
-                    this->logger->error("[update] Failed to parse release JSON for " + owner + "/" + repo);
-                    return json::value(nullptr);
-                }
+                catch (...) { return json::value(nullptr); }
 #else
-                this->logger->error("[update] HTTPS (OpenSSL) support is required to fetch GitHub releases");
+                this->logger->error("[update] HTTPS support required for GitHub API");
                 return json::value(nullptr);
 #endif
             };
 
-            // Download a URL to a local path; returns true on success
-            auto downloadFile = [&](const std::string& url, const std::filesystem::path& dest) -> bool {
-                std::string stripped = url;
-                bool is_https = (stripped.find("https://") == 0);
-                stripped = stripped.substr(is_https ? 8 : 7);
-                size_t slash = stripped.find('/');
-                if (slash == std::string::npos) return false;
-                std::string host     = stripped.substr(0, slash);
-                std::string path_str = stripped.substr(slash);
-
+            // Download URL to path, return success
+            auto downloadTo = [&](const std::string& url, const std::filesystem::path& dest) -> bool {
+                bool https = url.rfind("https://", 0) == 0;
+                std::string s = url.substr(https ? 8 : 7);
+                size_t sl = s.find('/');
+                if (sl == std::string::npos) return false;
+                std::string host = s.substr(0, sl), path = s.substr(sl);
                 std::error_code ec;
                 std::filesystem::create_directories(dest.parent_path(), ec);
-
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                if (is_https) {
-                    httplib::SSLClient client(host.c_str());
-                    client.set_follow_location(true);
-                    client.enable_server_certificate_verification(false);
-                    auto res = client.Get(path_str.c_str(), httplib::Headers{{"User-Agent", "RenWeb-Engine"}});
+                if (https) {
+                    httplib::SSLClient cl(host.c_str());
+                    cl.set_follow_location(true);
+                    cl.enable_server_certificate_verification(false);
+                    auto res = cl.Get(path.c_str(), httplib::Headers{{"User-Agent","RenWeb-Engine"}});
                     if (!res || res->status != 200) return false;
                     std::ofstream out(dest, std::ios::binary);
-                    out.write(res->body.data(), static_cast<std::streamsize>(res->body.size()));
+                    out.write(res->body.data(), (std::streamsize)res->body.size());
                     return out.good();
                 }
 #endif
-                {
-                    httplib::Client client(host.c_str());
-                    client.set_follow_location(true);
-                    auto res = client.Get(path_str.c_str(), httplib::Headers{{"User-Agent", "RenWeb-Engine"}});
-                    if (!res || res->status != 200) return false;
-                    std::ofstream out(dest, std::ios::binary);
-                    out.write(res->body.data(), static_cast<std::streamsize>(res->body.size()));
-                    return out.good();
-                }
+                httplib::Client cl(host.c_str());
+                cl.set_follow_location(true);
+                auto res = cl.Get(path.c_str(), httplib::Headers{{"User-Agent","RenWeb-Engine"}});
+                if (!res || res->status != 200) return false;
+                std::ofstream out(dest, std::ios::binary);
+                out.write(res->body.data(), (std::streamsize)res->body.size());
+                return out.good();
             };
 
-            // Returns true if semver b is strictly newer than a
+            // True if semver b > a
             auto isNewer = [](const std::string& a, const std::string& b) -> bool {
-                auto parse = [](const std::string& v) -> std::tuple<int,int,int> {
+                auto parse = [](const std::string& v) {
                     std::string s = v;
-                    if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s = s.substr(1);
-                    int ma = 0, mi = 0, pa = 0;
+                    if (!s.empty() && (s[0]=='v'||s[0]=='V')) s = s.substr(1);
+                    int ma=0,mi=0,pa=0;
                     #if defined(_WIN32)
-                        sscanf_s(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
+                        sscanf_s(s.c_str(),"%d.%d.%d",&ma,&mi,&pa);
                     #else
-                        std::sscanf(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
+                        std::sscanf(s.c_str(),"%d.%d.%d",&ma,&mi,&pa);
                     #endif
-                    return {ma, mi, pa};
+                    return std::tuple{ma,mi,pa};
                 };
                 return parse(b) > parse(a);
             };
 
-            // Strip leading 'v'/'V' from a tag name
-            auto stripV = [](const std::string& tag) -> std::string {
-                if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) return tag.substr(1);
-                return tag;
+            auto stripV = [](const std::string& t) -> std::string {
+                return (!t.empty() && (t[0]=='v'||t[0]=='V')) ? t.substr(1) : t;
             };
 
-            // Get the runtime CPU architecture string normalised to match
-            // the makefile ARCH values used in executable/plugin filenames:
-            //   x86_64, x86_32, arm64, arm32, mips32, mips32el, mips64,
-            //   mips64el, powerpc32, powerpc64, riscv64, s390x, sparc64
-            auto getRuntimeArch = []() -> std::string {
+            // {os, arch} — try exec filename first, then runtime detection
+            auto getOsArch = [&]() -> std::pair<std::string,std::string> {
+                std::string stem = Locate::executable().stem().string();
+                static const std::regex re(R"(^.+-\d[\w.]*-(\w+)-([\w]+)$)");
+                std::smatch sm;
+                if (std::regex_search(stem, sm, re))
+                    return {sm[1].str(), sm[2].str()};
 #if defined(_WIN32)
-                SYSTEM_INFO si;
-                GetNativeSystemInfo(&si);
+                SYSTEM_INFO si; GetNativeSystemInfo(&si);
+                std::string arch;
                 switch (si.wProcessorArchitecture) {
-                    case PROCESSOR_ARCHITECTURE_AMD64: return "x86_64";
-                    case PROCESSOR_ARCHITECTURE_ARM64: return "arm64";
-                    case PROCESSOR_ARCHITECTURE_INTEL: return "x86_32";
-                    default:                           return "";
+                    case PROCESSOR_ARCHITECTURE_AMD64: arch="x86_64"; break;
+                    case PROCESSOR_ARCHITECTURE_ARM64: arch="arm64";  break;
+                    case PROCESSOR_ARCHITECTURE_INTEL: arch="x86_32"; break;
+                    default: arch="";
                 }
+                return {"windows", arch};
+#elif defined(__APPLE__)
+                struct utsname ui; ::uname(&ui);
+                std::string ma = ui.machine;
+                return {"macos", (ma=="aarch64"||ma=="arm64") ? "arm64" : "x86_64"};
 #else
-                struct utsname info;
-                if (::uname(&info) != 0) return "";
-                std::string m = info.machine;
-                // Normalise uname -m → makefile ARCH
-                if (m == "x86_64")                              return "x86_64";
-                if (m == "i386" || m == "i486" ||
-                    m == "i586" || m == "i686")                 return "x86_32";
-                if (m == "aarch64" || m == "arm64")             return "arm64";
-                if (m.rfind("arm", 0) == 0)                     return "arm32";   // armv7l, armv6l …
-                if (m == "mips64el" || m == "mips64le")         return "mips64el";
-                if (m == "mips64")                              return "mips64";
-                if (m == "mipsel" || m == "mipsle")             return "mips32el";
-                if (m == "mips")                                return "mips32";
-                if (m == "ppc64le" || m == "ppc64el" ||
-                    m == "powerpc64le")                         return "powerpc64"; // makefile has no LE variant
-                if (m == "ppc64" || m == "powerpc64")           return "powerpc64";
-                if (m == "ppc"   || m == "powerpc")             return "powerpc32";
-                if (m == "riscv64")                             return "riscv64";
-                if (m == "s390x")                               return "s390x";
-                if (m == "sparc64")                             return "sparc64";
-                return m; // unknown — return as-is rather than an empty string
+                struct utsname ui; ::uname(&ui);
+                std::string ma = ui.machine;
+                std::string arch;
+                if      (ma=="x86_64")                                    arch="x86_64";
+                else if (ma=="i386"||ma=="i486"||ma=="i586"||ma=="i686")  arch="x86_32";
+                else if (ma=="aarch64"||ma=="arm64")                      arch="arm64";
+                else if (ma.rfind("arm",0)==0)                            arch="arm32";
+                else if (ma=="mips64el"||ma=="mips64le")                  arch="mips64el";
+                else if (ma=="mips64")                                    arch="mips64";
+                else if (ma=="mipsel"||ma=="mipsle")                      arch="mips32el";
+                else if (ma=="mips")                                      arch="mips32";
+                else if (ma=="ppc64le"||ma=="ppc64el"||ma=="powerpc64le") arch="powerpc64";
+                else if (ma=="ppc64"||ma=="powerpc64")                    arch="powerpc64";
+                else if (ma=="ppc"||ma=="powerpc")                        arch="powerpc32";
+                else if (ma=="riscv64")                                   arch="riscv64";
+                else if (ma=="s390x")                                     arch="s390x";
+                else if (ma=="sparc64")                                   arch="sparc64";
+                else                                                      arch=ma;
+                return {"linux", arch};
 #endif
             };
 
-            // ── UI update ────────────────────────────────────────────────────
-            if (include_ui) {
+            // Find release asset by exact name → {name, url}
+            auto findAsset = [](const json::value& rel, const std::string& name) -> std::pair<std::string,std::string> {
+                if (!rel.is_object() || !rel.as_object().contains("assets")) return {"",""};
+                for (const auto& a : rel.as_object().at("assets").as_array()) {
+                    if (!a.is_object()) continue;
+                    std::string n = a.as_object().at("name").as_string().c_str();
+                    if (n == name)
+                        return {n, a.as_object().at("browser_download_url").as_string().c_str()};
+                }
+                return {"",""};
+            };
+
+            // Find asset matching os+arch in filename, with optional extension filter
+            auto findPlatformAsset = [](const json::value& rel, const std::string& os, const std::string& arch, const std::string& ext="") -> std::pair<std::string,std::string> {
+                if (!rel.is_object() || !rel.as_object().contains("assets")) return {"",""};
+                static const std::regex re(R"(^.+-\d[\w.]*-(\w+)-([\w]+?)(?:\.\w+)?$)");
+                for (const auto& a : rel.as_object().at("assets").as_array()) {
+                    if (!a.is_object()) continue;
+                    std::string name = a.as_object().at("name").as_string().c_str();
+                    if (!ext.empty() && name.find(ext) == std::string::npos) continue;
+                    std::smatch sm;
+                    if (std::regex_match(name, sm, re) && sm[1].str()==os && (arch.empty()||sm[2].str()==arch))
+                        return {name, a.as_object().at("browser_download_url").as_string().c_str()};
+                }
+                return {"",""};
+            };
+
+            // Extract a zip asset to dest_dir using a system command
+            auto extractZip = [&](const std::filesystem::path& zip_path, const std::filesystem::path& dest_dir) -> bool {
+                std::error_code ec;
+                std::filesystem::create_directories(dest_dir, ec);
+                std::string cmd;
+#if defined(_WIN32)
+                cmd = "powershell -Command \"Expand-Archive -Force -Path '"
+                    + zip_path.string() + "' -DestinationPath '" + dest_dir.string() + "'\"";
+#else
+                cmd = "unzip -o \"" + zip_path.string() + "\" -d \"" + dest_dir.string() + "\"";
+#endif
+                return std::system(cmd.c_str()) == 0;
+            };
+
+            // Set exec bit on non-Windows
+            auto markExecutable = [](const std::filesystem::path& p) {
+#if !defined(_WIN32)
+                std::filesystem::permissions(p,
+                    std::filesystem::perms::owner_exec |
+                    std::filesystem::perms::group_exec |
+                    std::filesystem::perms::others_exec,
+                    std::filesystem::perm_options::add);
+#else
+                (void)p;
+#endif
+            };
+
+            if (update_app) {
                 json::value repo_val = this->app->info->getProperty("repository");
                 if (!repo_val.is_string()) {
-                    this->logger->info("[update] No 'repository' in info.json — skipping UI update");
+                    this->logger->warn("[update] No 'repository' in info.json — skipping app update");
                 } else {
-                    auto [owner, repo] = parseGitHubRepo(repo_val.as_string().c_str());
-                    if (owner.empty() || repo.empty()) {
-                        this->logger->error("[update] Could not parse repository URL: " + std::string(repo_val.as_string().c_str()));
+                    auto [owner, repo] = parseRepo(std::string(repo_val.as_string()));
+                    if (owner.empty()) {
+                        this->logger->error("[update] Could not parse repository URL");
                     } else {
-                        json::value release = fetchLatestRelease(owner, repo);
-                        if (release.is_object() && release.as_object().contains("tag_name")) {
-                            std::string latest  = stripV(release.as_object().at("tag_name").as_string().c_str());
-                            json::value cur_val = this->app->info->getProperty("version");
-                            std::string current = cur_val.is_string() ? cur_val.as_string().c_str() : "0.0.0";
+                        json::value rel = fetchRelease(owner, repo);
+                        auto [in, iurl] = findAsset(rel, "info.json");
+                        if (iurl.empty()) {
+                            this->logger->warn("[update] No info.json in release assets — cannot check version");
+                        } else {
+                            std::filesystem::path tmp = Locate::tempDirectory() / "renweb_app_update";
+                            std::error_code ec;
+                            std::filesystem::create_directories(tmp, ec);
+                            if (downloadTo(iurl, tmp / "info.json")) {
+                                std::string fetched_ver;
+                                try {
+                                    std::ifstream f(tmp / "info.json");
+                                    std::string buf((std::istreambuf_iterator<char>(f)), {});
+                                    json::value fi = json::parse(buf);
+                                    if (fi.is_object() && fi.as_object().contains("version"))
+                                        fetched_ver = fi.as_object().at("version").as_string().c_str();
+                                } catch (...) {}
 
-                            if (isNewer(current, latest)) {
-                                this->logger->info("[update] UI update available: " + current + " → " + latest);
-                                bool any = false;
-                                if (release.as_object().contains("assets")) {
-                                    for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                        if (!asset.is_object()) continue;
-                                        std::string name = asset.as_object().at("name").as_string().c_str();
-                                        std::string dl   = asset.as_object().at("browser_download_url").as_string().c_str();
-                                        std::filesystem::path dest = Locate::currentDirectory() / "content" / name;
-                                        this->logger->info("[update] Downloading UI asset: " + name);
-                                        if (downloadFile(dl, dest)) {
-                                            any = true;
-                                            this->logger->info("[update] Saved: " + dest.string());
-                                        } else {
-                                            this->logger->error("[update] Failed to download UI asset: " + name);
-                                        }
-                                    }
-                                }
-                                if (any) updates["ui"] = json::object{{"from", current}, {"to", latest}};
-                            } else {
-                                this->logger->info("[update] UI is up to date (" + current + ")");
-                                updates["ui"] = json::object{{"status", "up_to_date"}, {"version", current}};
-                            }
-                        }
-                    }
-                }
-            }
+                                json::value cv = this->app->info->getProperty("version");
+                                std::string cur = cv.is_string() ? cv.as_string().c_str() : "0.0.0";
 
-            // ── Engine update ─────────────────────────────────────────────────
-            if (include_engine) {
-                json::value eng_repo_val = this->app->info->getProperty("engine_repository");
-                std::string eng_repo_url = eng_repo_val.is_string()
-                    ? eng_repo_val.as_string().c_str()
-                    : "https://github.com/spur27/RenWeb-Engine";
-
-                auto [owner, repo] = parseGitHubRepo(eng_repo_url);
-                if (owner.empty() || repo.empty()) {
-                    this->logger->error("[update] Could not parse engine_repository URL: " + eng_repo_url);
-                } else {
-                    // Determine current version from the executable filename
-                    std::filesystem::path exec_path = Locate::executable();
-                    std::string exec_stem = exec_path.stem().string(); // strips .exe on Windows
-
-                    std::string current_version, current_os, current_arch;
-                    static const std::regex exec_re(R"(^.+-(\d+[\w.]*)-(\w+)-([\w]+?)$)");
-                    std::smatch em;
-                    if (std::regex_match(exec_stem, em, exec_re)) {
-                        current_version = em[1].str();
-                        current_os      = em[2].str();
-                        current_arch    = em[3].str();
-                    }
-
-                    json::value release = fetchLatestRelease(owner, repo);
-                    if (release.is_object() && release.as_object().contains("tag_name")) {
-                        std::string latest = stripV(release.as_object().at("tag_name").as_string().c_str());
-                        bool should_update = current_version.empty() ? true : isNewer(current_version, latest);
-
-                        if (should_update) {
-                            this->logger->info("[update] Engine update available: " +
-                                (current_version.empty() ? "unknown" : current_version) + " → " + latest);
-
-                            // Determine OS and arch identifiers for asset matching
-                            #if defined(_WIN32)
-                                std::string os_id = "windows";
-                            #elif defined(__APPLE__)
-                                std::string os_id = "macos";
-                            #else
-                                std::string os_id = "linux";
-                            #endif
-
-                            std::string arch_id = current_arch.empty() ? getRuntimeArch() : current_arch;
-
-                            std::string best_name, best_url;
-                            if (release.as_object().contains("assets")) {
-                                static const std::regex asset_re(R"(^.+-(\d+[\w.]*)-(\w+)-([\w]+?)(?:\.exe)?$)");
-                                for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                    if (!asset.is_object()) continue;
-                                    std::string aname = asset.as_object().at("name").as_string().c_str();
-                                    std::smatch am;
-                                    if (std::regex_match(aname, am, asset_re)) {
-                                        if (am[2].str() == os_id &&
-                                            (arch_id.empty() || am[3].str() == arch_id)) {
-                                            best_name = aname;
-                                            best_url  = asset.as_object().at("browser_download_url").as_string().c_str();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (best_url.empty()) {
-                                this->logger->error("[update] No matching engine asset found for this platform");
-                            } else {
-                                std::filesystem::path dest = exec_path.parent_path() / best_name;
-                                this->logger->info("[update] Downloading engine: " + best_name);
-                                if (downloadFile(best_url, dest)) {
-                                    #if !defined(_WIN32)
-                                        std::filesystem::permissions(dest,
-                                            std::filesystem::perms::owner_exec |
-                                            std::filesystem::perms::group_exec |
-                                            std::filesystem::perms::others_exec,
-                                            std::filesystem::perm_options::add);
-                                    #endif
-                                    this->logger->info("[update] Engine saved to: " + dest.string());
-                                    updates["engine"] = json::object{
-                                        {"from", current_version.empty() ? "unknown" : current_version},
-                                        {"to",   latest},
-                                        {"path", dest.string()}
-                                    };
+                                if (fetched_ver.empty() || !isNewer(cur, fetched_ver)) {
+                                    this->logger->info("[update] App is up to date (" + cur + ")");
+                                    result["app"] = json::object{{"status","up_to_date"},{"version",cur}};
                                 } else {
-                                    this->logger->error("[update] Failed to download engine: " + best_name);
+                                    this->logger->info("[update] App update: " + cur + " → " + fetched_ver);
+                                    std::filesystem::path app_dir = Locate::currentDirectory();
+                                    bool any = false;
+
+                                    std::filesystem::copy_file(tmp/"info.json", app_dir/"info.json",
+                                        std::filesystem::copy_options::overwrite_existing, ec);
+                                    if (!ec) any = true;
+
+                                    auto [cn, curl] = findAsset(rel, "config.json");
+                                    if (!curl.empty() && downloadTo(curl, tmp/"config.json")) {
+                                        std::filesystem::copy_file(tmp/"config.json", app_dir/"config.json",
+                                            std::filesystem::copy_options::overwrite_existing, ec);
+                                    }
+
+                                    for (const auto& [zip, dir] : std::vector<std::pair<std::string,std::string>>{
+                                            {"content.zip","content"}, {"assets.zip","assets"},
+                                            {"resource.zip","resource"}, {"licenses.zip","licenses"}}) {
+                                        auto [zn, zurl] = findAsset(rel, zip);
+                                        if (zurl.empty()) continue;
+                                        std::filesystem::path zp = tmp / zip;
+                                        if (downloadTo(zurl, zp))
+                                            extractZip(zp, app_dir / dir);
+                                    }
+
+                                    if (any) result["app"] = json::object{{"from",cur},{"to",fetched_ver}};
                                 }
                             }
-                        } else {
-                            this->logger->info("[update] Engine is up to date (" +
-                                (current_version.empty() ? "unknown" : current_version) + ")");
-                            updates["engine"] = json::object{
-                                {"status",  "up_to_date"},
-                                {"version", current_version.empty() ? "unknown" : current_version}
-                            };
+                            std::filesystem::remove_all(tmp, ec);
                         }
                     }
                 }
             }
 
-            // ── Plugin updates ────────────────────────────────────────────────
-            if (include_plugins) {
-                json::object plugin_updates = {};
-                const std::filesystem::path plugin_dir = Locate::currentDirectory() / "plugins";
+            if (update_engine) {
+                json::value eng_val = this->app->info->getProperty("engine_repository");
+                std::string eng_url = eng_val.is_string()
+                    ? std::string(eng_val.as_string())
+                    : "https://github.com/spur27/RenWeb-Engine";
+                auto [owner, repo] = parseRepo(eng_url);
+                if (owner.empty()) {
+                    this->logger->error("[update] Could not parse engine_repository URL");
+                } else {
+                    std::filesystem::path exec_path = Locate::executable();
+                    auto [cur_os, cur_arch] = getOsArch();
 
-                for (const auto& [plugin_name, plugin] : this->app->pm->getPlugins()) {
-                    std::string repo_url = plugin->getRepositoryUrl();
-                    if (repo_url.empty()) {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' has no repository URL — skipping");
-                        continue;
+                    std::string cur_ver;
+                    {
+                        std::string stem = exec_path.stem().string();
+                        static const std::regex re(R"(^.+-(\d[\w.]*)-\w+-[\w]+$)");
+                        std::smatch sm;
+                        if (std::regex_search(stem, sm, re)) cur_ver = sm[1].str();
                     }
 
-                    auto [owner, repo] = parseGitHubRepo(repo_url);
-                    if (owner.empty() || repo.empty()) {
-                        this->logger->error("[update] Could not parse repo URL for plugin '" + plugin_name + "': " + repo_url);
-                        continue;
-                    }
+                    json::value rel = fetchRelease(owner, repo);
+                    if (rel.is_object() && rel.as_object().contains("tag_name")) {
+                        std::string latest = stripV(std::string(rel.as_object().at("tag_name").as_string()));
 
-                    std::string current_version = plugin->getVersion();
-
-                    json::value release = fetchLatestRelease(owner, repo);
-                    if (!release.is_object() || !release.as_object().contains("tag_name")) continue;
-
-                    std::string latest = stripV(release.as_object().at("tag_name").as_string().c_str());
-                    bool should_update = current_version.empty() ? true : isNewer(current_version, latest);
-
-                    if (should_update) {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' update available: " +
-                            current_version + " → " + latest);
-
-                        #if defined(_WIN32)
-                            std::string plugin_ext = ".dll";
-                            std::string os_id      = "windows";
-                        #elif defined(__APPLE__)
-                            std::string plugin_ext = ".dylib";
-                            std::string os_id      = "macos";
-                        #else
-                            std::string plugin_ext = ".so";
-                            std::string os_id      = "linux";
-                        #endif
-
-                        std::string arch_id = getRuntimeArch();
-
-                        std::string best_name, best_url;
-                        if (release.as_object().contains("assets")) {
-                            for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                if (!asset.is_object()) continue;
-                                std::string aname = asset.as_object().at("name").as_string().c_str();
-                                std::string aname_lc = aname;
-                                std::transform(aname_lc.begin(), aname_lc.end(), aname_lc.begin(), ::tolower);
-                                if (aname.find(plugin_ext) != std::string::npos &&
-                                    aname_lc.find(os_id)    != std::string::npos &&
-                                    (arch_id.empty() || aname_lc.find(arch_id) != std::string::npos)) {
-                                    best_name = aname;
-                                    best_url  = asset.as_object().at("browser_download_url").as_string().c_str();
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (best_url.empty()) {
-                            this->logger->error("[update] No matching asset for plugin '" + plugin_name + "'");
+                        if (!cur_ver.empty() && !isNewer(cur_ver, latest)) {
+                            this->logger->info("[update] Engine is up to date (" + cur_ver + ")");
+                            result["engine"] = json::object{{"status","up_to_date"},{"version",cur_ver}};
                         } else {
-                            std::filesystem::path dest = plugin_dir / best_name;
-                            this->logger->info("[update] Downloading plugin '" + plugin_name + "': " + best_name);
-                            if (downloadFile(best_url, dest)) {
-                                #if !defined(_WIN32)
-                                    std::filesystem::permissions(dest,
-                                        std::filesystem::perms::owner_exec |
-                                        std::filesystem::perms::group_exec |
-                                        std::filesystem::perms::others_exec,
-                                        std::filesystem::perm_options::add);
-                                #endif
-                                this->logger->info("[update] Plugin saved to: " + dest.string());
-                                plugin_updates[plugin_name] = json::object{
-                                    {"from", current_version},
-                                    {"to",   latest},
-                                    {"path", dest.string()}
-                                };
+                            this->logger->info("[update] Engine update: " + (cur_ver.empty()?"unknown":cur_ver) + " → " + latest);
+                            std::filesystem::path app_dir = exec_path.parent_path();
+                            bool any = false;
+
+                            auto [en, eurl] = findPlatformAsset(rel, cur_os, cur_arch);
+                            if (eurl.empty()) {
+                                this->logger->error("[update] No matching engine asset for " + cur_os + "-" + cur_arch);
                             } else {
-                                this->logger->error("[update] Failed to download plugin '" + plugin_name + "'");
+                                std::filesystem::path dest = app_dir / en;
+                                if (downloadTo(eurl, dest)) {
+                                    markExecutable(dest);
+                                    this->logger->info("[update] Engine saved: " + dest.string());
+                                    any = true;
+                                }
                             }
+
+#if defined(_WIN32)
+                            bool is_bundle = std::filesystem::exists(app_dir / "bundle_exec.bat");
+                            const std::string bundle_script = "bundle_exec.bat";
+#else
+                            bool is_bundle = std::filesystem::exists(app_dir / "bundle_exec.sh");
+                            const std::string bundle_script = "bundle_exec.sh";
+#endif
+                            if (is_bundle) {
+                                auto [bn, burl] = findAsset(rel, bundle_script);
+                                if (!burl.empty()) {
+                                    std::filesystem::path bdest = app_dir / bundle_script;
+                                    if (downloadTo(burl, bdest))
+                                        markExecutable(bdest);
+                                }
+
+                                std::string lib_zip = "lib-" + cur_arch + ".zip";
+                                auto [ln, lurl] = findAsset(rel, lib_zip);
+                                if (lurl.empty()) { lib_zip = "lib.zip"; std::tie(ln, lurl) = findAsset(rel, lib_zip); }
+                                if (!lurl.empty()) {
+                                    std::filesystem::path tmp = Locate::tempDirectory() / "renweb_lib_update";
+                                    std::error_code ec;
+                                    std::filesystem::create_directories(tmp, ec);
+                                    std::filesystem::path zp = tmp / ln;
+                                    if (downloadTo(lurl, zp))
+                                        extractZip(zp, app_dir / (lib_zip == "lib.zip" ? "lib" : "lib-" + cur_arch));
+                                    std::filesystem::remove_all(tmp, ec);
+                                }
+                            }
+
+                            if (any) result["engine"] = json::object{
+                                {"from", cur_ver.empty()?"unknown":cur_ver}, {"to", latest}};
                         }
-                    } else {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' is up to date (" + current_version + ")");
-                        plugin_updates[plugin_name] = json::object{{"status", "up_to_date"}, {"version", current_version}};
                     }
                 }
-
-                if (!plugin_updates.empty()) updates["plugins"] = plugin_updates;
             }
 
-            return json::value(updates);
+            if (update_plugins) {
+                json::value repos_val = this->app->info->getProperty("plugin_repositories");
+                if (!repos_val.is_array() || repos_val.as_array().empty()) {
+                    this->logger->info("[update] No 'plugin_repositories' in info.json — skipping");
+                } else {
+                    auto [os_id, arch_id] = getOsArch();
+#if defined(_WIN32)
+                    const std::string plugin_ext = ".dll";
+#elif defined(__APPLE__)
+                    const std::string plugin_ext = ".dylib";
+#else
+                    const std::string plugin_ext = ".so";
+#endif
+                    const std::filesystem::path plugin_dir = Locate::currentDirectory() / "plugins";
+                    json::object plugin_results = {};
+
+                    for (const auto& item : repos_val.as_array()) {
+                        if (!item.is_string()) continue;
+                        std::string repo_url = item.as_string().c_str();
+                        auto [owner, repo] = parseRepo(repo_url);
+                        if (owner.empty()) {
+                            this->logger->error("[update] Could not parse plugin repo: " + repo_url);
+                            continue;
+                        }
+                        json::value rel = fetchRelease(owner, repo);
+                        if (!rel.is_object() || !rel.as_object().contains("tag_name")) continue;
+
+                        std::string latest = stripV(std::string(rel.as_object().at("tag_name").as_string()));
+                        auto [pn, purl] = findPlatformAsset(rel, os_id, arch_id, plugin_ext);
+                        if (purl.empty()) {
+                            this->logger->warn("[update] No matching plugin asset for " + repo + " (" + os_id + "-" + arch_id + ")");
+                            continue;
+                        }
+                        std::filesystem::path dest = plugin_dir / pn;
+                        if (downloadTo(purl, dest)) {
+                            markExecutable(dest);
+                            this->logger->info("[update] Plugin saved: " + dest.string());
+                            plugin_results[repo] = json::object{{"to",latest},{"path",dest.string()}};
+                        } else {
+                            this->logger->error("[update] Failed to download plugin: " + pn);
+                        }
+                    }
+                    if (!plugin_results.empty()) result["plugins"] = plugin_results;
+                }
+            }
+
+            return json::value(result);
     }));
     return this;
 }

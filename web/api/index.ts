@@ -1296,6 +1296,17 @@ export namespace Network {
      */
     export async function isLoading(): Promise<boolean> 
         { return await BIND_is_loading(null); }
+
+    /**
+     * Updates the application, engine, and plugins.
+     * @param options Options to specify which components to update
+     * - options.update_app: Whether to update the application (default: true)
+     * - options.update_engine: Whether to update the engine (default: true)
+     * - options.update_plugins: Whether to update plugins (default: true)
+     * @returns Promise that resolves when the update is complete
+     */
+    export async function update(options: {update_app: boolean, update_engine: boolean, update_plugins: boolean} = {update_app: true, update_engine: true, update_plugins: true}): Promise<void> 
+        { await BIND_update(encode(options)); }
 }
 
 /**
@@ -1458,6 +1469,7 @@ declare const BIND_close_devtools: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_load_progress: (...args: any[]) => Promise<any>;
 declare const BIND_is_loading: (...args: any[]) => Promise<any>;
+declare const BIND_update: (...args: any[]) => Promise<any>;
 
 declare const BIND_navigate_back: (...args: any[]) => Promise<any>;
 declare const BIND_navigate_forward: (...args: any[]) => Promise<any>;

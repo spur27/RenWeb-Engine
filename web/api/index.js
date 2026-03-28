@@ -1028,6 +1028,16 @@ export var Network;
      */
     async function isLoading() { return await BIND_is_loading(null); }
     Network.isLoading = isLoading;
+    /**
+     * Updates the application, engine, and plugins.
+     * @param options Options to specify which components to update
+     * - options.update_app: Whether to update the application (default: true)
+     * - options.update_engine: Whether to update the engine (default: true)
+     * - options.update_plugins: Whether to update plugins (default: true)
+     * @returns Promise that resolves when the update is complete
+     */
+    async function update(options = { update_app: true, update_engine: true, update_plugins: true }) { await BIND_update(encode(options)); }
+    Network.update = update;
 })(Network || (Network = {}));
 /**
  * Page navigation functions.

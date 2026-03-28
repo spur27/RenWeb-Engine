@@ -2421,6 +2421,36 @@ await Log.debug(info.pid, info.name);</code></pre>
                         <pre><code class="language-javascript">if (await Network.isLoading()) { ... }</code></pre>
                     </div>
                 </div>
+
+                <div id="network-update" class="api-method">
+                    <h3>
+                        Network.update()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>update(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Updates the network status.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { update_app: boolean, update_engine: boolean, update_plugins: boolean }</span>
+                                <span class="param-default"> = <code class="language-javascript">{ update_app: true, update_engine: true, update_plugins: true }</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Network.update();</code></pre>
+                    </div>
+                </div>
             </section>
 
             <!-- Navigate Namespace -->

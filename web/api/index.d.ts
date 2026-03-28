@@ -826,6 +826,19 @@ export declare namespace Network {
      * @returns Promise that resolves to true if loading
      */
     function isLoading(): Promise<boolean>;
+    /**
+     * Updates the application, engine, and plugins.
+     * @param options Options to specify which components to update
+     * - options.update_app: Whether to update the application (default: true)
+     * - options.update_engine: Whether to update the engine (default: true)
+     * - options.update_plugins: Whether to update plugins (default: true)
+     * @returns Promise that resolves when the update is complete
+     */
+    function update(options?: {
+        update_app: boolean;
+        update_engine: boolean;
+        update_plugins: boolean;
+    }): Promise<void>;
 }
 /**
  * Page navigation functions.

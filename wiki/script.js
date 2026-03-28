@@ -1391,7 +1391,8 @@ function formatSignature(name, details) {
         },
         'Network': {
             'getLoadProgress': { params: [], returns: 'Promise<number>' },
-            'isLoading': { params: [], returns: 'Promise<boolean>' }
+            'isLoading': { params: [], returns: 'Promise<boolean>' },
+            'update': { params: [{name: 'options?', type: 'object', defaultValue: '{ update_app: true, update_engine: true, update_plugins: true }'}], returns: 'Promise<boolean>' }
         },
         'Navigate': {
             'back': { params: [], returns: 'Promise<void>' },
@@ -1446,7 +1447,7 @@ function formatSignature(name, details) {
             }
         },
         'Debug': ['clearConsole', 'openDevtools', 'closeDevtools'],
-        'Network': ['getLoadProgress', 'isLoading'],
+        'Network': ['getLoadProgress', 'isLoading', 'update'],
         'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
         'Plugins': ['getPluginsList'],
         'Utils': ['decode', 'encode', 'serialize'],
