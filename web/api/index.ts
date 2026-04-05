@@ -738,10 +738,17 @@ export namespace System {
     
     /**
      * Gets the operating system name.
-     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "MacOS")
      */
-    export async function getOS(): Promise<string> 
+    export async function getOS(): Promise<'Linux' | 'Windows' | 'MacOS'> 
         { return decode(await BIND_get_OS(null)); }
+
+    /**
+     * Gets the CPU architecture of the current system.
+     * @returns Promise that resolves to the architecture string
+     */
+    export async function getCPUArchitecture(): Promise<"x86_64" | "x86_32" | "arm64" | "arm32" | "mips32" | "mips32el" | "mips64" | "mips64el" | "powerpc32" | "powerpc64" | "riscv64" | "s390x" | "sparc64"> 
+        { return decode(await BIND_get_cpu_architecture(null)); }
 }
 
 
@@ -1296,17 +1303,92 @@ export namespace Network {
      */
     export async function isLoading(): Promise<boolean> 
         { return await BIND_is_loading(null); }
+}
+
+
+/**
+ * Application information functions, including repository URLs and version strings for the app, engine, and plugins.
+ */
+export namespace Application {
+    const DEFAULT_ENGINE_REPOSITORY = "https://github.com/spur27/RenWeb-Engine";
+    /**
+     * Fetches the repository URLs for the app, engine, and plugins from info.json.
+     * @returns Promise that resolves to an object with app, engine, and plugins repository URLs
+     */
+    export async function fetchRepositories(): Promise<{ app: string, engine: string, plugins: string[] }> {
+        const app_dir = await FS.getApplicationDirPath();
+        try {
+            const infoText = await FS.readFile(app_dir + "/info.json");
+            if (infoText) {
+                const info = JSON.parse(infoText);
+                return {
+                    app: info.repository ?? "none",
+                    engine: info.engine_repository ?? DEFAULT_ENGINE_REPOSITORY,
+                    plugins: Array.isArray(info.plugin_repositories) ? info.plugin_repositories : []
+                };
+            }
+        } catch { }
+        return { app: "none", engine: DEFAULT_ENGINE_REPOSITORY, plugins: [] };
+    }
 
     /**
-     * Updates the application, engine, and plugins.
-     * @param options Options to specify which components to update
-     * - options.update_app: Whether to update the application (default: true)
-     * - options.update_engine: Whether to update the engine (default: true)
-     * - options.update_plugins: Whether to update plugins (default: true)
-     * @returns Promise that resolves when the update is complete
+     * Fetches the current version strings for the app, engine, and loaded plugins.
+     * - App version is read from info.json.
+     * - Engine version is extracted from the executable filename in the application directory.
+     * - Plugin versions are extracted from plugin filenames in the plugins/ directory.
+     * @returns Promise that resolves to an object with app, engine, and plugins version strings
      */
-    export async function update(options: {update_app: boolean, update_engine: boolean, update_plugins: boolean} = {update_app: true, update_engine: true, update_plugins: true}): Promise<void> 
-        { await BIND_update(encode(options)); }
+    export async function fetchVersions(): Promise<{ app: string, engine: string, plugins: Record<string, string> }> {
+        const app_dir = await FS.getApplicationDirPath();
+        const version_regex = /\d+\.\d+\.\d+/;
+        const unknown = "unknown";
+
+        let app_version = unknown;
+        try {
+            const info = JSON.parse(await FS.readFile(app_dir + "/info.json") ?? "{}");
+            app_version = info.version ?? unknown;
+        } catch { }
+
+        let engine_version = unknown;
+        try {
+            const os = (await System.getOS()).toLocaleLowerCase();
+            const arch = (await System.getCPUArchitecture()).toLocaleLowerCase();
+            const files = await FS.ls(app_dir);
+            if (files) {
+                for (const file of files) {
+                    if (await FS.isDir(file)) continue;
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const is_exe = os === "windows" ? filename.endsWith(`${os}-${arch}.exe`) : filename.endsWith(`${os}-${arch}`);
+                    const match = filename.match(version_regex);
+                    if (is_exe && match) {
+                        engine_version = match[0];
+                        break;
+                    }
+                }
+            }
+        } catch { }
+
+        const plugin_versions: Record<string, string> = {};
+        try {
+            const plugins_dir = app_dir + "/plugins";
+            const plugin_files = await FS.ls(plugins_dir);
+            if (plugin_files) {
+                for (const file of plugin_files) {
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const match = filename.match(version_regex);
+                    if (match) {
+                        const plugin_name = filename
+                            .replace(version_regex, "")
+                            .replace(/[-_.]+$/, "")
+                            .replace(/^[-_.]+/, "");
+                        plugin_versions[plugin_name] = match[0];
+                    }
+                }
+            }
+        } catch { }
+
+        return { app: app_version, engine: engine_version, plugins: plugin_versions };
+    }
 }
 
 /**
@@ -1449,6 +1531,7 @@ declare const BIND_reset_to_defaults: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_pid: (...args: any[]) => Promise<any>;
 declare const BIND_get_OS: (...args: any[]) => Promise<any>;
+declare const BIND_get_cpu_architecture: (...args: any[]) => Promise<any>;
 
 declare const BIND_create_window: (...args: any[]) => Promise<any>;
 declare const BIND_create_process: (...args: any[]) => Promise<any>;
@@ -1469,7 +1552,6 @@ declare const BIND_close_devtools: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_load_progress: (...args: any[]) => Promise<any>;
 declare const BIND_is_loading: (...args: any[]) => Promise<any>;
-declare const BIND_update: (...args: any[]) => Promise<any>;
 
 declare const BIND_navigate_back: (...args: any[]) => Promise<any>;
 declare const BIND_navigate_forward: (...args: any[]) => Promise<any>;

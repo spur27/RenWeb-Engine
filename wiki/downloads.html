@@ -255,6 +255,64 @@ xattr -d com.apple.quarantine renweb-macos-*
 
             </section>
 
+            <!-- CLI Tool Section -->
+            <section id="cli-tool" class="card">
+                <h2>CLI Tool</h2>
+                <p class="intro-text">
+                    The <code>renweb-cli</code> package provides the <code>rw</code> command for scaffolding, building,
+                    running, and packaging RenWeb applications. Requires
+                    <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">Node.js</a> 16 or later.
+                </p>
+
+                <div class="subsection">
+                    <h3>Install globally via npm</h3>
+                    <pre><code class="language-bash">npm install -g renweb-cli</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>Install from source</h3>
+                    <p>Clone the repository and link the CLI globally using the npm workspace script:</p>
+                    <pre><code class="language-bash">git clone https://github.com/spur27/RenWeb-Engine
+cd RenWeb-Engine
+npm run link:cli</code></pre>
+                </div>
+
+                <p>See the <a href="../?page=cli">CLI Tool documentation</a> for all available commands.</p>
+            </section>
+
+            <!-- JS API Section -->
+            <section id="api" class="card">
+                <h2>JS / TS API</h2>
+                <p class="intro-text">
+                    The RenWeb API package that allows you to interact with the RenWeb engine from your JavaScript or TypeScript code.
+                </p>
+
+                <div class="subsection">
+                    <h3>npm</h3>
+                    <pre><code class="language-bash">npm install renweb-api</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>JSR (Deno / Bun)</h3>
+                    <pre><code class="language-bash"># Deno
+deno add jsr:@spur27/renweb-api
+
+# Bun
+bunx jsr add @spur27/renweb-api</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>Usage</h3>
+                    <pre><code class="language-javascript">const { System } = require('renweb-api');
+
+const os = await System.getOS();
+const arch = await System.getCPUArchitecture();
+console.log(`OS: ${os}, Architecture: ${arch}`);</code></pre>
+                </div>
+
+                <p>See the <a href="../?page=api">JS API documentation</a> for the full API reference.</p>
+            </section>
+
         </main>
     </div>
 

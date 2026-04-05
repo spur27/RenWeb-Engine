@@ -1,17 +1,7 @@
 'use strict';
-// project_state.js
-// Detect and represent the full state of a RenWeb project.
-//
-// Four dimensions:
-//   framework  — vanilla | react | vue | svelte | preact
-//   js_engine  — none | node | deno | bun
-//   build_tool — none | vite
-//   has_renweb — whether the RenWeb engine runtime is present in this project
 
 const fs   = require('fs');
 const path = require('path');
-
-// ─── Enum constants ───────────────────────────────────────────────────────────
 
 const Framework = Object.freeze({
     VANILLA: 'vanilla',
@@ -32,8 +22,6 @@ const BuildTool = Object.freeze({
     NONE: 'none',
     VITE: 'vite',
 });
-
-// ─── ProjectState ─────────────────────────────────────────────────────────────
 
 class ProjectState {
     /**
@@ -59,68 +47,28 @@ class ProjectState {
 
     isVite()    { return this.build_tool === BuildTool.VITE; }
     isVanilla() { return this.framework  === Framework.VANILLA; }
-    /** True only for projects that can run `rw build` via a bundler. */
-    canBuild()  { return this.isVite(); }
-
-    /** Return a ContentLayout appropriate for this project state. */
     layout() {
         return require('./content_layout').ContentLayout.from(this);
     }
-
-    /** Return a PackageManagerAdapter appropriate for this project state. */
     pkg_manager() {
         return require('./package_manager').PackageManagerAdapter.from(this);
     }
-
-    // ─── Factory methods ───────────────────────────────────────────────────
-
-    /**
-     * Standard detection: requires info.json to be present in the directory
-     * hierarchy. Returns null when not inside a RenWeb project.
-     * Used by every project-scoped command.
-     */
+    static get frameworks() {
+        return Array.from(Object.keys(Framework).map(k => Framework[k]));
+    }
+    static get js_engines() {
+        return Array.from(Object.keys(JsEngine).map(k => JsEngine[k]));
+    }
+    static get build_tools() {
+        return Array.from(Object.keys(BuildTool).map(k => BuildTool[k]));
+    }
     static detect(cwd) {
-        const { findProjectRoot } = require('../commands/shared');
+        const { findProjectRoot } = require('../shared/utils');
         const root = findProjectRoot(cwd || process.cwd());
         if (!root) return null;
         return ProjectState._build(root);
     }
 
-    /**
-     * Lenient detection: always returns a ProjectState, falling back through
-     * info.json root → package/deno/bun root → cwd.
-     * Used by `rw create` to understand an existing project before adding RenWeb.
-     */
-    static detect_any(cwd) {
-        const start = path.resolve(cwd || process.cwd());
-
-        const { findProjectRoot } = require('../commands/shared');
-        const renweb_root = findProjectRoot(start);
-        if (renweb_root) return ProjectState._build(renweb_root);
-
-        const generic_root = ProjectState._find_generic_root(start);
-        return ProjectState._build(generic_root || start);
-    }
-
-    // ─── Internal helpers ──────────────────────────────────────────────────
-
-    /** Walk upward for the nearest directory containing package.json / deno.json / bun.lockb. */
-    static _find_generic_root(start) {
-        let cur = start;
-        while (true) {
-            if (
-                fs.existsSync(path.join(cur, 'package.json')) ||
-                fs.existsSync(path.join(cur, 'deno.json'))    ||
-                fs.existsSync(path.join(cur, 'deno.jsonc'))   ||
-                fs.existsSync(path.join(cur, 'bun.lockb'))
-            ) return cur;
-            const parent = path.dirname(cur);
-            if (parent === cur) return null;
-            cur = parent;
-        }
-    }
-
-    /** Build a complete ProjectState for a known root directory. */
     static _build(root) {
         // ── info.json ──────────────────────────────────────────────────────
         let info = null;

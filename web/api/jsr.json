@@ -1,5 +1,5 @@
 {
-  "name": "@spur27/renweb",
+  "name": "@spur27/renweb-api",
   "version": "0.0.1",
   "license": "BSL-1.0",
   "exports": "./index.ts",

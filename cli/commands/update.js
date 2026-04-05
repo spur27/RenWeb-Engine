@@ -15,7 +15,7 @@ const {
     rwPluginsDir, ensureRwGitignore,
     parseGitHubUrl,
     engineRawBase, resolveEngineRepo,
-} = require('./shared');
+} = require('../shared/utils');
 const { ProjectState } = require('../project/project_state');
 
 // ─── Bundle detection ─────────────────────────────────────────────────────────
@@ -184,13 +184,13 @@ function updateVanillaModules(projectRoot) {
 // ─── Plugin update ────────────────────────────────────────────────────────────
 
 /**
- * Update all plugins listed in info.json["plugins"].
+ * Update all plugins listed in info.json["plugin_repositories"].
  * Each entry is a GitHub URL; for each, downloads all release assets to
  * .rw/plugins/<owner>-<repo>/ and copies the host-arch binary to build/plugins/.
  */
 function updatePlugins(projectRoot, buildDir) {
     const info    = loadInfo(projectRoot);
-    const plugins = (info && Array.isArray(info.plugins)) ? info.plugins : [];
+    const plugins = (info && Array.isArray(info.plugin_repositories)) ? info.plugin_repositories : [];
     if (plugins.length === 0) return;
 
     const { os: tOs, arch: tArch } = detectTarget();

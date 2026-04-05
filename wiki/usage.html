@@ -375,6 +375,7 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         <li><code>app_id</code> (string) - Unique application identifier for packaging (reverse domain notation recommcended)</li>
                         <li><code>pkg_id</code> (string) - Short package identifier for package management systems</li>
                         <li><code>startup_notify</code> (boolean) - Whether to show desktop startup notification</li>
+                        <li><code>port</code> (number) - Port (default: random)</li>
                     </ul>
                 </div>
 
@@ -387,17 +388,6 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         <li><code>pointer_lock</code> (boolean) - Allow mouse pointer locking</li>
                         <li><code>install_missing_media_plugins</code> (boolean) - Auto-install codecs</li>
                         <li><code>device_info</code> (boolean) - Allow hardware information access</li>
-                    </ul>
-                </div>
-
-                <h4>Server Configuration</h4>
-                <div class="requirement-card">
-                    <ul>
-                        <li><code>ip</code> (string) - IP address for webserver (default: 127.0.0.1)</li>
-                        <li><code>port</code> (number) - Port (default: random)</li>
-                        <li><code>https</code> (boolean) - Enable HTTPS instead of HTTP</li>
-                        <li><code>ssl_cert_path</code> (string) - HTTPS only - path to SSL certificate file</li>
-                        <li><code>ssl_key_path</code> (string) - HTTPS only - path to SSL key</li>
                     </ul>
                 </div>
 

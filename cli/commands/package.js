@@ -23,7 +23,7 @@ const LINUX_DEPS = {
     rpm: {
         // Fedora / RHEL / openSUSE (dnf / zypper) — names differ from apt
         required:    ['gtk3', 'webkit2gtk4.1', 'mesa-libEGL', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
-        recommended: [],
+        recommended: ['gstreamer1-plugins-bad-free', 'gstreamer1-plugins-ugly-free'],
     },
     pacman: {
         // Arch Linux (pacman) — no Recommends concept
@@ -32,12 +32,18 @@ const LINUX_DEPS = {
     },
     apk: {
         // Alpine Linux (apk via nfpm) — musl-based; EGL comes from mesa-egl
-        required:    ['gtk+3.0', 'webkit2gtk', 'mesa-egl', 'gst-plugins-base', 'gst-plugins-good'],
+        required:    ['gtk+3.0', 'webkit2gtk-4.1', 'mesa-egl', 'gst-plugins-base', 'gst-plugins-good'],
         recommended: [],
     },
     freebsd: {
         // FreeBSD (pkg) — webkit2-gtk3 is the port name for WebKit2GTK
         required:    ['gtk3', 'webkit2-gtk3', 'mesa-libs', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
+        recommended: [],
+    },
+    void: {
+        // Void Linux (xbps-create) — libwebkit2gtk41 is the Void package for WebKit2GTK 4.1 (GTK3) API.
+        // gst-plugins-base1 / gst-plugins-good1 are the correct Void package names.
+        required:    ['gtk+3', 'libwebkit2gtk41', 'mesa', 'gst-plugins-base1', 'gst-plugins-good1'],
         recommended: [],
     },
 };
@@ -112,6 +118,38 @@ const NFPM_APK_ARCH_MAP = {
     sparc64  : 'sparc64',
 };
 
+// Maps engine arch names → Void Linux XBPS architecture strings.
+// Void officially supports: x86_64, i686, aarch64, armv7l, armv6l, ppc64le, ppc64, riscv64.
+const XBPS_ARCH_MAP = {
+    x86_64   : 'x86_64',
+    x86_32   : 'i686',
+    arm64    : 'aarch64',
+    aarch64  : 'aarch64',
+    arm32    : 'armv7l',
+    armhf    : 'armv7l',
+    powerpc32: 'ppc',
+    powerpc64: 'ppc64le',
+    riscv64  : 'riscv64',
+    mips32   : 'mips',
+    mips32el : 'mipsel',
+    mips64   : 'mips64',
+    mips64el : 'mips64el',
+    s390x    : 's390x',
+    sparc64  : 'sparc64',
+};
+
+// FreeBSD port origins for packages listed in LINUX_DEPS.freebsd.
+// fpm silently drops deps from its FreeBSD backend (open bug since 2016), so
+// we post-process the .txz ourselves.  The version field is a placeholder;
+// pkg records it for display but does not enforce exact version matching.
+const FREEBSD_PKG_ORIGINS = {
+    'gtk3':                        { origin: 'x11-toolkits/gtk30',                 version: '0' },
+    'webkit2-gtk3':                { origin: 'www/webkit2-gtk3',                   version: '0' },
+    'mesa-libs':                   { origin: 'graphics/mesa-libs',                 version: '0' },
+    'gstreamer1-plugins-base':     { origin: 'multimedia/gstreamer1-plugins-base', version: '0' },
+    'gstreamer1-plugins-good':     { origin: 'multimedia/gstreamer1-plugins-good', version: '0' },
+};
+
 // WebView2 runtime bootstrapper URL — required by bare Windows executables
 const WEBVIEW2_BOOTSTRAPPER_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
 
@@ -130,7 +168,6 @@ const APPIMAGE_RUNTIME_FOR_ARCH = {
 // ELF e_machine values for architectures we package.
 const ELF_MACHINE_FOR_APPIMAGE_ARCH = { x86_64: 0x3E, i686: 0x03, aarch64: 0xB7, armhf: 0x28 };
 
-// Paths to the ELF dynamic linker (PT_INTERP) inside the Debian cross-compile
 /**
  * Returns the ELF e_machine uint16 for a file, or null if it is not an ELF.
  */
@@ -230,11 +267,14 @@ function hashToUuid(str) {
 /** Recursively sum file sizes under dirPath; returns total in KB (ceiling). */
 function getDirSizeKb(dirPath) {
     let bytes = 0;
-    for (const e of fs.readdirSync(dirPath, { withFileTypes: true })) {
-        const p = path.join(dirPath, e.name);
-        if (e.isDirectory()) bytes += getDirSizeKb(p) * 1024;
-        else if (e.isFile()) bytes += fs.statSync(p).size;
-    }
+    const recurse = (dir) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, e.name);
+            if (e.isDirectory()) recurse(p);
+            else if (e.isFile()) bytes += fs.statSync(p).size;
+        }
+    };
+    recurse(dirPath);
     return Math.ceil(bytes / 1024);
 }
 
@@ -364,11 +404,11 @@ function fetchLatestRelease(repoUrl) {
     return rel;
 }
 
-/** Find the build/ directory by walking up from cwd. */
-function findBuildDir() {
+/** Walk up from cwd returning the path of the first ancestor directory named `name`, or null. */
+function findAncestorDir(name) {
     let cur = process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd();
     while (true) {
-        const cand = path.join(cur, 'build');
+        const cand = path.join(cur, name);
         if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) return cand;
         const parent = path.dirname(cur);
         if (parent === cur) return null;
@@ -376,16 +416,45 @@ function findBuildDir() {
     }
 }
 
-/** Find the credentials/ directory by walking up from cwd (mirrors findBuildDir). */
-function findCredentialsDir() {
-    let cur = process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd();
-    while (true) {
-        const cand = path.join(cur, 'credentials');
-        if (fs.existsSync(cand) && fs.statSync(cand).isDirectory()) return cand;
-        const parent = path.dirname(cur);
-        if (parent === cur) return null;
-        cur = parent;
+const findBuildDir       = () => findAncestorDir('build');
+const findCredentialsDir = () => findAncestorDir('credentials');
+
+/**
+ * Find the first available app icon in the staging directory.
+ * Checks resource/ and resources/ sub-directories for common icon filenames.
+ * Returns { src, ext } or null if no icon is found.
+ */
+function findAppIcon(stagingDir) {
+    for (const ext of ['png', 'svg', 'jpg']) {
+        for (const cand of [
+            path.join(stagingDir, 'resource',  `icon.${ext}`),
+            path.join(stagingDir, 'resource',  `app.${ext}`),
+            path.join(stagingDir, 'resources', `icon.${ext}`),
+            path.join(stagingDir, 'resources', `app.${ext}`),
+        ]) {
+            if (fs.existsSync(cand)) return { src: cand, ext };
+        }
     }
+    return null;
+}
+
+/**
+ * Write post-install and post-remove shell scripts to temporary files.
+ * Both scripts are made executable before being returned.
+ * Returns { postInstall, postRemove } — paths to the created script files.
+ */
+function makeLinuxPostScripts(pkgId, isBundle, tmpOutDir, suffix) {
+    const postInstall = path.join(tmpOutDir, `_renweb-postinstall-${suffix}.sh`);
+    const postRemove  = path.join(tmpOutDir, `_renweb-postremove-${suffix}.sh`);
+    fs.writeFileSync(postInstall, isBundle
+        ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
+        : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
+    makeExecutable(postInstall);
+    fs.writeFileSync(postRemove, isBundle
+        ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
+        : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
+    makeExecutable(postRemove);
+    return { postInstall, postRemove };
 }
 
 // ─── Argument parsing ────────────────────────────────────────────────────────
@@ -409,6 +478,7 @@ function normalizeExt(raw) {
     if (s === 'pkg' && raw.indexOf('.') === -1)    return 'osxpkg'; // bare "pkg" = macOS pkg
     if (s === 'msix')                              return 'msix';
     if (s === 'mas' || s === 'macstore')           return 'mas';
+    if (s === 'xbps' || s === 'void')              return 'xbps';
     return s;
 }
 
@@ -450,15 +520,15 @@ function parseArgs(args) {
         oses           : new Set(),   // empty = all OS targets
         arches         : new Set(),   // empty = all architectures
         cache          : false,
-            noCredentials  : false,
+        noCredentials  : false,
     };
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
         if (a === '--bundle-only')                    { opts.bundleOnly = true;     continue; }
         if (a === '--executable-only')                { opts.executableOnly = true; continue; }
         if (a === '-c' || a === '--cache')            { opts.cache = true;          continue; }
-            if (a === '--no-credentials')                 { opts.noCredentials = true;  continue; }
-            if (a.startsWith('-e') && a.length > 2)       { opts.exts.add(normalizeExt(a.slice(2))); continue; }
+        if (a === '--no-credentials')                 { opts.noCredentials = true;  continue; }
+        if (a.startsWith('-e') && a.length > 2)       { opts.exts.add(normalizeExt(a.slice(2))); continue; }
         if (a === '-e' || a === '--ext')              { const v = args[++i]; if (v) opts.exts.add(normalizeExt(v)); continue; }
         if (a.startsWith('-o') && a.length > 2)       { opts.oses.add(a.slice(2).toLowerCase()); continue; }
         if (a === '-o' || a === '--os')               { const v = args[++i]; if (v) opts.oses.add(v.toLowerCase()); continue; }
@@ -528,6 +598,63 @@ function groupAssets(assets) {
 }
 
 // ─── Staging / package builder ────────────────────────────────────────────────
+
+/**
+ * Build a system-layout staging tree under destRoot for Linux package formats.
+ * Populates:
+ *   /opt/<pkgId>/                               — app files (copied from stagingDir)
+ *   /usr/bin/<pkgId>                            — launcher shim → /opt/<pkgId>/<exe>
+ *   /usr/share/applications/<pkgId>.desktop     — freedesktop .desktop entry
+ *   /usr/share/icons/hicolor/256x256/apps/…    — app icon (if found via findAppIcon)
+ *
+ * Shared by buildFpmPackages and buildXbpsPackage so their system-layout logic
+ * stays in one place (SRP / DRY).
+ */
+function buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, destRoot) {
+    const appShare = path.join(destRoot, 'opt', pkgId);
+    const appsDir  = path.join(destRoot, 'usr', 'share', 'applications');
+    const iconsDir = path.join(destRoot, 'usr', 'share', 'icons', 'hicolor', '256x256', 'apps');
+    const binDir   = path.join(destRoot, 'usr', 'bin');
+    for (const d of [appShare, appsDir, iconsDir, binDir]) fs.mkdirSync(d, { recursive: true });
+
+    copyDir(stagingDir, appShare);
+
+    const binTarget   = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const binLauncher = `#!/bin/sh\nexec /opt/${pkgId}/${binTarget} "$@"\n`;
+    const binPath     = path.join(binDir, pkgId);
+    fs.writeFileSync(binPath, binLauncher, 'utf8');
+    makeExecutable(binPath);
+
+    let iconSystemPath = pkgId; // fallback: icon name (freedesktop theme lookup)
+    const icon = findAppIcon(stagingDir);
+    if (icon) {
+        fs.copyFileSync(icon.src, path.join(iconsDir, `${pkgId}.${icon.ext}`));
+        iconSystemPath = `/usr/share/icons/hicolor/256x256/apps/${pkgId}.${icon.ext}`;
+    }
+
+    const cats    = parseCats(info.categories || info.category);
+    const appId   = info.app_id  || pkgId;
+    const desc    = info.description || '';
+    const website = info.repository  || '';
+    const desktopLines = [
+        '[Desktop Entry]',
+        'Version=1.0',
+        'Type=Application',
+        `Name=${info.title || pkgId}`,
+        `Comment=${desc}`,
+        `Exec=/opt/${pkgId}/${binTarget}`,
+        `TryExec=/opt/${pkgId}/${binTarget}`,
+        `Icon=${iconSystemPath}`,
+        'Terminal=false',
+        `Categories=${cats}`,
+        `StartupWMClass=${appId}`,
+        'StartupNotify=true',
+        `X-RenWeb-PackageId=${pkgId}`,
+    ];
+    if (website) desktopLines.push(`URL=${website}`);
+    desktopLines.push('');
+    fs.writeFileSync(path.join(appsDir, `${pkgId}.desktop`), desktopLines.join('\n'), 'utf8');
+}
 
 /**
  * Build one staging tree for (os, arch), package it, and write outputs.
@@ -612,8 +739,10 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     // 6. OS-specific native packages
     if (targetOs === 'linux') {
-        // deb / rpm / pacman / apk / freebsd / sh via fpm
+        // deb / rpm / pacman / apk / freebsd via fpm
         buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.isBundle, engineAsset.filename);
+        // Void Linux binary package (.xbps via xbps-create)
+        buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.isBundle, engineAsset.filename);
         // AppImage (portable, no install needed)
         buildAppImage(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
         // Snap package (squashfs-based, built inline)
@@ -745,11 +874,41 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 }
 
 /**
+ * Post-process an fpm-generated FreeBSD .txz to inject the deps field into
+ * +MANIFEST and +COMPACT_MANIFEST.  fpm's FreeBSD backend silently omits deps
+ * (open bug since 2016); this works around it without requiring pkg on Linux.
+ */
+function injectFreebsdDeps(txzPath, depNames) {
+    if (!depNames || depNames.length === 0 || !fs.existsSync(txzPath)) return;
+    const depsObj = {};
+    for (const name of depNames) {
+        depsObj[name] = FREEBSD_PKG_ORIGINS[name] || { origin: `misc/${name}`, version: '0' };
+    }
+    const tmpDir = path.join(os.tmpdir(), `_renweb-fbsd-${process.pid}`);
+    try {
+        fs.mkdirSync(tmpDir, { recursive: true });
+        const ex = spawnSync('tar', ['-xJf', txzPath, '-C', tmpDir], { stdio: 'inherit' });
+        if (ex.status !== 0) { console.warn('  ⚠ FreeBSD dep-inject: extract failed'); return; }
+        for (const fname of ['+MANIFEST', '+COMPACT_MANIFEST']) {
+            const fpath = path.join(tmpDir, fname);
+            if (!fs.existsSync(fpath)) continue;
+            const data = JSON.parse(fs.readFileSync(fpath, 'utf8'));
+            data.deps = depsObj;
+            fs.writeFileSync(fpath, JSON.stringify(data, null, 2) + '\n');
+        }
+        fs.unlinkSync(txzPath);
+        const re = spawnSync('tar', ['-Jcf', txzPath, '-C', tmpDir, '.'], { stdio: 'inherit' });
+        if (re.status === 0) console.log('  ✓ FreeBSD deps injected into +MANIFEST');
+        else console.warn('  ⚠ FreeBSD dep-inject: re-archive failed');
+    } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    }
+}
+
+/**
  * Build Linux native packages (deb, rpm, pacman, apk, freebsd) using fpm.
  * Creates a system-layout staging tree (/usr/share, /usr/bin, etc.) then
  * invokes fpm for each requested format.
- */
-/**
  * @param {boolean} isBundle  When true the package bundles its own libs, so no
  *                            runtime deps are declared.
  */
@@ -771,66 +930,10 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         return;
     }
 
-    // Build system-layout staging tree
-    // Include bundle flag in path so bare and bundle builds never share a directory.
-    const fpmRoot  = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}${isBundle ? '-bundle' : ''}`);
-    const appShare = path.join(fpmRoot, 'opt', pkgId);
-    const appsDir  = path.join(fpmRoot, 'usr', 'share', 'applications');
-    const iconsDir = path.join(fpmRoot, 'usr', 'share', 'icons', 'hicolor', '256x256', 'apps');
-    const binDir   = path.join(fpmRoot, 'usr', 'bin');
-
+    // Build system-layout staging tree (shared base; each format gets its own isolated copy).
+    const fpmRoot = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}${isBundle ? '-bundle' : ''}`);
     if (fs.existsSync(fpmRoot)) fs.rmSync(fpmRoot, { recursive: true, force: true });
-    for (const d of [appShare, appsDir, iconsDir, binDir]) fs.mkdirSync(d, { recursive: true });
-
-    // App files → /opt/<pkgId>/
-    copyDir(stagingDir, appShare);
-
-    // /usr/bin/<pkgId> → exec the real binary (or bundle_exec.sh) directly
-    const binTarget   = isBundle ? `bundle_exec.sh` : exeFilename;
-    const binLauncher = `#!/bin/sh\nexec /opt/${pkgId}/${binTarget} "$@"\n`;
-    const binPath     = path.join(binDir, pkgId);
-    fs.writeFileSync(binPath, binLauncher, 'utf8');
-    makeExecutable(binPath);
-
-    // Icon
-    let iconSystemPath = pkgId; // fallback: icon name only (theme lookup)
-    for (const ext of ['png', 'svg', 'jpg']) {
-        for (const cand of [
-            path.join(stagingDir, 'resource',  `icon.${ext}`),
-            path.join(stagingDir, 'resource',  `app.${ext}`),
-            path.join(stagingDir, 'resources', `icon.${ext}`),
-            path.join(stagingDir, 'resources', `app.${ext}`),
-        ]) {
-            if (fs.existsSync(cand)) {
-                fs.copyFileSync(cand, path.join(iconsDir, `${pkgId}.${ext}`));
-                iconSystemPath = `/usr/share/icons/hicolor/256x256/apps/${pkgId}.${ext}`;
-                break;
-            }
-        }
-        if (iconSystemPath !== pkgId) break;
-    }
-
-    // .desktop file (system paths)
-    const cats     = parseCats(info.categories || info.category);
-    const appId    = info.app_id || pkgId;
-    const desktopLines = [
-        '[Desktop Entry]',
-        'Version=1.0',
-        'Type=Application',
-        `Name=${info.title || pkgId}`,
-        `Comment=${desc}`,
-        `Exec=/opt/${pkgId}/${isBundle ? 'bundle_exec.sh' : exeFilename}`,
-        `TryExec=/opt/${pkgId}/${isBundle ? 'bundle_exec.sh' : exeFilename}`,
-        `Icon=${iconSystemPath}`,
-        'Terminal=false',
-        `Categories=${cats}`,
-        `StartupWMClass=${appId}`,
-        'StartupNotify=true',
-        `X-RenWeb-PackageId=${pkgId}`,
-    ];
-    if (website) desktopLines.push(`URL=${website}`);
-    desktopLines.push('');
-    fs.writeFileSync(path.join(appsDir, `${pkgId}.desktop`), desktopLines.join('\n'), 'utf8');
+    buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, fpmRoot);
 
     // Run fpm (deb/rpm/pacman/freebsd) or nfpm (apk) for each format.
     // nfpm natively produces correct 3-stream APKv2; fpm 1.17 does not.
@@ -846,22 +949,15 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
         // APK is handled exclusively by nfpm.
         if (fmt === 'apk') {
-            const postInstallScript = path.join(os.tmpdir(), `_renweb-postinstall-${pkgId}-${fmt}.sh`);
-            fs.writeFileSync(postInstallScript, isBundle
-                ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
-                : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
-            makeExecutable(postInstallScript);
-            const postRemoveScript = path.join(os.tmpdir(), `_renweb-postremove-${pkgId}-${fmt}.sh`);
-            fs.writeFileSync(postRemoveScript, isBundle
-                ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
-                : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
-            makeExecutable(postRemoveScript);
+            const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-apk`);
             console.log(`  [nfpm apk] → ${path.relative(process.cwd(), outputFile)}`);
             try { fs.unlinkSync(outputFile); } catch (_) {}
             const r = runNfpmApk({ pkgId, version, targetArch, desc, website, license,
-                                   fmtRoot, outputFile, postInstallScript, postRemoveScript, isBundle });
-            try { fs.unlinkSync(postInstallScript); } catch (_) {}
-            try { fs.unlinkSync(postRemoveScript); } catch (_) {}
+                                   fmtRoot, outputFile,
+                                   postInstallScript: postInstall, postRemoveScript: postRemove,
+                                   isBundle });
+            try { fs.unlinkSync(postInstall); } catch (_) {}
+            try { fs.unlinkSync(postRemove); } catch (_) {}
             try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
             if (r.status !== 0) console.warn('  ⚠ nfpm failed for format: apk');
             continue;
@@ -888,30 +984,26 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
             if (fmt === 'deb') {
                 for (const dep of fmtDeps.recommended) fpmArgs.push('--deb-recommends', dep);
             }
+            if (fmt === 'rpm') {
+                for (const dep of fmtDeps.recommended) fpmArgs.push('--rpm-suggests', dep);
+            }
         }
-        const postInstallScript = path.join(os.tmpdir(), `_renweb-postinstall-${pkgId}-${fmt}.sh`);
-        fs.writeFileSync(postInstallScript, isBundle
-            ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
-            : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
-        makeExecutable(postInstallScript);
-        fpmArgs.push('--after-install', postInstallScript);
-
-        const postRemoveScript = path.join(os.tmpdir(), `_renweb-postremove-${pkgId}-${fmt}.sh`);
-        fs.writeFileSync(postRemoveScript, isBundle
-            ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
-            : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
-        makeExecutable(postRemoveScript);
-        fpmArgs.push('--after-remove', postRemoveScript);
-
-        fpmArgs.push('.');
+        const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-${fmt}`);
+        fpmArgs.push('--after-install', postInstall, '--after-remove', postRemove, '.');
 
         console.log(`  [fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
         try { fs.unlinkSync(outputFile); } catch (_) {}
         const r = spawnSync('fpm', fpmArgs, { stdio: 'inherit' });
-        try { fs.unlinkSync(postInstallScript); } catch (_) {}
-        try { fs.unlinkSync(postRemoveScript); } catch (_) {}
+        try { fs.unlinkSync(postInstall); } catch (_) {}
+        try { fs.unlinkSync(postRemove); } catch (_) {}
         try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
-        if (r.status !== 0) console.warn(`  ⚠ fpm failed for format: ${fmt}`);
+        if (r.status !== 0) {
+            console.warn(`  ⚠ fpm failed for format: ${fmt}`);
+        } else if (fmt === 'freebsd' && !isBundle) {
+            // fpm's FreeBSD backend never writes deps into +MANIFEST (open bug
+            // jordansissel/fpm#1156).  Post-process the archive to inject them.
+            injectFreebsdDeps(outputFile, LINUX_DEPS.freebsd.required);
+        }
     }
 
     try { fs.rmSync(fpmRoot, { recursive: true, force: true }); } catch (_) {}
@@ -1242,6 +1334,19 @@ function gpgSign(opts, filePath) {
     } finally {
         try { fs.rmSync(tmpGnupg, { recursive: true, force: true }); } catch (_) {}
     }
+}
+
+function xbpsSign(opts, filePath) {
+    if (!opts.credDir) return;
+    const keyPath = path.join(opts.credDir, 'linux.xbps.pem');
+    if (!fs.existsSync(keyPath)) {
+        console.warn(`  ⚠ XBPS signing: linux.xbps.pem not found — ${path.basename(filePath)} will not be signed`);
+        return;
+    }
+    if (!findBin('xbps-rindex')) { console.warn('  ⚠ xbps-rindex not found — skipping XBPS signing'); return; }
+    const r = spawnSync('xbps-rindex', ['--sign-pkg', '--privkey', keyPath, filePath], { stdio: 'inherit' });
+    if (r.status === 0) console.log(`  ✓ XBPS signed: ${path.basename(filePath)}`);
+    else console.warn('  ⚠ xbps-rindex --sign-pkg failed');
 }
 
 // ─── Windows package builders ─────────────────────────────────────────────────
@@ -2577,16 +2682,9 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     ].join('\n'), 'utf8');
 
     // .desktop file at root of AppDir
-    for (const ext of ['png', 'svg']) {
-        for (const cand of [
-            path.join(stagingDir, 'resource',  'icon.' + ext),
-            path.join(stagingDir, 'resource',  'app.'  + ext),
-            path.join(stagingDir, 'resources', 'icon.' + ext),
-        ]) {
-            if (fs.existsSync(cand)) {
-                fs.copyFileSync(cand, path.join(appDir, pkgId + '.' + ext)); break;
-            }
-        }
+    const appIcon = findAppIcon(stagingDir);
+    if (appIcon && (appIcon.ext === 'png' || appIcon.ext === 'svg')) {
+        fs.copyFileSync(appIcon.src, path.join(appDir, pkgId + '.' + appIcon.ext));
     }
     fs.writeFileSync(path.join(appDir, pkgId + '.desktop'), [
         '[Desktop Entry]',
@@ -2830,17 +2928,9 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
     ].join('\n');
     fs.writeFileSync(path.join(guiDir, pkgId + '.desktop'), desktopContent, 'utf8');
     // Also copy the icon into meta/gui/ so snapd can display it in stores/launchers
-    for (const ext of ['png', 'svg']) {
-        for (const cand of [
-            path.join(stagingDir, 'resource', 'app.' + ext),
-            path.join(stagingDir, 'resource', 'icon.' + ext),
-            path.join(stagingDir, 'resources', 'icon.' + ext),
-        ]) {
-            if (fs.existsSync(cand)) {
-                fs.copyFileSync(cand, path.join(guiDir, pkgId + '.' + ext));
-                break;
-            }
-        }
+    const snapIcon = findAppIcon(stagingDir);
+    if (snapIcon && (snapIcon.ext === 'png' || snapIcon.ext === 'svg')) {
+        fs.copyFileSync(snapIcon.src, path.join(guiDir, pkgId + '.' + snapIcon.ext));
     }
 
     const outFile = path.join(outDir, pkgId + '_' + version + '_' + snapArch + '.snap');
@@ -2965,6 +3055,114 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     ], { stdio: 'inherit' });
     if (bundleR.status !== 0) console.warn('  \u26a0 flatpak build-bundle failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
+}
+
+/**
+ * Build a Void Linux binary XBPS package using xbps-create.
+ * Supports both bare (runtime deps declared) and bundle (self-contained, no deps) variants.
+ * Output: <stem>.xbps — renamed from xbps-create's <pkgver>.<arch>.xbps naming convention.
+ * Optionally signed with the XBPS private key and GPG if credentials are present.
+ */
+function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, isBundle = false, exeFilename = '') {
+    if (opts.exts.size > 0 && !opts.exts.has('xbps')) return;
+    if (!findBin('xbps-create')) {
+        console.warn('  \u26a0 xbps-create not found \u2014 skipping Void Linux package');
+        return;
+    }
+
+    const pkgId    = toKebab(info.title || 'app');
+    const version  = (info.version || '0.0.1').trim();
+    // XBPS pkgver format: <pkgname>-<version>_<revision>
+    const pkgver   = `${pkgId}-${version}_1`;
+    const desc     = (info.description || info.title || pkgId).replace(/\n/g, ' ').slice(0, 79);
+    const license  = info.license    || 'BSL-1.0';
+    const website  = info.repository || '';
+    const author   = info.author    || '';
+    const xbpsArch = XBPS_ARCH_MAP[targetArch] || targetArch;
+    const stem     = `${pkgId}-${version}-${targetOs}-${targetArch}`;
+    const outputFile = path.join(outDir, `${stem}.xbps`);
+
+    const xbpsRoot   = path.join(tmpDir, 'xbps-staging', `${stem}${isBundle ? '-bundle' : ''}`);
+    const xbpsOutDir = path.join(tmpDir, 'xbps-out', stem);
+    if (fs.existsSync(xbpsRoot)) fs.rmSync(xbpsRoot, { recursive: true, force: true });
+    fs.mkdirSync(xbpsRoot,   { recursive: true });
+    fs.mkdirSync(xbpsOutDir, { recursive: true });
+
+    // Populate system-layout staging tree (/opt, /usr/bin, /usr/share/…)
+    buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, xbpsRoot);
+
+    // XBPS INSTALL trigger script — called by xbps post-install and pre-remove.
+    // Convention: INSTALL <pkgname> run {install|remove|update}
+    const installLines = [
+        '#!/bin/sh',
+        '# XBPS trigger script: $1=pkgname $2=run|targets $3=install|remove|update',
+        'if [ "$2" = "targets" ]; then',
+        '    echo "post-install:Set file permissions"',
+        isBundle ? '    echo "post-install:Link WebKit subprocess helpers"' : null,
+        '    echo "pre-remove:Remove /opt install directory"',
+        '    exit 0',
+        'fi',
+        'case "$3" in',
+        '    install|update)',
+        `        chmod -R a+rwX /opt/${pkgId}/`,
+        ...(isBundle ? [
+            '        mkdir -p /usr/local/libexec',
+            `        [ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1`,
+            `        ln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1`,
+        ] : []),
+        '        ;;',
+        '    remove)',
+        ...(isBundle ? [`        rm -f /usr/local/libexec/webkit2gtk-4.1`] : []),
+        `        rm -rf /opt/${pkgId}/`,
+        '        ;;',
+        'esac',
+        '',
+    ].filter(l => l !== null).join('\n');
+    const installPath = path.join(xbpsRoot, 'INSTALL');
+    fs.writeFileSync(installPath, installLines, 'utf8');
+    makeExecutable(installPath);
+
+    const xbpsArgs = [
+        '-A', xbpsArch,
+        '-n', pkgver,
+        '-s', desc,
+        '--compression', 'zstd',
+    ];
+    if (website) xbpsArgs.push('-H', website);
+    if (license) xbpsArgs.push('-l', license);
+    if (author)  xbpsArgs.push('-m', author);
+    // Bare packages declare runtime dependencies; bundle packages carry their own .so libs.
+    if (!isBundle && LINUX_DEPS.void.required.length > 0)
+        xbpsArgs.push('-D', LINUX_DEPS.void.required.join(' '));
+    xbpsArgs.push(xbpsRoot);
+
+    console.log(`  [xbps] \u2192 ${path.relative(process.cwd(), outputFile)}`);
+    try { fs.unlinkSync(outputFile); } catch (_) {}
+
+    // xbps-create writes <pkgver>.<arch>.xbps in the current working directory.
+    const r = spawnSync('xbps-create', xbpsArgs, { cwd: xbpsOutDir, stdio: 'inherit' });
+    try { fs.rmSync(xbpsRoot, { recursive: true, force: true }); } catch (_) {}
+    if (r.status !== 0) {
+        console.warn('  \u26a0 xbps-create failed');
+        try { fs.rmSync(xbpsOutDir, { recursive: true, force: true }); } catch (_) {}
+        return;
+    }
+
+    // Rename from <pkgver>.<arch>.xbps to our consistent <stem>.xbps naming.
+    fs.mkdirSync(outDir, { recursive: true });
+    const xbpsCreated = path.join(xbpsOutDir, `${pkgver}.${xbpsArch}.xbps`);
+    if (fs.existsSync(xbpsCreated)) {
+        fs.copyFileSync(xbpsCreated, outputFile);
+    } else {
+        const found = fs.readdirSync(xbpsOutDir).find(f => f.endsWith('.xbps'));
+        if (found) fs.copyFileSync(path.join(xbpsOutDir, found), outputFile);
+        else console.warn('  \u26a0 xbps-create output not found');
+    }
+    try { fs.rmSync(xbpsOutDir, { recursive: true, force: true }); } catch (_) {}
+
+    // Sign the .xbps package with the Void Linux private key (xbps-rindex) and GPG.
+    xbpsSign(opts, outputFile);
+    gpgSign(opts, outputFile);
 }
 
 

@@ -31,6 +31,7 @@
 #include "../include/app.hpp"
 #include "../include/json.hpp"
 #include "../include/config.hpp"
+#include "../include/locate.hpp"
 #include <boost/json/serialize.hpp>
 #include <exception>
 
@@ -55,55 +56,14 @@ WebServer::WebServer(
     App* app
 ) : logger(logger)
     , app(app)
+    , base_path(Locate::currentDirectory())
     , method_callbacks(new MethodsCM())
 { 
-    const json::value server_obj = this->app->info->getProperty("server");
-    this->base_path = Locate::currentDirectory();
-    if (server_obj.is_object()) {
-        const json::object server_object = server_obj.as_object();
-        if (server_object.contains("ip") && server_object.at("ip").is_string())
-            this->ip = server_object.at("ip").as_string().c_str();
-        if (server_object.contains("port") && server_object.at("port").is_int64())
-            this->port =  static_cast<unsigned short>(server_object.at("port").as_int64());
-        if (server_object.contains("protocol") && server_object.at("protocol").is_bool())
-            this->https = server_object.at("protocol").as_bool();
-        if (server_object.contains("ssl_cert_path") && server_object.at("ssl_cert_path").is_string()) {
-            this->ssl_cert_path = std::filesystem::path(server_object.at("ssl_cert_path").as_string().c_str());
-            if (this->ssl_cert_path.is_relative()) {
-                this->ssl_cert_path = this->base_path / this->ssl_cert_path;
-            }
-        }
-        if (server_object.contains("ssl_key_path") && server_object.at("ssl_key_path").is_string()) {
-            this->ssl_key_path = std::filesystem::path(server_object.at("ssl_key_path").as_string().c_str());
-            if (this->ssl_key_path.is_relative()) {
-                this->ssl_key_path = this->base_path / this->ssl_key_path;
-            }
-        }
+    const json::value port = this->app->info->getProperty("port");
+    if (!port.is_null()) {
+        this->port =  static_cast<unsigned short>(port.as_int64());
     }
-    
-    if (this->https) {
-        if (this->ssl_cert_path.empty() || this->ssl_key_path.empty()) {
-            this->logger->error("[server] HTTPS enabled but ssl_cert and/or ssl_key not specified in config. Falling back to HTTP.");
-            this->https = false;
-            this->server = std::make_unique<httplib::Server>();
-        } else {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-            this->logger->info("[server] Initializing HTTPS server with cert: " + this->ssl_cert_path.string());
-            this->server = std::make_unique<httplib::SSLServer>(this->ssl_cert_path.c_str(), this->ssl_key_path.c_str());
-            if (!this->server->is_valid()) {
-                this->logger->error("[server] Failed to initialize SSL server. Check certificate and key paths. Falling back to HTTP.");
-                this->https = false;
-                this->server = std::make_unique<httplib::Server>();
-            }
-#else
-            this->logger->error("[server] HTTPS requested but cpp-httplib was not compiled with OpenSSL support. Falling back to HTTP.");
-            this->https = false;
-            this->server = std::make_unique<httplib::Server>();
-#endif
-        }
-    } else {
-        this->server = std::make_unique<httplib::Server>();
-    }
+    this->server = std::make_unique<httplib::Server>();
         
     this->setHandles();
     this->setMethodCallbacks();
@@ -127,7 +87,7 @@ WebServer::~WebServer() {
 
 
 std::string WebServer::getURL() const /*override*/ {
-    return std::string(this->https ? "https" : "http") + "://" + this->ip + ":" + std::to_string(this->port);
+    return "http://" + this->ip + ":" + std::to_string(this->port);
 }
 
 void WebServer::start() /*override*/ {

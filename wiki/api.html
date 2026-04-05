@@ -1825,6 +1825,26 @@ await FS.rm("folder", { recursive: true });</code></pre>
                         <pre><code class="language-javascript">const os = await System.getOS();</code></pre>
                     </div>
                 </div>
+
+                <div id="system-getcpuarchitecture" class="api-method">
+                    <h3>
+                        System.getCPUArchitecture()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getCPUArchitecture(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the CPU architecture of the host machine.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - CPU architecture (e.g., 'x86_64', 'arm64', 'riscv64')</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const arch = await System.getCPUArchitecture();
+await Log.debug(`Running on ${arch}`);</code></pre>
+                    </div>
+                </div>
             </section>
 
             <!-- Process Namespace -->
@@ -2583,6 +2603,57 @@ await Log.debug(info.pid, info.name);</code></pre>
                         <h4>Example</h4>
                         <pre><code class="language-javascript">await Navigate.openURI("https://example.com");
 await Navigate.openURI("file:///path/to/file");</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Application Namespace -->
+            <section id="application" class="api-namespace-section">
+                <h2>Application</h2>
+                <p class="namespace-description">
+                    The Application namespace provides read-only introspection of the running application's identity,
+                    including repository URLs and version strings for the app, engine, and plugins.
+                </p>
+
+                <div id="application-fetchrepositories" class="api-method">
+                    <h3>
+                        Application.fetchRepositories()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>fetchRepositories(): Promise&lt;{ app: string, engine: string, plugins: string[] }&gt;</code></div>
+                    <p class="method-description">Reads <code>info.json</code> and returns the source repository URLs for the application, the RenWeb engine, and all registered plugin repositories.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ app: string, engine: string, plugins: string[] }&gt;</span> - Repository URLs object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const repos = await Application.fetchRepositories();
+console.log(repos.engine); // "https://github.com/spur27/RenWeb-Engine"
+console.log(repos.plugins); // ["https://github.com/..."]</code></pre>
+                    </div>
+                </div>
+
+                <div id="application-fetchversions" class="api-method">
+                    <h3>
+                        Application.fetchVersions()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>fetchVersions(): Promise&lt;{ app: string, engine: string, plugins: Record&lt;string, string&gt; }&gt;</code></div>
+                    <p class="method-description">Scans the application directory for the versioned executable filename and the <code>plugins/</code> directory, returning version strings for the app, the RenWeb engine, and each loaded plugin.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ app: string, engine: string, plugins: Record&lt;string, string&gt; }&gt;</span> - Version strings object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const versions = await Application.fetchVersions();
+console.log(versions.engine); // "0.0.7"
+console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
                     </div>
                 </div>
             </section>

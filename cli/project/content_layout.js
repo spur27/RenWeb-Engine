@@ -1,16 +1,7 @@
 'use strict';
-// content_layout.js
-// Abstracts where page content lives and how pages are scaffolded / removed.
-//
-// Two concrete layouts:
-//   SrcFirstLayout   — vanilla: primary write target is src/content/,
-//                      removal also sweeps build/content/
-//   BuildDirectLayout — Vite: build/content/ is both source and target
 
 const fs   = require('fs');
 const path = require('path');
-
-// ─── ContentLayout ────────────────────────────────────────────────────────────
 
 class ContentLayout {
     /**
@@ -24,9 +15,6 @@ class ContentLayout {
         this.modules_script_path = modules_script_path;
     }
 
-    // ─── Queries ───────────────────────────────────────────────────────────
-
-    /** Return all page directory names visible across content roots. */
     listPages() {
         const seen = new Set();
         for (const base of [this.content_root, this.build_content_root].filter(Boolean)) {
@@ -39,7 +27,6 @@ class ContentLayout {
         return [...seen].sort();
     }
 
-    /** Return true when index.html exists for the page in any content root. */
     pageExists(name) {
         for (const base of [this.content_root, this.build_content_root].filter(Boolean)) {
             if (fs.existsSync(path.join(base, name, 'index.html'))) return true;
@@ -47,12 +34,6 @@ class ContentLayout {
         return false;
     }
 
-    // ─── Mutations ─────────────────────────────────────────────────────────
-
-    /**
-     * Write a starter index.html for a new page.
-     * Returns { created: boolean, index_path: string }.
-     */
     scaffoldPage(name, info) {
         const index_path = path.join(this.content_root, name, 'index.html');
         if (fs.existsSync(index_path)) return { created: false, index_path };
@@ -76,10 +57,6 @@ class ContentLayout {
         return { created: true, index_path };
     }
 
-    /**
-     * Delete a page's content directory from all roots.
-     * Returns true if at least one directory was removed.
-     */
     removePage(name) {
         let removed = false;
         for (const base of [this.content_root, this.build_content_root].filter(Boolean)) {
@@ -92,9 +69,6 @@ class ContentLayout {
         return removed;
     }
 
-    // ─── Factory ───────────────────────────────────────────────────────────
-
-    /** Return the correct ContentLayout for the given ProjectState. */
     static from(state) {
         const { root, build_tool } = state;
 

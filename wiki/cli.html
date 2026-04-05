@@ -71,13 +71,11 @@ rw --help</code></pre>
                     </thead>
                     <tbody>
                         <tr><td><code>rw create</code></td><td>Scaffold a new RenWeb project from a template</td></tr>
-                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, bundle, plugins, or JS API</td></tr>
-                        <tr><td><code>rw run</code></td><td>Launch the engine from <code>build/</code> (bundles, cached exe, or live download)</td></tr>
-                        <tr><td><code>rw build</code></td><td>Prepare <code>build/</code> for launch — copy pages, seed JS modules, fetch the engine; delegate to Vite build for framework projects</td></tr>
+                        <tr><td><code>rw init</code></td><td>Integrate RenWeb into an existing project (Angular, Vite, Deno, or vanilla)</td></tr>
+                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, bundle, plugin header, or JS API files</td></tr>
+                        <tr><td><code>rw run</code></td><td>Launch the engine — walks up from cwd to find <code>build/</code> and the host executable</td></tr>
+                        <tr><td><code>rw build</code></td><td>Prepare <code>build/</code> for launch — copy pages, fetch engine and plugins, then delegate to Vite or mirror <code>src/</code></td></tr>
                         <tr><td><code>rw update</code></td><td>Update the engine, JS modules, npm/bun packages, and plugins in an existing project</td></tr>
-                        <tr><td><code>rw add</code></td><td>Add a page or plugin: <code>rw add page &lt;name&gt;</code> | <code>rw add plugin &lt;url&gt;</code></td></tr>
-                        <tr><td><code>rw remove</code></td><td>Remove a page or plugin: <code>rw remove page &lt;name&gt;</code> | <code>rw remove plugin &lt;name&gt;</code></td></tr>
-                        <tr><td><code>rw list</code></td><td>List pages and/or plugins. Optionally filter: <code>rw list pages</code> | <code>rw list plugins</code></td></tr>
                         <tr><td><code>rw package</code></td><td>Generate installer packages for all platforms</td></tr>
                         <tr><td><code>rw docker</code></td><td>Build, rebuild, or kill the renweb-cli Docker image</td></tr>
                         <tr><td><code>rw doctor</code></td><td>Check environment health and tool availability</td></tr>
@@ -122,6 +120,9 @@ rw --help</code></pre>
                         <tr><td><code>vue</code></td><td>Vite + Vue template</td></tr>
                         <tr><td><code>svelte</code></td><td>Vite + Svelte template</td></tr>
                         <tr><td><code>preact</code></td><td>Vite + Preact template</td></tr>
+                        <tr><td><code>solid</code></td><td>Vite + Solid template</td></tr>
+                        <tr><td><code>lit</code></td><td>Vite + Lit template</td></tr>
+                        <tr><td><code>angular</code></td><td>Angular CLI scaffold (uses the Angular build pipeline)</td></tr>
                         <tr><td><code>plugin</code></td><td>Scaffold a C++ plugin project</td></tr>
                         <tr><td><code>engine</code></td><td>Clone the full RenWeb Engine repository (with submodules by default)</td></tr>
                     </tbody>
@@ -134,7 +135,7 @@ rw --help</code></pre>
                     </thead>
                     <tbody>
                         <tr><td><code>-y, --yes</code></td><td>Accept all defaults without prompting</td></tr>
-                        <tr><td><code>--bundle</code></td><td>Download a bundled release (includes shared libs) instead of the bare executable</td></tr>
+                        <tr><td><code>--dir &lt;path&gt;</code></td><td>Output directory (default: current working directory)</td></tr>
                         <tr><td><code>--skip-submodules</code></td><td>Skip <code>--recurse-submodules</code> when cloning with <code>engine</code> type</td></tr>
                         <tr><td><code>--node</code></td><td>Add <code>package.json</code> with <code>renweb</code> as an npm dependency (vanilla only)</td></tr>
                         <tr><td><code>--deno</code></td><td>Add <code>deno.json</code> with <code>jsr:@renweb/api</code> as an import (vanilla only)</td></tr>
@@ -176,6 +177,61 @@ rw create engine --skip-submodules</code></pre>
                         <li><code>.github/copilot-instructions.md</code> — AI context for the RenWeb JS API and project structure</li>
                         <li><code>package.json</code> (with <code>--node</code>) or <code>deno.json</code> (with <code>--deno</code>)</li>
                     </ul>
+                </div>
+            </section>
+
+            <!-- ── init ──────────────────────────────────────────────────── -->
+            <section id="init" class="card">
+                <h2><code>rw init</code></h2>
+                <p class="intro-text">
+                    Integrates RenWeb into an <em>existing</em> project directory. Detects the
+                    project type automatically (Angular, Vite-based framework, Deno, Bun, or
+                    vanilla) and patches the relevant config files — <code>vite.config.js</code>,
+                    <code>angular.json</code>, <code>deno.json</code>, <code>package.json</code> —
+                    to output into <code>build/content/&lt;page&gt;/</code> so the engine can
+                    serve the result.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw init [dir] [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="init flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>-y, --yes</code></td><td>Skip prompts and use defaults</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>What it does</h3>
+                <ol>
+                    <li>Detects the project type from existing config files (<code>angular.json</code>, <code>vite.config.*</code>, <code>deno.json</code>, <code>bun.lockb</code>, <code>package.json</code>)</li>
+                    <li>Patches the build output path to <code>build/content/&lt;page&gt;/</code></li>
+                    <li>Downloads the engine executable into <code>build/</code></li>
+                    <li>Downloads the RenWeb JS API into <code>src/modules/renweb/</code> (vanilla) or the appropriate location</li>
+                    <li>Adds <code>info.json</code>, <code>config.json</code>, <code>licenses/</code>, <code>resource/</code>, and <code>.github/copilot-instructions.md</code></li>
+                    <li>Adds <code>prebuild</code>, <code>start</code>, and <code>test</code> scripts to <code>package.json</code> / <code>deno.json</code></li>
+                    <li>Appends <code>.rw/</code> and <code>build/</code> to <code>.gitignore</code></li>
+                </ol>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Run in an existing Vite project
+cd my-vite-app
+rw init
+
+# Non-interactive
+rw init --yes
+
+# Point at a directory
+rw init ./my-project</code></pre>
+
+                <div class="info-box">
+                    <h3>Use <code>rw init</code> vs <code>rw create</code></h3>
+                    <p><code>rw create</code> scaffolds a fresh project from scratch.
+                    <code>rw init</code> adopts an existing codebase — run it in a repo that
+                    already has source files when you want to add the RenWeb engine to it.</p>
                 </div>
             </section>
 
@@ -229,13 +285,11 @@ rw fetch --version 0.0.6</code></pre>
             <section id="run" class="card">
                 <h2><code>rw run</code></h2>
                 <p class="intro-text">
-                    Handles the full development loop automatically. Project type is
-                    auto-detected; both vanilla and Vite projects are supported. If a
-                    <code>bundle_exec</code> launcher is present in <code>build/</code> it is
-                    preferred over the bare executable; missing executables are resolved from
-                    the <code>.rw/executables/</code> cache or downloaded from GitHub on first
-                    use. Vite projects also start watch mode and wait for the initial bundle.
-                    All processes tear down cleanly on <kbd>Ctrl+C</kbd>.
+                    Launches the RenWeb engine. Walks up the directory tree from the current
+                    working directory to locate the project root (identified by
+                    <code>info.json</code> next to a <code>build/</code> directory), then finds
+                    and executes the host-platform engine binary inside <code>build/</code>.
+                    The process runs in the foreground and exits with the engine's exit code.
                 </p>
 
                 <h3>Usage</h3>
@@ -245,25 +299,24 @@ rw fetch --version 0.0.6</code></pre>
 
                 <h3>What it does</h3>
                 <ol>
-                    <li>Kills any engine instance whose PID is stored in <code>build/.engine.pid</code></li>
-                    <li>Prefers <code>bundle_exec.sh</code> / <code>bundle_exec.bat</code> in <code>build/</code> over the bare executable</li>
-                    <li>If no executable is present in <code>build/</code>, checks <code>.rw/executables/</code> cache then downloads from GitHub</li>
-                    <li>For Vite projects: starts watch mode via the project's package manager and waits (up to 60&nbsp;s) for the initial output bundle</li>
-                    <li>Launches the engine (or bundle launcher), saves its PID to <code>build/.engine.pid</code></li>
-                    <li>On exit (<kbd>Ctrl+C</kbd> or engine crash): kills the Vite watcher and removes the PID file</li>
+                    <li>Walks up from the current directory to find the project root (the directory containing <code>info.json</code> and <code>build/</code>). If already inside <code>build/</code>, uses that directly.</li>
+                    <li>Detects the host OS and architecture to select the correct executable (e.g. <code>renweb-0.0.7-linux-x86_64</code>)</li>
+                    <li>Ensures the executable is marked as executable (<code>chmod +x</code>)</li>
+                    <li>Launches the engine with <code>build/</code> as the working directory and exits with the same exit code</li>
                 </ol>
 
                 <h3>Examples</h3>
-                <pre><code class="language-bash"># From anywhere inside the project
+                <pre><code class="language-bash"># From the project root, src/, or any subdirectory
 rw run
 
-# Typical vanilla workflow
-rw build && rw run</code></pre>
+# Build then run
+rw build &amp;&amp; rw run</code></pre>
 
                 <div class="highlight-box">
-                    <h3>Vanilla projects</h3>
-                    <p>The Vite watch step is skipped entirely. <code>rw run</code> kills the
-                    previous engine instance and relaunches it immediately.</p>
+                    <h3>Engine not found?</h3>
+                    <p>If no matching executable is present in <code>build/</code>, run
+                    <code>rw build</code> first — it fetches the engine for the host platform
+                    and caches it in <code>.rw/executables/</code>.</p>
                 </div>
             </section>
 
@@ -287,7 +340,8 @@ rw build && rw run</code></pre>
                         <tr><th>Flag</th><th>Description</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--bundle</code></td><td>Download a bundle release (executable + <code>lib/</code> + <code>bundle_exec</code> launcher) instead of the bare executable. Archive is cached in <code>.rw/bundles/</code>.</td></tr>
+                        <tr><td><code>--bundle</code></td><td>Fetch a bundle release (executable + <code>lib/</code> + <code>bundle_exec</code> launcher). Archive is cached in <code>.rw/bundles/</code>.</td></tr>
+                        <tr><td><code>--meta-only</code></td><td>Run only the meta steps (copy manifests, fetch engine, fetch plugins) and skip the JS build. Designed for use as an npm <code>prebuild</code> hook.</td></tr>
                     </tbody>
                 </table>
 
@@ -312,10 +366,12 @@ rw build --bundle
 rw build &amp;&amp; rw run</code></pre>
 
                 <div class="highlight-box">
-                    <h3>Active development</h3>
-                    <p>For a watch-mode workflow, use <code>rw run</code> directly — for Vite
-                    projects it starts Vite in watch mode <em>and</em> launches the engine
-                    together, with automatic process management.</p>
+                    <h3>Vite projects</h3>
+                    <p>For framework projects (React, Vue, Svelte, etc.) <code>rw build</code>
+                    delegates to <code>vite build</code> after the meta steps. For a
+                    rebuild-and-launch workflow, use <code>rw build &amp;&amp; rw run</code>.
+                    The <code>prebuild</code> script added to <code>package.json</code> runs
+                    <code>rw build --meta-only</code> automatically before each Vite build.</p>
                 </div>
             </section>
 
@@ -349,7 +405,7 @@ rw build &amp;&amp; rw run</code></pre>
                         <tr><th>Flag</th><th>Description</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--bundle-only</code></td><td>Update the bundle archive only (skip the bare executable)</td></tr>
+                        <tr><td><code>--plugins-only</code></td><td>Only update plugins — skip the engine executable and bundle</td></tr>
                         <tr><td><code>--executable-only</code></td><td>Update the bare executable only (skip bundle artifacts)</td></tr>
                         <tr><td><code>--version &lt;tag&gt;</code></td><td>Update to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
                     </tbody>
@@ -364,117 +420,6 @@ rw update --executable-only
 
 # Pin to a specific version
 rw update --version 0.0.6</code></pre>
-            </section>
-
-            <!-- ── add ───────────────────────────────────────────────────── -->
-            <section id="add" class="card">
-                <h2><code>rw add</code></h2>
-                <p class="intro-text">
-                    Adds a page or plugin to the project. Pages are scaffolded in
-                    <code>src/content/</code> (vanilla) or <code>build/content/</code> (Vite)
-                    and registered in <code>config.json</code>. Plugins are cloned, built, and
-                    installed to <code>build/plugins/</code>.
-                </p>
-
-                <h3>Usage</h3>
-                <pre><code class="language-bash">rw add &lt;page|plugin&gt; [args]</code></pre>
-
-                <h3>Types</h3>
-                <table aria-label="add types">
-                    <thead>
-                        <tr><th>Type</th><th>Args</th><th>Description</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr><td><code>page</code></td><td><code>&lt;name&gt; [--starting-page]</code></td><td>Scaffold <code>index.html</code> in the content directory and register in <code>config.json</code>. Use <code>--starting-page</code> to also add the page to <code>info.json["starting_pages"]</code></td></tr>
-                        <tr><td><code>plugin</code></td><td><code>&lt;repo-url&gt;</code></td><td>Clone the plugin repo, run <code>make</code> or <code>cmake</code>, copy the resulting shared library into <code>build/plugins/</code></td></tr>
-                    </tbody>
-                </table>
-
-                <h3>Examples</h3>
-                <pre><code class="language-bash"># Add a new page named "settings"
-rw add page settings
-
-# Install a plugin from GitHub
-rw add plugin https://github.com/example/my-renweb-plugin</code></pre>
-
-                <div class="info-box">
-                    <h3>Notes</h3>
-                    <ul>
-                        <li>Page names are normalised to <code>snake_case</code> (spaces and hyphens become underscores)</li>
-                        <li>The generated <code>index.html</code> includes a <code>&lt;script type="module" src="./modules/renweb/index.js"&gt;</code> tag</li>
-                        <li>For <code>plugin</code>: <code>git</code> must be available, and the repo must have a <code>Makefile</code> or <code>CMakeLists.txt</code></li>
-                        <li>The built library must export <code>CreatePlugin(std::shared_ptr&lt;ILogger&gt;)</code></li>
-                    </ul>
-                </div>
-            </section>
-
-            <!-- ── remove ────────────────────────────────────────────────── -->
-            <section id="remove" class="card">
-                <h2><code>rw remove</code></h2>
-                <p class="intro-text">
-                    Removes a page or plugin from the project. The page's source directory
-                    is <strong>moved</strong> to <code>.rw/trash/</code> (never permanently
-                    deleted); the <code>build/content/</code> copy is removed along with the
-                    <code>config.json</code> entry and any reference in
-                    <code>info.json["starting_pages"]</code>. Plugin shared libraries are
-                    removed from <code>build/plugins/</code> (cached sources in
-                    <code>.rw/plugins/</code> are kept).
-                </p>
-
-                <h3>Usage</h3>
-                <pre><code class="language-bash">rw remove &lt;page|plugin&gt; [args]</code></pre>
-
-                <h3>Types</h3>
-                <table aria-label="remove types">
-                    <thead>
-                        <tr><th>Type</th><th>Args</th><th>Description</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr><td><code>page</code></td><td><code>&lt;name&gt;</code></td><td>Move <code>src/content/&lt;name&gt;</code> to <code>.rw/trash/</code>, remove <code>build/content/&lt;name&gt;</code>, and clean the <code>config.json</code> entry. Refuses to remove <code>__defaults__</code></td></tr>
-                        <tr><td><code>plugin</code></td><td><code>&lt;name&gt;</code></td><td>Remove a plugin library from <code>build/plugins/</code> by name (fuzzy match on filename/stem)</td></tr>
-                    </tbody>
-                </table>
-
-                <h3>Examples</h3>
-                <pre><code class="language-bash"># Remove the "settings" page
-rw remove page settings
-
-# Remove a plugin by name (without extension)
-rw remove plugin my-renweb-plugin</code></pre>
-            </section>
-
-            <!-- ── list ──────────────────────────────────────────────────── -->
-            <section id="list" class="card">
-                <h2><code>rw list</code></h2>
-                <p class="intro-text">
-                    Lists pages and/or installed plugins. Without an argument, shows both. Pass
-                    <code>pages</code> or <code>plugins</code> to filter the output.
-                </p>
-
-                <h3>Usage</h3>
-                <pre><code class="language-bash">rw list [pages|plugins]</code></pre>
-
-                <h3>Output</h3>
-                <table aria-label="list output">
-                    <thead>
-                        <tr><th>Filter</th><th>Description</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr><td>(none)</td><td>Show both pages and plugins</td></tr>
-                        <tr><td><code>pages</code></td><td>Pages found in the content source directory — <code>★</code> = starting page (from <code>info.json["starting_pages"]</code>)</td></tr>
-                        <tr><td><code>plugins</code></td><td>Plugins from <code>info.json["plugins"]</code> — <code>[✓]</code>&nbsp;= in <code>build/plugins/</code>, <code>[○]</code>&nbsp;= cached only, <code>[⚠]</code>&nbsp;= not found</td></tr>
-                    </tbody>
-                </table>
-
-                <h3>Examples</h3>
-                <pre><code class="language-bash"># Show all pages and plugins
-rw list
-
-# Show only registered pages
-rw list pages
-
-# Show only installed plugins
-rw list plugins</code></pre>
             </section>
 
             <!-- ── package ───────────────────────────────────────────────── -->

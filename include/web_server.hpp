@@ -70,11 +70,8 @@ namespace RenWeb {
             std::unique_ptr<httplib::Server> server;
             std::thread server_thread;
             unsigned short port = 0;
-            std::string ip = "127.0.0.1";
-            bool https = false;
+            const std::string ip = "127.0.0.1";
             std::vector<json::value> messages{};
-            std::filesystem::path ssl_cert_path;
-            std::filesystem::path ssl_key_path;
             
             void setHandles();
             void setMethodCallbacks();

@@ -1366,7 +1366,8 @@ function formatSignature(name, details) {
         },
         'System': {
             'getPID': { params: [], returns: 'Promise<number>' },
-            'getOS': { params: [], returns: 'Promise<string>' }
+            'getOS': { params: [], returns: 'Promise<string>' },
+            'getCPUArchitecture': { params: [], returns: 'Promise<string>' }
         },
         'Process': {
             'createProcess': { params: [{name: 'args', type: 'string[]'}, {name: 'options?', type: 'object', defaultValue: '{ is_detachable: false, share_stdio: false }'}], returns: 'Promise<Process | null>' },
@@ -1391,8 +1392,7 @@ function formatSignature(name, details) {
         },
         'Network': {
             'getLoadProgress': { params: [], returns: 'Promise<number>' },
-            'isLoading': { params: [], returns: 'Promise<boolean>' },
-            'update': { params: [{name: 'options?', type: 'object', defaultValue: '{ update_app: true, update_engine: true, update_plugins: true }'}], returns: 'Promise<boolean>' }
+            'isLoading': { params: [], returns: 'Promise<boolean>' }
         },
         'Navigate': {
             'back': { params: [], returns: 'Promise<void>' },
@@ -1401,6 +1401,10 @@ function formatSignature(name, details) {
             'canGoBack': { params: [], returns: 'Promise<boolean>' },
             'canGoForward': { params: [], returns: 'Promise<boolean>' },
             'openURI': { params: [{name: 'uri', type: 'string'}], returns: 'Promise<void>' }
+        },
+        'Application': {
+            'fetchRepositories': { params: [], returns: 'Promise<{app: string, engine: string, plugins: string[]}>' },
+            'fetchVersions': { params: [], returns: 'Promise<{app: string, engine: string, plugins: Record<string, string>}>' }
         },
         'Plugins': {
             'getPluginsList': { params: [], returns: 'Promise<any[]>' }
@@ -1421,7 +1425,7 @@ function formatSignature(name, details) {
         'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
         'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'downloadUri'],
         'Config': ['getConfig', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
-        'System': ['getPID', 'getOS'],
+        'System': ['getPID', 'getOS', 'getCPUArchitecture'],
         'Process': {
             factoryConstructors: ['createProcess', 'createWindow', 'duplicate'],
             staticMethods: ['listenToOutput', 'getMessages', 'dumpProcess', 'dumpProcesses', 'dumpCurrentProcess', 'waitAll'],
@@ -1447,8 +1451,9 @@ function formatSignature(name, details) {
             }
         },
         'Debug': ['clearConsole', 'openDevtools', 'closeDevtools'],
-        'Network': ['getLoadProgress', 'isLoading', 'update'],
+        'Network': ['getLoadProgress', 'isLoading'],
         'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
+        'Application': ['fetchRepositories', 'fetchVersions'],
         'Plugins': ['getPluginsList'],
         'Utils': ['decode', 'encode', 'serialize'],
         'Callbacks': ['onServerMessage']

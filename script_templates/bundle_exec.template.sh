@@ -83,23 +83,33 @@ export GST_GL_PLATFORM=egl
 export GDK_PIXBUF_MODULE_FILE="$LIB_DIR/gdk-pixbuf-2.0/loaders.cache"
 export NO_AT_BRIDGE=1
 
-_rw_musl=0
-find /lib -maxdepth 2 -name 'ld-musl-*.so*' 2>/dev/null | grep -q . && _rw_musl=1
+export GIO_MODULE_DIR="$LIB_DIR/gio/modules"
 
+_rw_musl=0
+find /lib /usr/lib -maxdepth 2 -name 'ld-musl-*.so*' 2>/dev/null | grep -q . && _rw_musl=1
 if [ "$_rw_musl" -eq 1 ]; then
-    export GIO_EXTRA_MODULES="$LIB_DIR/gio/modules"
     export GTK_MODULES=""
     export GTK_PATH=""
     export LIBGL_ALWAYS_SOFTWARE=1
     export LIBGL_DRIVERS_PATH="$LIB_DIR/dri"
     export GBM_BACKENDS_PATH="$LIB_DIR/gbm"
     export __EGL_VENDOR_LIBRARY_DIRS="$LIB_DIR/glvnd/egl_vendor.d"
-else
-    :
 fi
 unset _rw_musl
 
-[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland
+_rw_wl_sock=""
+case "${WAYLAND_DISPLAY:-}" in
+    /*) _rw_wl_sock="$WAYLAND_DISPLAY" ;;
+    ?*) _rw_wl_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$WAYLAND_DISPLAY" ;;
+esac
+if [ -n "$_rw_wl_sock" ] && [ -S "$_rw_wl_sock" ]; then
+    export GDK_BACKEND=wayland
+elif [ -n "${DISPLAY:-}" ]; then
+    export GDK_BACKEND=x11
+else
+    export GDK_BACKEND=wayland
+fi
+unset _rw_wl_sock
 
 export ENCHANT_CONFIG_DIR="$LIB_DIR/enchant"
 

@@ -2,6 +2,7 @@
 const { Command } = require('commander');
 const path = require('path');
 const fs = require('fs');
+const { ProjectState } = require('./project/project_state');
 
 const pkgPath = path.join(__dirname, 'package.json');
 let version = '0.0.1';
@@ -14,11 +15,10 @@ program.name('rw').description('RenWeb CLI — create, develop, and package RenW
 
 program
   .command('create [type]')
-  .description('Scaffold a new RenWeb project (default: vanilla | react | vue | svelte | preact | plugin | engine)')
+  .description(`Makes/bootstraps a new RenWeb project of the following types:\n   Applications: ${ProjectState.frameworks.join(' | ')}\n   Plugins: plugin\n   Engines: engine`)
+  .option('-y, --yes', 'Skip all prompts and use defaults')
   .option('--dir <path>', 'Output directory (default: cwd)')
   .option('--skip-submodules', 'Skip --recurse-submodules when cloning the engine repository (engine type only)')
-  .option('--node', 'Add package.json with the renweb npm package as a dependency')
-  .option('--deno', 'Add deno.json with the renweb jsr package as an import')
   .allowUnknownOption(true)
   .action((type) => {
     const idx       = process.argv.indexOf('create');
@@ -27,10 +27,19 @@ program
   });
 
 program
+  .command('init [dir]')
+  .description('Integrate RenWeb into an existing project (auto-detects Angular, Vite, Deno, or vanilla)')
+  .option('-y, --yes', 'Skip prompts and use defaults')
+  .action(() => {
+    const idx = process.argv.indexOf('init');
+    require('./commands/init').run(process.argv.slice(idx + 1));
+  });
+
+program
   .command('update')
-  .description('Update the engine executable and/or bundle libs in an existing project')
-  .option('--bundle-only',     'Only update the bundle archive (libs + launcher + exe)')
-  .option('--executable-only', 'Only update the bare executable')
+  .description('Update engine for a given project')
+  .option('--plugins-only', 'Only update plugins')
+  .option('--executable-only', 'Only update executable and bundle contents')
   .option('--version <tag>',   'Pin to a specific release tag (default: latest)')
   .action(() => {
     const idx = process.argv.indexOf('update');
@@ -39,7 +48,7 @@ program
 
 program
   .command('run')
-  .description('Launch the engine (Vite projects: starts watch mode and waits for initial build first)')
+  .description('Launch the engine')
   .action(() => {
     const idx = process.argv.indexOf('run');
     require('./commands/run').run(process.argv.slice(idx + 1));
@@ -47,40 +56,12 @@ program
 
 program
   .command('build')
-  .description('Run vite build from anywhere inside a RenWeb project')
+  .description('Build the project: copies manifests, fetches engine + plugins, then delegates to the bundler or mirrors src/')
+  .option('--bundle', 'Use the bundled engine release (includes .so libs)')
+  .option('--meta-only', 'Only run the meta steps (manifests, engine, plugins) — skip the JS build; used as a prebuild hook')
   .action(() => {
     const idx = process.argv.indexOf('build');
     require('./commands/build').run(process.argv.slice(idx + 1));
-  });
-
-program
-  .command('add <type>')
-  .description('Add a page or plugin: rw add page <name> | rw add plugin <repo-url>')
-  .allowUnknownOption(true)
-  .action((type) => {
-    const idx       = process.argv.indexOf('add');
-    const remaining = [type, ...process.argv.slice(idx + 2)];
-    require('./commands/add').run(remaining);
-  });
-
-program
-  .command('remove <type>')
-  .description('Remove a page or plugin: rw remove page <name> | rw remove plugin <name>')
-  .allowUnknownOption(true)
-  .action((type) => {
-    const idx       = process.argv.indexOf('remove');
-    const remaining = [type, ...process.argv.slice(idx + 2)];
-    require('./commands/remove').run(remaining);
-  });
-
-program
-  .command('list [type]')
-  .description('List pages and/or plugins: rw list | rw list pages | rw list plugins')
-  .allowUnknownOption(true)
-  .action((type) => {
-    const idx       = process.argv.indexOf('list');
-    const remaining = type ? [type, ...process.argv.slice(idx + 2)] : [];
-    require('./commands/list').run(remaining);
   });
 
 program
@@ -104,8 +85,6 @@ program
     const idx = process.argv.indexOf('package');
     require('./commands/package').dispatch(process.argv.slice(idx + 1));
   });
-
-// `in-docker` command removed — `package` runs in Docker when required.
 
 program
   .command('doc [pages...]')

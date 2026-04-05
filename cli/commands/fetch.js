@@ -7,32 +7,13 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 const { spawnSync } = require('child_process');
-const { download, fetchRelease, detectTarget, GITHUB_RAW, resolveEngineRepo, engineRawBase } = require('./shared');
-
-const TEMPLATE_INFO = {
-    title:          'My RenWeb App',
-    description:    '',
-    author:         '',
-    version:        '0.0.1',
-    license:        'BSL 1.0',
-    categories:     ['Utility'],
-    app_id:         'io.github.user.my_renweb_app',
-    repository:     '',
-    starting_pages: ['main'],
-    permissions: {
-        geolocation: false, notifications: true, media_devices: false,
-        pointer_lock: false, install_missing_media_plugins: true, device_info: true,
-    },
-    origins: [],
-};
-
-const API_FILES = ['index.js', 'index.js.map', 'index.d.ts', 'index.ts'];
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const { download, fetchRelease, detectTarget, GITHUB_RAW, resolveEngineRepo, engineRawBase } = require('../shared/utils');
+const { API_FILES }            = require('../shared/constants');
+const { DEFAULT_TEMPLATE_INFO } = require('../shared/templates/project');
 
 function writeInfoIfMissing(cwd) {
     const dest    = path.join(cwd, 'info.json');
-    const infoText = JSON.stringify(TEMPLATE_INFO, null, 4) + '\n';
+    const infoText = JSON.stringify(DEFAULT_TEMPLATE_INFO, null, 4) + '\n';
     if (!fs.existsSync(dest)) {
         fs.writeFileSync(dest, infoText, 'utf8');
         console.log(`  ✓ info.json  (template — edit with your details)`);
@@ -81,7 +62,6 @@ function fetchBundle(release, cwd) {
         console.error('  ✗ Download failed');
         process.exit(1);
     }
-    // Bundle tar.gz is flat (exe + bundle_exec script + lib/) — extract directly to cwd
     console.log(`  Extracting to cwd…`);
     const r = spawnSync('tar', ['-xzf', tmp, '-C', cwd], { stdio: 'inherit' });
     try { fs.unlinkSync(tmp); } catch (_) {}
@@ -119,8 +99,6 @@ function fetchApi(cwd) {
         console.log(`  ✓ ${file}`);
     }
 }
-
-// ─── Entry point ─────────────────────────────────────────────────────────────
 
 function run(args) {
     const hasExe    = args.includes('--executable');

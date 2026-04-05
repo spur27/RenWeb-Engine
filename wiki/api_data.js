@@ -135,7 +135,8 @@ window.apiData = {
     ],
     'System': [
         {name: 'getPID', signature: 'getPID()', description: 'Returns: Promise<number>'},
-        {name: 'getOS', signature: 'getOS()', description: 'Returns: Promise<string>'}
+        {name: 'getOS', signature: 'getOS()', description: 'Returns: Promise<string>'},
+        {name: 'getCPUArchitecture', signature: 'getCPUArchitecture()', description: 'Returns: Promise<string>'}
     ],
     'Process': [
         {name: 'createProcess', signature: 'createProcess(args, options = { is_detachable: false, share_stdio: false })', description: 'Returns: Promise<Process | null>'},
@@ -169,6 +170,10 @@ window.apiData = {
         {name: 'canGoBack', signature: 'canGoBack()', description: 'Returns: Promise<boolean>'},
         {name: 'canGoForward', signature: 'canGoForward()', description: 'Returns: Promise<boolean>'},
         {name: 'openURI', signature: 'openURI(uri)', description: 'Returns: Promise<void>'}
+    ],
+    'Application': [
+        {name: 'fetchRepositories', signature: 'fetchRepositories()', description: 'Returns: Promise<{app: string, engine: string, plugins: string[]}>'},
+        {name: 'fetchVersions', signature: 'fetchVersions()', description: 'Returns: Promise<{app: string, engine: string, plugins: Record<string, string>}>'}
     ],
     'Plugins': [
         {name: 'getPluginsList', signature: 'getPluginsList()', description: 'Returns: Promise<any[]>'}

@@ -1,5 +1,5 @@
 {
-  "name": "renweb",
+  "name": "renweb-api",
   "version": "0.0.1",
   "description": "RenWeb Engine JavaScript/TypeScript API.",
   "type": "module",

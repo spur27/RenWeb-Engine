@@ -1,10 +1,4 @@
 'use strict';
-// renweb build
-// Vanilla: selectively clears build/, copies src/ → build/, fetches engine,
-//          copies licenses/ and resource/, seeds JS modules.
-// Vite:    delegates to the project's package manager.
-// --bundle Download a bundle release (exe + lib/ + bundle_exec) instead of
-//          a bare executable.
 
 const fs            = require('fs');
 const path          = require('path');
@@ -14,27 +8,10 @@ const {
     copyDir, detectTarget, fetchRelease, download,
     findProjectExecutable,
     rwExecutablesDir, rwBundlesDir, ensureRwGitignore,
-} = require('./shared');
+} = require('../shared/utils');
+const { fetchPlugins } = require('../shared/fetchers');
 const { ProjectState } = require('../project/project_state');
 
-// Subdirs / files inside build/ that are wiped on each build.
-// Never touched: engine exe, lib/, lib-*/,  plugins/, bundle_exec*, .engine.pid
-const CLEARABLE = new Set(['content', 'licenses', 'resource', 'assets', 'log.txt', 'info.json', 'config.json']);
-
-function clearBuildOutputs(buildDir) {
-    if (!fs.existsSync(buildDir)) return;
-    for (const name of fs.readdirSync(buildDir)) {
-        if (!CLEARABLE.has(name)) continue;
-        const full = path.join(buildDir, name);
-        try {
-            const s = fs.statSync(full);
-            if (s.isDirectory()) fs.rmSync(full, { recursive: true, force: true });
-            else fs.unlinkSync(full);
-        } catch (_) {}
-    }
-}
-
-/** Remove bundle artifacts (lib/, bundle_exec*) — called when switching bare→bundle is NOT wanted. */
 function removeBundleArtifacts(buildDir) {
     if (!fs.existsSync(buildDir)) return;
     for (const name of fs.readdirSync(buildDir)) {
@@ -48,10 +25,6 @@ function removeBundleArtifacts(buildDir) {
     }
 }
 
-/**
- * Ensure a bare engine exe is present in buildDir.
- * Checks .rw/executables/ first; fetches from GitHub and caches if absent.
- */
 function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     if (findProjectExecutable(buildDir, targetOs, targetArch)) return true;
 
@@ -61,7 +34,6 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
 
     const pattern = new RegExp(`-${targetOs}-${targetArch}(\\.exe)?$`, 'i');
 
-    // Check cache
     let cached = null;
     try { cached = fs.readdirSync(exeDir).find(f => pattern.test(f)) || null; } catch (_) {}
     if (cached) {
@@ -72,7 +44,6 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
         return true;
     }
 
-    // Fetch from GitHub
     console.log(`  Fetching engine for ${targetOs}-${targetArch}…`);
     const release = fetchRelease(null);
     if (!release) { console.warn('  ⚠ Could not reach GitHub — engine not fetched'); return false; }
@@ -91,10 +62,6 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     return true;
 }
 
-/**
- * Ensure bundle artifacts (lib/, bundle_exec*, exe) are present in buildDir.
- * Checks .rw/bundles/ first; fetches from GitHub and caches if absent.
- */
 function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
     const bundleDir = rwBundlesDir(projectRoot);
     fs.mkdirSync(bundleDir, { recursive: true });
@@ -103,7 +70,6 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
     const assetRE   = /^bundle-([\d][\w.]*)-(\w+)-([\w]+?)\.tar\.gz$/;
     const matchesTarget = (name) => { const m = assetRE.exec(name); return m && m[2] === targetOs && m[3] === targetArch; };
 
-    // Check cache
     let cachedArchive = null;
     try { cachedArchive = fs.readdirSync(bundleDir).find(matchesTarget) || null; } catch (_) {}
 
@@ -122,7 +88,6 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
         console.log(`  Using cached bundle: ${cachedArchive}`);
     }
 
-    // Extract into a temp dir then copy into build/
     const archivePath = path.join(bundleDir, cachedArchive);
     const tmpDir = path.join(os.tmpdir(), `renweb-bundle-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
@@ -155,9 +120,28 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
     return true;
 }
 
+function hasBuildScript(projectRoot, jsEngine) {
+    try {
+        if (jsEngine === 'node' || jsEngine === 'bun') {
+            const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+            return !!pkg.scripts?.build;
+        }
+        if (jsEngine === 'deno') {
+            const deno = JSON.parse(fs.readFileSync(path.join(projectRoot, 'deno.json'), 'utf8'));
+            return !!deno.tasks?.build;
+        }
+    } catch (_) {}
+    return false;
+}
+
 function run(args) {
     const wantBundle = args.includes('--bundle');
-    const state = ProjectState.detect();
+    const metaOnly   = args.includes('--meta-only');
+
+    let startCwd = process.cwd();
+    if (path.basename(startCwd) === 'build') startCwd = path.dirname(startCwd);
+
+    const state = ProjectState.detect(startCwd);
     if (!state) {
         console.error('Not inside a RenWeb project (no info.json found).');
         process.exit(1);
@@ -167,69 +151,58 @@ function run(args) {
     const projectRoot = state.root;
     const buildDir    = path.join(projectRoot, 'build');
 
-    if (state.isVanilla()) {
-        const layout       = state.layout();
-        const src_content  = layout.content_root;
-        const src_modules  = path.join(projectRoot, 'src', 'modules');
-        const src_assets   = path.join(projectRoot, 'src', 'assets');
-        const src_licenses = path.join(projectRoot, 'licenses');
-        const src_resource = path.join(projectRoot, 'resource');
+    fs.mkdirSync(buildDir, { recursive: true });
 
-        if (!fs.existsSync(src_content)) {
-            console.error('No src/content/ directory found. Is this a vanilla RenWeb project?');
-            process.exit(1);
-        }
-
-        fs.mkdirSync(buildDir, { recursive: true });
-        clearBuildOutputs(buildDir);
-
-        // Manifests
-        for (const f of ['info.json', 'config.json']) {
-            const src = path.join(projectRoot, f);
-            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(buildDir, f));
-        }
-
-        // Pages + modules
-        const build_content = layout.build_content_root || path.join(buildDir, 'content');
-        let pages_copied = 0;
-        for (const entry of fs.readdirSync(src_content, { withFileTypes: true })) {
-            if (!entry.isDirectory()) continue;
-            const dest_page = path.join(build_content, entry.name);
-            copyDir(path.join(src_content, entry.name), dest_page);
-            if (fs.existsSync(src_modules)) copyDir(src_modules, path.join(dest_page, 'modules'));
-            pages_copied++;
-        }
-
-        // Assets
-        if (fs.existsSync(src_assets))   copyDir(src_assets,   path.join(buildDir, 'assets'));
-        // Licenses
-        if (fs.existsSync(src_licenses)) copyDir(src_licenses, path.join(buildDir, 'licenses'));
-        // Resources (icons, manifests)
-        if (fs.existsSync(src_resource)) copyDir(src_resource, path.join(buildDir, 'resource'));
-
-        // Engine / bundle
-        if (wantBundle) {
-            ensureBundle(projectRoot, buildDir, targetOs, targetArch);
-        } else {
-            removeBundleArtifacts(buildDir);
-            ensureExecutable(projectRoot, buildDir, targetOs, targetArch);
-        }
-
-        console.log(`✓ Build complete (${pages_copied} page${pages_copied !== 1 ? 's' : ''} → build/content/).`);
-        return;
+    for (const f of ['info.json', 'config.json']) {
+        const src = path.join(projectRoot, f);
+        if (fs.existsSync(src)) fs.copyFileSync(src, path.join(buildDir, f));
     }
 
-    // Vite-based project — delegate to package manager
-    const pm  = state.pkg_manager();
-    const cmd = pm.build_cmd();
-    if (!cmd) {
-        console.error(`No build command available for js_engine='${state.js_engine}' build_tool='${state.build_tool}'.`);
+    for (const dir of ['licenses', 'resource']) {
+        const src = path.join(projectRoot, dir);
+        if (!fs.existsSync(src)) continue;
+        const dest = path.join(buildDir, dir);
+        if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+        copyDir(src, dest);
+    }
+
+    if (wantBundle) {
+        ensureBundle(projectRoot, buildDir, targetOs, targetArch);
+    } else {
+        removeBundleArtifacts(buildDir);
+        ensureExecutable(projectRoot, buildDir, targetOs, targetArch);
+    }
+
+    fetchPlugins(projectRoot, buildDir, targetOs, targetArch);
+
+    if (metaOnly) return;
+
+    if (hasBuildScript(projectRoot, state.js_engine)) {
+        const [bin, bin_args] = state.pkg_manager().build_cmd();
+        console.log(`Building (${state.framework || state.js_engine})…`);
+        const r = spawnSync(bin, bin_args, { cwd: projectRoot, stdio: 'inherit' });
+        process.exit(r.status ?? 0);
+    }
+
+    const srcDir = path.join(projectRoot, 'src');
+    if (!fs.existsSync(srcDir)) {
+        console.error('Cannot infer project structure: no build script and no src/ directory found.');
         process.exit(1);
     }
-    const [bin, bin_args] = cmd;
-    console.log(`Building (${state.framework})…`);
-    const r = spawnSync(bin, bin_args, { cwd: projectRoot, stdio: 'inherit' });
-    process.exit(r.status ?? 0);
+
+    for (const name of fs.readdirSync(srcDir)) {
+        const src  = path.join(srcDir, name);
+        const dest = path.join(buildDir, name);
+        if (fs.statSync(src).isDirectory()) {
+            if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
+            copyDir(src, dest);
+        } else {
+            fs.copyFileSync(src, dest);
+        }
+    }
+
+    console.log('✓ Build complete.');
 }
 
 module.exports = { run };
+

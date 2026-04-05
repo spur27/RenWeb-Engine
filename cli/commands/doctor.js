@@ -1,11 +1,9 @@
 'use strict';
-// renweb doctor
-// Inspect the environment and current project, report issues.
 
 const fs            = require('fs');
 const path          = require('path');
 const { spawnSync } = require('child_process');
-const { findProjectExecutable } = require('./shared');
+const { findProjectExecutable } = require('../shared/utils');
 const { ProjectState } = require('../project/project_state');
 
 const PASS = '\u2713'; // ✓

@@ -59,8 +59,8 @@ function resolveEngineRepo(projectRoot) {
 function download(url, dest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     for (const [cmd, args] of [
-        ['curl', ['-fsSL', '--output', dest, url]],
-        ['wget', ['-q',    '-O',       dest, url]],
+        ['curl', ['-fsSL', '--max-time', '30', '--output', dest, url]],
+        ['wget', ['-q', '--timeout=30', '-O', dest, url]],
     ]) {
         try {
             const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'inherit'] });
@@ -108,27 +108,6 @@ function detectTarget() {
     return { os: targetOs, arch: targetArch };
 }
 
-// ─── Project type detection ───────────────────────────────────────────────────
-
-/**
- * Infer the frontend framework used by a project from its package.json.
- * Returns 'react' | 'vue' | 'svelte' | 'preact' | 'vanilla'.
- */
-function detectProjectType(projectRoot) {
-    const pkgPath = path.join(projectRoot, 'package.json');
-    if (!fs.existsSync(pkgPath)) return 'vanilla';
-    try {
-        const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-        if (deps['react'])   return 'react';
-        if (deps['vue'])     return 'vue';
-        if (deps['svelte'])  return 'svelte';
-        if (deps['preact'])  return 'preact';
-        if (deps['vite'])    return 'vanilla';
-    } catch (_) {}
-    return 'vanilla';
-}
-
 // ─── Project root ─────────────────────────────────────────────────────────────
 
 /**
@@ -170,40 +149,6 @@ function findProjectRoot(start, maxDownDepth = 5) {
     }
     // Fallback: bounded downward search from the starting directory
     return maxDownDepth > 0 ? _findRootDown(cur, maxDownDepth) : null;
-}
-
-/**
- * Find the nearest build/ directory: walk upward first, then bounded downward.
- */
-function findBuildDir(start, maxDownDepth = 5) {
-    let cur = path.resolve(start || process.cwd());
-    // Walk upward
-    let check = cur;
-    while (true) {
-        const candidate = path.join(check, 'build');
-        try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch (_) {}
-        const parent = path.dirname(check);
-        if (parent === check) break;
-        check = parent;
-    }
-    // Bounded downward search
-    if (maxDownDepth <= 0) return null;
-    return _findBuildDown(cur, maxDownDepth);
-}
-
-function _findBuildDown(dir, maxDepth) {
-    if (maxDepth <= 0) return null;
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return null; }
-    for (const e of entries) {
-        if (!e.isDirectory()) continue;
-        if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-        const sub = path.join(dir, e.name);
-        if (e.name === 'build') return sub;
-        const found = _findBuildDown(sub, maxDepth - 1);
-        if (found) return found;
-    }
-    return null;
 }
 
 /**
@@ -256,25 +201,6 @@ function saveInfo(projectRoot, data) {
     }
 }
 
-// ─── Engine PID management ───────────────────────────────────────────────────
-
-const PID_FILE = (projectRoot) => path.join(projectRoot, 'build', '.engine.pid');
-
-/** Kill any tracked engine process started by this project. */
-function killEngine(projectRoot) {
-    const pidFile = PID_FILE(projectRoot);
-    if (!fs.existsSync(pidFile)) return false;
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    try { fs.unlinkSync(pidFile); } catch (_) {}
-    if (!pid) return false;
-    try { process.kill(pid, 'SIGTERM'); return true; } catch (_) { return false; }
-}
-
-/** Record the PID of a newly launched engine process. */
-function saveEnginePid(projectRoot, pid) {
-    fs.writeFileSync(PID_FILE(projectRoot), String(pid), 'utf8');
-}
-
 // ─── File utils ──────────────────────────────────────────────────────────────
 
 function copyDir(src, dest) {
@@ -306,9 +232,9 @@ function toKebab(s) { return s.trim().toLowerCase().replace(/[\s_]+/g, '-'); }
 // ─── RenWeb cache helpers ────────────────────────────────────────────────────
 
 /** Absolute path to the .rw/ cache directory in a project root. */
-function rwCacheDir(root)   { return path.join(root, '.rw'); }
+function rwCacheDir(root)        { return path.join(root, '.rw'); }
 /** Absolute path to the .rw/plugins/ directory. */
-function rwPluginsDir(root) { return path.join(root, '.rw', 'plugins'); }
+function rwPluginsDir(root)      { return path.join(root, '.rw', 'plugins'); }
 /** Absolute path to the .rw/trash/ directory. */
 function rwTrashDir(root)        { return path.join(root, '.rw', 'trash'); }
 /** Absolute path to the .rw/executables/ cache directory. */
@@ -361,14 +287,10 @@ module.exports = {
     fetchRelease,
     fetchLatestRelease,
     detectTarget,
-    detectProjectType,
     findProjectRoot,
-    findBuildDir,
     findProjectExecutable,
     loadInfo,
     saveInfo,
-    killEngine,
-    saveEnginePid,
     copyDir,
     makeRl,
     prompt,

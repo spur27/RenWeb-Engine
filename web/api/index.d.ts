@@ -515,9 +515,14 @@ export declare namespace System {
     function getPID(): Promise<number>;
     /**
      * Gets the operating system name.
-     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "MacOS")
      */
-    function getOS(): Promise<string>;
+    function getOS(): Promise<'Linux' | 'Windows' | 'MacOS'>;
+    /**
+     * Gets the CPU architecture of the current system.
+     * @returns Promise that resolves to the architecture string
+     */
+    function getCPUArchitecture(): Promise<"x86_64" | "x86_32" | "arm64" | "arm32" | "mips32" | "mips32el" | "mips64" | "mips64el" | "powerpc32" | "powerpc64" | "riscv64" | "s390x" | "sparc64">;
 }
 /**
  * Represents a system or RenWeb process with methods for process management and communication.
@@ -826,19 +831,32 @@ export declare namespace Network {
      * @returns Promise that resolves to true if loading
      */
     function isLoading(): Promise<boolean>;
+}
+/**
+ * Application information functions, including repository URLs and version strings for the app, engine, and plugins.
+ */
+export declare namespace Application {
     /**
-     * Updates the application, engine, and plugins.
-     * @param options Options to specify which components to update
-     * - options.update_app: Whether to update the application (default: true)
-     * - options.update_engine: Whether to update the engine (default: true)
-     * - options.update_plugins: Whether to update plugins (default: true)
-     * @returns Promise that resolves when the update is complete
+     * Fetches the repository URLs for the app, engine, and plugins from info.json.
+     * @returns Promise that resolves to an object with app, engine, and plugins repository URLs
      */
-    function update(options?: {
-        update_app: boolean;
-        update_engine: boolean;
-        update_plugins: boolean;
-    }): Promise<void>;
+    function fetchRepositories(): Promise<{
+        app: string;
+        engine: string;
+        plugins: string[];
+    }>;
+    /**
+     * Fetches the current version strings for the app, engine, and loaded plugins.
+     * - App version is read from info.json.
+     * - Engine version is extracted from the executable filename in the application directory.
+     * - Plugin versions are extracted from plugin filenames in the plugins/ directory.
+     * @returns Promise that resolves to an object with app, engine, and plugins version strings
+     */
+    function fetchVersions(): Promise<{
+        app: string;
+        engine: string;
+        plugins: Record<string, string>;
+    }>;
 }
 /**
  * Page navigation functions.

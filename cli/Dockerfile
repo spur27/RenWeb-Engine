@@ -22,6 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     flatpak \
  && rm -rf /var/lib/apt/lists/*
 
+# ── XBPS tools (Void Linux) — not in Debian repos; use the official static musl build ──
+# The tarball contains /usr/bin/xbps-* statically linked against musl libc.
+# Architecture is detected at build time so this works on x86_64, aarch64, armv7l, etc.
+RUN XBPS_ARCH="$(uname -m)-musl" \
+ && curl -fsSL \
+    "https://repo-fastly.voidlinux.org/static/xbps-static-latest.${XBPS_ARCH}.tar.xz" \
+    -o /tmp/xbps-static.tar.xz \
+ && mkdir -p /tmp/xbps-static \
+ && tar -xf /tmp/xbps-static.tar.xz -C /tmp/xbps-static \
+ && install -m 755 /tmp/xbps-static/usr/bin/xbps-create.static   /usr/local/bin/xbps-create \
+ && install -m 755 /tmp/xbps-static/usr/bin/xbps-rindex.static   /usr/local/bin/xbps-rindex \
+ && rm -rf /tmp/xbps-static /tmp/xbps-static.tar.xz
+
 # ── Flatpak runtime + SDK — needed to build .flatpak bundles offline ──────────
 # --noninteractive skips all prompts; system-level install works in Docker root.
 RUN flatpak remote-add --if-not-exists flathub \

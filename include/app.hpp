@@ -49,7 +49,6 @@ namespace RenWeb {
           
         public:
           ~App() = default;
-          
           std::vector<std::string> orig_args;
           std::unique_ptr<JSON> info = nullptr;
           std::unique_ptr<Config> config = nullptr;

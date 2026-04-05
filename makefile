@@ -753,7 +753,7 @@ ifdef TOOLCHAIN
 				done; \
 			done; \
 		done; \
-		LD_INTERP=$$($(TOOLCHAIN)-readelf -l "$(BUILD_PATH)/$(EXE)" 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*\[//;s/\].*//'); \
+		LD_INTERP=$$($(TOOLCHAIN)-readelf -l "$(BUILD_PATH)/$(EXE)" 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*interpreter: //;s/\].*//'); \
 		if [ -n "$$LD_INTERP" ]; then \
 			LD_NAME=$$(basename "$$LD_INTERP"); \
 			for search_dir in $$SEARCH_DIRS; do \
@@ -785,7 +785,7 @@ else
 	else \
 		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found to bundle"; \
 	fi; \
-	LD_INTERP=$$(readelf -l $(BUILD_PATH)/$(EXE) 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*\[//;s/\].*//'); \
+	LD_INTERP=$$(readelf -l $(BUILD_PATH)/$(EXE) 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*interpreter: //;s/\].*//'); \
 	if [ -n "$$LD_INTERP" ] && [ -f "$$LD_INTERP" ]; then \
 		LD_NAME=$$(basename "$$LD_INTERP"); \
 		cp -L "$$LD_INTERP" $(BUILD_PATH)/lib-$(ARCH)/"$$LD_NAME" 2>/dev/null || true; \
@@ -839,7 +839,7 @@ endif
 					patchelf --set-interpreter "/tmp/.renweb/.so/$${_ld_hash}.so" "$$WK_DST/$$_helper.real" 2>/dev/null || true; \
 				fi; \
 			fi; \
-			printf '#!/bin/sh\n_D=$$(cd -P "$$(dirname "$$0")" && pwd)\nLIB_DIR="$$_D/.."\nBLD=""\nfor _l in "$$LIB_DIR"/ld-*.so*; do [ -f "$$_l" ] && [ -x "$$_l" ] && { BLD="$$_l"; break; }; done\nexec "$${BLD}" --library-path "$$LIB_DIR" "$$_D/%s.real" "$$@"\n' "$$_helper" > "$$WK_DST/$$_helper"; \
+			printf '#!/bin/sh\n_D=$$(cd -P "$$(dirname "$$0")" && pwd)\nLIB_DIR="$$_D/.."\nBLD=""\nfor _l in "$$LIB_DIR"/ld-*.so*; do [ -f "$$_l" ] && [ -x "$$_l" ] && { BLD="$$_l"; break; }; done\nif [ -n "$$BLD" ]; then\n    exec "$$BLD" --library-path "$$LIB_DIR" "$$_D/%s.real" "$$@"\nelse\n    exec "$$_D/%s.real" "$$@"\nfi\n' "$$_helper" "$$_helper" > "$$WK_DST/$$_helper"; \
 			chmod +x "$$WK_DST/$$_helper"; \
 			_wk_count=$$((_wk_count + 1)); \
 		fi; \
