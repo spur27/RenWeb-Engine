@@ -73,9 +73,22 @@
                     
                     <div class="requirement-card">
                         <h4>Required Runtime Libraries</h4>
+                        <ul>n
+                            <li><strong>libwebkit2gtk-4.1-0</strong> - WebKitGTK 4.1 WebView runtime (JS engine, DOM, networking)</li>
+                            <li><strong>libgtk-3-0</strong> - GTK 3 windowing and widget toolkit</li>
+                            <li><strong>gstreamer1.0-plugins-base</strong> - Core GStreamer codecs (Ogg, Vorbis, Theora)</li>
+                            <li><strong>gstreamer1.0-plugins-good</strong> - Common formats (MP3, FLAC, WebM, Opus)</li>
+                        </ul>
+                        <h4>Recommended: WebGL &amp; Hardware Acceleration</h4>
                         <ul>
-                            <li><strong>libwebkit2gtk-4.1-0</strong> - Modern WebView with WebGL support</li>
-                            <li><strong>libgtk-3-0</strong> - GTK 3.0+ GUI toolkit</li>
+                            <li><strong>libegl1</strong> - EGL interface for hardware-accelerated rendering</li>
+                            <li><strong>libgl1-mesa-dri</strong> - Mesa DRI drivers (OpenGL / WebGL)</li>
+                        </ul>
+                        <h4>Recommended: Media Playback</h4>
+                        <ul>
+                            <li><strong>gstreamer1.0-plugins-bad</strong> - Extended formats (H.264, AAC, HLS)</li>
+                            <li><strong>gstreamer1.0-gl</strong> - GStreamer OpenGL video output</li>
+                            <li><strong>gstreamer1.0-libav</strong> - FFmpeg-backed codec support (widest format coverage)</li>
                         </ul>
                     </div>
 
@@ -86,15 +99,50 @@
                     </div>
 
                     <div id="debian-runtime" class="code-content active">
-                        <pre><code class="language-bash">sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0</code></pre>
+                        <pre><code class="language-bash"># Required
+sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0
+
+# WebGL / hardware acceleration
+sudo apt install libegl1 libgl1-mesa-dri
+
+# Media playback (GStreamer)
+sudo apt install \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-gl \
+  gstreamer1.0-libav</code></pre>
                     </div>
 
                     <div id="fedora-runtime" class="code-content">
-                        <pre><code class="language-bash">sudo dnf install webkit2gtk4.1 gtk3</code></pre>
+                        <pre><code class="language-bash"># Required
+sudo dnf install webkit2gtk4.1 gtk3
+
+# WebGL / hardware acceleration
+sudo dnf install mesa-libEGL mesa-dri-drivers
+
+# Media playback (GStreamer)
+sudo dnf install \
+  gstreamer1-plugins-base \
+  gstreamer1-plugins-good \
+  gstreamer1-plugins-bad-free \
+  gstreamer1-plugin-openh264 \
+  gstreamer1-libav</code></pre>
                     </div>
 
                     <div id="arch-runtime" class="code-content">
-                        <pre><code class="language-bash">sudo pacman -S webkit2gtk gtk3</code></pre>
+                        <pre><code class="language-bash"># Required
+sudo pacman -S webkit2gtk-4.1 gtk3
+
+# WebGL / hardware acceleration
+sudo pacman -S mesa libglvnd
+
+# Media playback (GStreamer)
+sudo pacman -S \
+  gst-plugins-base \
+  gst-plugins-good \
+  gst-plugins-bad \
+  gst-libav</code></pre>
                     </div>
                 </div>
 

@@ -38,6 +38,7 @@ import {
     Debug,
     Network,
     Navigate,
+    Application,
     Utils,
     Plugins
  } from './index.js';
@@ -149,6 +150,7 @@ window.onload = async () => {
         document.querySelector('.message_url').value = proc.url;
         document.querySelector('.message_pid').value = proc.pid;
         document.querySelector('.refresh_messages').click();
+        document.querySelector('.fetch_versions').click();
         window.onServerMessage = async (message) => {
             document.querySelector('.refresh_messages').click();
         };
@@ -926,6 +928,23 @@ document.querySelector(".set_config_property").onclick = async () => {
     await Log.debug(`Setting config property "${key}" = "${parsedValue}"`);
     await Config.setConfigProperty(key, parsedValue);
 };
+
+// ============================================================================
+// APPLICATION SECTION  
+// ============================================================================
+
+document.querySelector(".fetch_repositories").onclick = async () => {
+    await Log.debug(`Fetching repositories...`);
+    const repos = await Application.fetchRepositories();
+    document.querySelector(".application_output").textContent = JSON.stringify(repos, null, 2);
+}
+
+document.querySelector(".fetch_versions").onclick = async () => {
+    await Log.debug(`Fetching versions...`);
+    const versions = await Application.fetchVersions();
+    document.querySelector(".application_output").textContent = JSON.stringify(versions, null, 2);
+}
+
 
 
 // ============================================================================
