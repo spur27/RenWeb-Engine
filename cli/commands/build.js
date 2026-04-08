@@ -11,6 +11,7 @@ const {
 } = require('../shared/utils');
 const { fetchPlugins } = require('../shared/fetchers');
 const { ProjectState } = require('../project/project_state');
+const ui = require('../shared/ui');
 
 function removeBundleArtifacts(buildDir) {
     if (!fs.existsSync(buildDir)) return;
@@ -37,28 +38,28 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     let cached = null;
     try { cached = fs.readdirSync(exeDir).find(f => pattern.test(f)) || null; } catch (_) {}
     if (cached) {
-        console.log(`  Using cached executable: ${cached}`);
+        ui.info(`Using cached executable: ${cached}`);
         const dest = path.join(buildDir, cached);
         fs.copyFileSync(path.join(exeDir, cached), dest);
         try { fs.chmodSync(dest, 0o755); } catch (_) {}
         return true;
     }
 
-    console.log(`  Fetching engine for ${targetOs}-${targetArch}…`);
+    ui.step(`Fetching engine for ${targetOs}-${targetArch}…`);
     const release = fetchRelease(null);
-    if (!release) { console.warn('  ⚠ Could not reach GitHub — engine not fetched'); return false; }
+    if (!release) { ui.warn('Could not reach GitHub — engine not fetched'); return false; }
     const asset = (release.assets || []).find(a => pattern.test(a.name));
-    if (!asset)   { console.warn(`  ⚠ No engine asset for ${targetOs}-${targetArch}`); return false; }
+    if (!asset)   { ui.warn(`No engine asset for ${targetOs}-${targetArch}`); return false; }
 
     const cachePath = path.join(exeDir, asset.name);
     if (!download(asset.browser_download_url, cachePath)) {
-        console.warn('  ⚠ Download failed'); return false;
+        ui.warn('Download failed'); return false;
     }
     try { fs.chmodSync(cachePath, 0o755); } catch (_) {}
     const dest = path.join(buildDir, asset.name);
     fs.copyFileSync(cachePath, dest);
     try { fs.chmodSync(dest, 0o755); } catch (_) {}
-    console.log(`  ✓ Engine fetched: ${asset.name}`);
+    ui.ok(`Engine fetched: ${asset.name}`);
     return true;
 }
 
@@ -74,18 +75,18 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
     try { cachedArchive = fs.readdirSync(bundleDir).find(matchesTarget) || null; } catch (_) {}
 
     if (!cachedArchive) {
-        console.log(`  Fetching bundle for ${targetOs}-${targetArch}…`);
+        ui.step(`Fetching bundle for ${targetOs}-${targetArch}…`);
         const release = fetchRelease(null);
-        if (!release) { console.warn('  ⚠ Could not reach GitHub — bundle not fetched'); return false; }
+        if (!release) { ui.warn('Could not reach GitHub — bundle not fetched'); return false; }
         const asset = (release.assets || []).find(a => matchesTarget(a.name));
-        if (!asset)   { console.warn(`  ⚠ No bundle asset for ${targetOs}-${targetArch}`); return false; }
+        if (!asset)   { ui.warn(`No bundle asset for ${targetOs}-${targetArch}`); return false; }
         cachedArchive = asset.name;
         if (!download(asset.browser_download_url, path.join(bundleDir, cachedArchive))) {
-            console.warn('  ⚠ Bundle download failed'); return false;
+            ui.warn('Bundle download failed'); return false;
         }
-        console.log(`  ✓ Bundle cached: ${cachedArchive}`);
+        ui.ok(`Bundle cached: ${cachedArchive}`);
     } else {
-        console.log(`  Using cached bundle: ${cachedArchive}`);
+        ui.info(`Using cached bundle: ${cachedArchive}`);
     }
 
     const archivePath = path.join(bundleDir, cachedArchive);
@@ -94,7 +95,7 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
     const r = spawnSync('tar', ['-xzf', archivePath, '-C', tmpDir], { stdio: 'inherit' });
     if (r.status !== 0) {
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
-        console.warn('  ⚠ Bundle extraction failed'); return false;
+        ui.warn('Bundle extraction failed'); return false;
     }
 
     const exePattern = new RegExp(`-${targetOs}-${targetArch}(\\.exe)?$`, 'i');
@@ -113,7 +114,7 @@ function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
             if (old && old !== name) { try { fs.unlinkSync(path.join(buildDir, old)); } catch (_) {} }
             fs.copyFileSync(src, dest);
             try { fs.chmodSync(dest, 0o755); } catch (_) {}
-            console.log(`  ✓ Engine: ${name}`);
+            ui.ok(`Engine: ${name}`);
         }
     }
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
@@ -143,7 +144,7 @@ function run(args) {
 
     const state = ProjectState.detect(startCwd);
     if (!state) {
-        console.error('Not inside a RenWeb project (no info.json found).');
+        ui.error('Not inside a RenWeb project (no info.json found).');
         process.exit(1);
     }
 
@@ -179,14 +180,15 @@ function run(args) {
 
     if (hasBuildScript(projectRoot, state.js_engine)) {
         const [bin, bin_args] = state.pkg_manager().build_cmd();
-        console.log(`Building (${state.framework || state.js_engine})…`);
+        const buildLabel = state.isVanilla() ? state.js_engine : state.framework;
+        ui.step(`Building (${buildLabel})…`);
         const r = spawnSync(bin, bin_args, { cwd: projectRoot, stdio: 'inherit' });
         process.exit(r.status ?? 0);
     }
 
     const srcDir = path.join(projectRoot, 'src');
     if (!fs.existsSync(srcDir)) {
-        console.error('Cannot infer project structure: no build script and no src/ directory found.');
+        ui.error('Cannot infer project structure: no build script and no src/ directory found.');
         process.exit(1);
     }
 
@@ -201,7 +203,7 @@ function run(args) {
         }
     }
 
-    console.log('✓ Build complete.');
+    ui.ok('Build complete.');
 }
 
 module.exports = { run };

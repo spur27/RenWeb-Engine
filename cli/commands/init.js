@@ -4,8 +4,9 @@
 const fs            = require('fs');
 const path          = require('path');
 const { spawnSync } = require('child_process');
-const chalk         = require('chalk');
-const { toKebab, prompt, makeRl } = require('../shared/utils');
+const ui            = require('../shared/ui');
+const { toKebab, makeRl } = require('../shared/utils');
+const { prompt } = ui;
 const { FRAMEWORK_TYPES }         = require('../shared/constants');
 const { makeConfigJson, makeInfoJson } = require('../shared/templates/project');
 const { fetchWebApi, fetchEngineExecutable, fetchGitHubDirectory } = require('../shared/fetchers');
@@ -254,19 +255,19 @@ async function promptInitInfo(rl, yes, projectDir) {
         };
     }
 
-    console.log('');
-    console.log(chalk.bold.cyan.underline('App info:'));
-    console.log('');
-    const title       = await prompt(rl, chalk.cyan('App title'),   def('title', path.basename(projectDir)));
-    const description = await prompt(rl, chalk.cyan('Description'), def('description', ''));
-    const author      = await prompt(rl, chalk.cyan('Author'),      def('author', ''));
-    const version     = await prompt(rl, chalk.cyan('Version'),     def('version', '0.0.1'));
-    const license     = await prompt(rl, chalk.cyan('License'),     def('license', 'MIT'));
-    const catRaw      = await prompt(rl, chalk.cyan('Categories (comma-separated)'), (def('categories', ['Utility'])).join(', '));
+    ui.spacer();
+    ui.section('App info');
+    ui.spacer();
+    const title       = await prompt(rl, 'App title',   def('title', path.basename(projectDir)));
+    const description = await prompt(rl, 'Description', def('description', ''));
+    const author      = await prompt(rl, 'Author',      def('author', ''));
+    const version     = await prompt(rl, 'Version',     def('version', '0.0.1'));
+    const license     = await prompt(rl, 'License',     def('license', 'MIT'));
+    const catRaw      = await prompt(rl, 'Categories (comma-separated)', (def('categories', ['Utility'])).join(', '));
     const categories  = catRaw.split(',').map(s => s.trim()).filter(Boolean);
-    const app_id      = await prompt(rl, chalk.cyan('App ID (reverse domain)'), def('app_id', `io.github.${toKebab(author || 'user')}.${toKebab(title)}`));
-    const repository  = await prompt(rl, chalk.cyan('Repository URL'), def('repository', ''));
-    console.log('');
+    const app_id      = await prompt(rl, 'App ID (reverse domain)', def('app_id', `io.github.${toKebab(author || 'user')}.${toKebab(title)}`));
+    const repository  = await prompt(rl, 'Repository URL', def('repository', ''));
+    ui.spacer();
     return { title, description, author, version, license, categories, app_id, repository };
 }
 
@@ -285,30 +286,30 @@ async function run(args) {
     const projectDir   = path.resolve(dir || process.cwd());
 
     if (!fs.existsSync(projectDir)) {
-        console.error(chalk.red(`Directory does not exist: ${projectDir}`));
-        console.error(chalk.dim(`  To create a new project, use ${chalk.bold('rw create')}`));
+        ui.error(`Directory does not exist: ${projectDir}`);
+        ui.dim('To create a new project, use rw create');
         process.exit(1);
     }
 
     const type = detectType(projectDir);
     const isViteBased = [...FRAMEWORK_TYPES, 'vite'].includes(type);
 
-    console.log('');
-    console.log(chalk.bold.cyan(`Detected: ${typeLabel(type)}`));
-    console.log(chalk.dim(`  in ${projectDir}`));
-    console.log('');
-    console.log(chalk.bold('Will do:'));
-    for (const line of describePlan(type)) console.log(chalk.white(line));
-    console.log('');
+    ui.spacer();
+    ui.info(`Detected: ${typeLabel(type)}`);
+    ui.dim(`in ${projectDir}`);
+    ui.spacer();
+    ui.section('Will do');
+    for (const line of describePlan(type)) ui.plain(line);
+    ui.spacer();
 
     const rl = yes ? null : makeRl();
 
     // ── Confirm ────────────────────────────────────────────────────────────────
     if (!yes) {
-        const answer = await prompt(rl, chalk.cyan('Integrate RenWeb?'), 'Y');
+        const answer = await prompt(rl, 'Integrate RenWeb?', 'Y');
         if (!['y', 'yes', ''].includes(answer.trim().toLowerCase())) {
             if (rl) rl.close();
-            console.log('Aborted.');
+            ui.warn('Aborted.');
             return;
         }
     }
@@ -323,27 +324,27 @@ async function run(args) {
 
     // ── Type-specific patching ────────────────────────────────────────────────
     if (type === 'angular') {
-        console.log(chalk.cyan('  Patching angular.json…'));
+        ui.step('Patching angular.json…');
         const ok = patchAngularJson(projectDir, pageName);
-        if (!ok) console.warn(chalk.yellow(`  ⚠ Could not patch angular.json — set outputPath manually`));
-        console.log(chalk.cyan('  Patching package.json…'));
+        if (!ok) ui.warn('Could not patch angular.json — set outputPath manually');
+        ui.step('Patching package.json…');
         patchPackageJson(projectDir);
 
     } else if (isViteBased) {
-        console.log(chalk.cyan('  Patching vite.config…'));
+        ui.step('Patching vite.config…');
         const r = patchViteConfig(projectDir, pageName);
-        if (r.note) console.log(chalk.yellow(`  ⚠ ${r.note}`));
-        console.log(chalk.cyan('  Patching package.json…'));
+        if (r.note) ui.warn(r.note);
+        ui.step('Patching package.json…');
         patchPackageJson(projectDir);
 
     } else if (type === 'deno') {
-        console.log(chalk.cyan('  Patching deno.json…'));
+        ui.step('Patching deno.json…');
         patchDenoJson(projectDir);
-        console.log(chalk.cyan('  Fetching RenWeb JS API…'));
+        ui.step('Fetching RenWeb JS API…');
         fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
 
     } else if (type === 'node-vanilla') {
-        console.log(chalk.cyan('  Fetching RenWeb JS API…'));
+        ui.step('Fetching RenWeb JS API…');
         fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
         const pkgPath = path.join(projectDir, 'package.json');
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -354,12 +355,12 @@ async function run(args) {
 
     } else {
         // vanilla — no bundler, no package manager
-        console.log(chalk.cyan('  Fetching RenWeb JS API…'));
+        ui.step('Fetching RenWeb JS API…');
         fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
     }
 
     // ── RenWeb manifests ──────────────────────────────────────────────────────
-    console.log(chalk.cyan('  Writing info.json, config.json…'));
+    ui.step('Writing info.json, config.json…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
     fs.writeFileSync(path.join(projectDir, 'info.json'),   infoText,   'utf8');
@@ -368,15 +369,15 @@ async function run(args) {
     fs.writeFileSync(path.join(buildDir, 'config.json'),   configText, 'utf8');
 
     // ── Static assets from engine repo ───────────────────────────────────────
-    console.log(chalk.cyan('  Fetching licenses…'));
+    ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
-    console.log(chalk.cyan('  Fetching resource files…'));
+    ui.step('Fetching resource files…');
     fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
-    console.log(chalk.cyan('  Fetching credentials template…'));
+    ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
     // ── Engine executable ─────────────────────────────────────────────────────
-    console.log(chalk.cyan('  Fetching engine executable…'));
+    ui.step('Fetching engine executable…');
     fetchEngineExecutable(buildDir);
 
     // ── .gitignore ────────────────────────────────────────────────────────────
@@ -385,29 +386,28 @@ async function run(args) {
     // ── Install packages ──────────────────────────────────────────────────────
     if (type === 'angular' || isViteBased || type === 'node-vanilla') {
         const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-        console.log(chalk.cyan('\n  Installing npm packages…'));
+        ui.step('Installing npm packages…');
         const r = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'inherit' });
-        if (r.status !== 0) console.warn(chalk.yellow('  ⚠ npm install failed — run it manually'));
-        else console.log(chalk.green('  ✓ npm packages installed'));
+        if (r.status !== 0) ui.warn('npm install failed — run it manually');
+        else ui.ok('npm packages installed');
     } else if (type === 'deno') {
-        console.log(chalk.cyan('\n  Running deno install…'));
+        ui.step('Running deno install…');
         const r = spawnSync('deno', ['install'], { cwd: projectDir, stdio: 'inherit' });
-        if (r.status !== 0) console.warn(chalk.yellow('  ⚠ deno install failed — run it manually'));
-        else console.log(chalk.green('  ✓ deno packages installed'));
+        if (r.status !== 0) ui.warn('deno install failed — run it manually');
+        else ui.ok('deno packages installed');
     }
 
     // ── Summary ───────────────────────────────────────────────────────────────
-    console.log(chalk.bold.green('\n✓ RenWeb integration complete.'));
-    console.log(chalk.bold('\nNext steps:'));
+    ui.ok('RenWeb integration complete.');
+    ui.section('Next steps');
     if (type === 'angular') {
-        console.log(`  ${chalk.bold('npm run build')}    ${chalk.dim('# or: ng build — outputs to build/content/main/')}`);
+        ui.nextSteps([['npm run build', 'or: ng build — outputs to build/content/main/']]);
     } else if (isViteBased) {
-        console.log(`  ${chalk.bold('rw build')}         ${chalk.dim('# delegates to npm run build → Vite')}`);
+        ui.nextSteps([['rw build', 'delegates to npm run build → Vite']]);
     } else {
-        console.log(`  ${chalk.bold('rw build')}         ${chalk.dim('# mirrors src/ → build/')}`);
+        ui.nextSteps([['rw build', 'mirrors src/ → build/']]);
     }
-    console.log(`  ${chalk.bold('rw run')}           ${chalk.dim('# launch the engine')}`);
-    console.log('');
+    ui.nextSteps([['rw run', 'launch the engine']]);
 }
 
 module.exports = { run };

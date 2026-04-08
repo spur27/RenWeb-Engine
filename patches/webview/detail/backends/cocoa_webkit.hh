@@ -30,17 +30,16 @@
 
 #if defined(__cplusplus) && !defined(WEBVIEW_HEADER)
 
-// Use absolute paths to original headers in external/webview
-#include "../../../../../external/webview/core/include/webview/macros.h"
+#include "../../../../external/webview/core/include/webview/macros.h"
 
 #if defined(WEBVIEW_PLATFORM_DARWIN) && defined(WEBVIEW_COCOA)
 
-#include "../../../../../external/webview/core/include/webview/types.hh"
-#include "../../../../../external/webview/core/include/webview/detail/engine_base.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/cocoa/cocoa.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/objc/objc.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/webkit/webkit.hh"
-#include "../../../../../external/webview/core/include/webview/detail/user_script.hh"
+#include "../../../../external/webview/core/include/webview/types.hh"
+#include "../../../../external/webview/core/include/webview/detail/engine_base.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/cocoa/cocoa.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/objc/objc.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/webkit/webkit.hh"
+#include "../../../../external/webview/core/include/webview/detail/user_script.hh"
 
 #include <atomic>
 #include <functional>

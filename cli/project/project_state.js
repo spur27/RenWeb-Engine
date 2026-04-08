@@ -9,6 +9,8 @@ const Framework = Object.freeze({
     VUE:     'vue',
     SVELTE:  'svelte',
     PREACT:  'preact',
+    ANGULAR: 'angular',
+    LIT:     'lit',
 });
 
 const JsEngine = Object.freeze({
@@ -102,10 +104,12 @@ class ProjectState {
         let framework = Framework.VANILLA;
         if (pkg) {
             const all_deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-            if      (all_deps['react'])   framework = Framework.REACT;
-            else if (all_deps['vue'])     framework = Framework.VUE;
-            else if (all_deps['svelte'])  framework = Framework.SVELTE;
-            else if (all_deps['preact'])  framework = Framework.PREACT;
+            if      (all_deps['@angular/core']) framework = Framework.ANGULAR;
+            else if (all_deps['lit'])           framework = Framework.LIT;
+            else if (all_deps['react'])         framework = Framework.REACT;
+            else if (all_deps['vue'])           framework = Framework.VUE;
+            else if (all_deps['svelte'])        framework = Framework.SVELTE;
+            else if (all_deps['preact'])        framework = Framework.PREACT;
         }
 
         // ── JS engine (bun > deno > node > none) ──────────────────────────

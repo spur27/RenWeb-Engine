@@ -5,6 +5,7 @@ const path          = require('path');
 const { spawnSync } = require('child_process');
 const { findProjectExecutable } = require('../shared/utils');
 const { ProjectState } = require('../project/project_state');
+const ui = require('../shared/ui');
 
 const PASS = '\u2713'; // ✓
 const FAIL = '\u2717'; // ✗
@@ -16,10 +17,10 @@ function run() {
     let exitCode = 0;
 
     // Reporters close over the local exitCode so each run() call is independent
-    const ok   = (msg) => console.log(`  ${PASS} ${msg}`);
-    const fail = (msg) => { console.log(`  ${FAIL} ${msg}`); exitCode = 1; };
-    const warn = (msg) => console.log(`  ${WARN} ${msg}`);
-    const sect = (msg) => console.log(`\n${msg}`);
+    const ok   = (msg) => ui.ok(msg);
+    const fail = (msg) => { ui.error(msg); exitCode = 1; };
+    const warn = (msg) => ui.warn(msg);
+    const sect = (msg) => ui.section(msg);
 
     // ── Binary helpers ──────────────────────────────────────────────────────
     function checkBin(name, installHint) {
@@ -123,8 +124,9 @@ function run() {
 
     checkProject();
 
-    console.log('');
-    console.log(exitCode === 0 ? 'All checks passed.' : 'One or more checks failed — see above.');
+    ui.spacer();
+    if (exitCode === 0) ui.ok('All checks passed.');
+    else ui.error('One or more checks failed — see above.');
     process.exit(exitCode);
 }
 

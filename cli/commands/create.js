@@ -5,7 +5,7 @@ const fs            = require('fs');
 const path          = require('path');
 const { spawnSync } = require('child_process');
 const {
-    toSnake, toKebab, prompt, makeRl, resolveEngineRepo,
+    toSnake, toKebab, makeRl, resolveEngineRepo,
 } = require('../shared/utils');
 const { FRAMEWORK_TYPES, ANGULAR_TYPES, VITE_FRAMEWORK, ALL_TYPES } = require('../shared/constants');
 const {
@@ -19,33 +19,34 @@ const {
     makePluginReadme, makePluginGitignore, makePluginWorkflow,
     makePluginTestInfoJson, makePluginTestConfigJson, makePluginTestHarnessHtml,
 } = require('../shared/templates/plugin');
-const chalk = require('chalk');
+const ui = require('../shared/ui');
+const { prompt } = ui;
 
 // ─── Interactive type / engine prompts ───────────────────────────────────────
 
 async function promptType(rl) {
     console.clear();
-    console.log('');
-    console.log(chalk.bold.cyan.underline('Project types:'));
-    console.log('');
-    console.log(`  ${chalk.bold.white('Applications:')}`);
-    console.log(`    ${chalk.bold.yellow('vanilla')}   ${chalk.dim('Plain HTML/CSS/JS (no bundler)')}`);
-    console.log(`    ${chalk.bold.yellow('react')}     ${chalk.dim('React')}`);
-    console.log(`    ${chalk.bold.yellow('vue')}       ${chalk.dim('Vue 3')}`);
-    console.log(`    ${chalk.bold.yellow('svelte')}    ${chalk.dim('Svelte')}`);
-    console.log(`    ${chalk.bold.yellow('preact')}    ${chalk.dim('Preact')}`);
-    console.log(`    ${chalk.bold.yellow('solid')}     ${chalk.dim('SolidJS')}`);
-    console.log(`    ${chalk.bold.yellow('lit')}       ${chalk.dim('Lit (Web Components)')}`);
-    console.log(`    ${chalk.bold.yellow('angular')}   ${chalk.dim('Angular (uses @angular/cli)')}`);
-    console.log('');
-    console.log(`  ${chalk.bold.white('Other:')}`);
-    console.log(`    ${chalk.bold.yellow('plugin')}    ${chalk.dim('C++ plugin for RenWeb')}`);
-    console.log(`    ${chalk.bold.yellow('engine')}    ${chalk.dim('Clone the RenWeb engine repository')}`);
-    console.log('');
-    const raw = await prompt(rl, chalk.cyan('Type'), 'vanilla');
+    ui.spacer();
+    ui.section('Project types');
+    ui.spacer();
+    ui.menuGroup('Applications');
+    ui.menuItem('vanilla',  'Plain HTML/CSS/JS (no bundler)');
+    ui.menuItem('react',    'React');
+    ui.menuItem('vue',      'Vue 3');
+    ui.menuItem('svelte',   'Svelte');
+    ui.menuItem('preact',   'Preact');
+    ui.menuItem('solid',    'SolidJS');
+    ui.menuItem('lit',      'Lit (Web Components)');
+    ui.menuItem('angular',  'Angular (uses @angular/cli)');
+    ui.spacer();
+    ui.menuGroup('Other');
+    ui.menuItem('plugin',   'C++ plugin for RenWeb');
+    ui.menuItem('engine',   'Clone the RenWeb engine repository');
+    ui.spacer();
+    const raw = await prompt(rl, 'Type', 'vanilla');
     const t   = raw.trim().toLowerCase();
     if (!ALL_TYPES.includes(t)) {
-        console.error(chalk.red(`\nUnknown type '${t}'. Options: ${ALL_TYPES.join(', ')}`));
+        ui.error(`Unknown type '${t}'. Options: ${ALL_TYPES.join(', ')}`);
         rl.close();
         process.exit(1);
     }
@@ -54,7 +55,7 @@ async function promptType(rl) {
 
 // ─── Interactive prompts ─────────────────────────────────────────────────────
 
-async function promptInfo(rl, extra = [], yes = false) {
+async function promptInfo(rl, extra = [], yes = false, type = '') {
     if (yes) {
         const title = 'My RenWeb App';
         return {
@@ -70,23 +71,23 @@ async function promptInfo(rl, extra = [], yes = false) {
         };
     }
     console.clear();
-    console.log('');
-    console.log(chalk.bold.cyan.underline('Project info:'));
-    console.log('');
-    const title       = await prompt(rl, chalk.cyan('App title'),                  'My RenWeb App');
-    const description = await prompt(rl, chalk.cyan('Description'),                '');
-    const author      = await prompt(rl, chalk.cyan('Author'),                     '');
-    const version     = await prompt(rl, chalk.cyan('Version'),                    '0.0.1');
-    const license     = await prompt(rl, chalk.cyan('License'),                    'BSL 1.0');
-    const categoriesRaw = await prompt(rl, chalk.cyan('Categories (comma-separated)'), 'Utility');
+    ui.spacer();
+    ui.section(`${type} Project info`);
+    ui.spacer();
+    const title       = await prompt(rl, 'App title', 'My RenWeb App');
+    const description = await prompt(rl, 'Description', '');
+    const author      = await prompt(rl, 'Author', '');
+    const version     = await prompt(rl, 'Version', '0.0.1');
+    const license     = await prompt(rl, 'License', 'BSL 1.0');
+    const categoriesRaw = await prompt(rl, 'Categories (comma-separated)', 'Utility');
     const categories     = categoriesRaw.split(',').map(s => s.trim()).filter(Boolean);
-    const app_id         = await prompt(rl, chalk.cyan('App ID (reverse domain)'), `io.github.${toKebab(author || 'user')}.${toKebab(title)}`);
-    const repository     = await prompt(rl, chalk.cyan('Repository URL'),          '');
+    const app_id         = await prompt(rl, 'App ID (reverse domain)', `io.github.${toKebab(author || 'user')}.${toKebab(title)}`);
+    const repository     = await prompt(rl, 'Repository URL', '');
     const extraInfo      = {};
     for (const { key, question, fallback } of extra) {
-        extraInfo[key] = await prompt(rl, chalk.cyan(question), fallback);
+        extraInfo[key] = await prompt(rl, question, fallback);
     }
-    console.log('');
+    ui.spacer();
     return { title, description, author, version, license, categories, app_id, repository, ...extraInfo };
 }
 
@@ -96,8 +97,8 @@ async function createFrontend(projectDir, info) {
     const pageName = 'main';
 
     if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
-        console.error(chalk.red(`\n✘ Directory '${path.basename(projectDir)}' already exists and is not empty.`));
-        console.error(chalk.dim(`  To integrate RenWeb into an existing project, run: ${chalk.bold('rw init')}`));
+        ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+        ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
     }
     fs.mkdirSync(projectDir, { recursive: true });
@@ -133,11 +134,11 @@ async function createFrontend(projectDir, info) {
 `, 'utf8');
 
     // ── Extra directories from engine repo ────────────────────────────────────
-    console.log(chalk.cyan('  Fetching licenses…'));
+    ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
-    console.log(chalk.cyan('  Fetching resource files…'));
+    ui.step('Fetching resource files…');
     fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
-    console.log(chalk.cyan('  Fetching credentials template…'));
+    ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
     // ── Copilot instructions ──────────────────────────────────────────────────
@@ -206,14 +207,16 @@ async function createFramework(projectDir, info, type) {
     // ── Pre-flight: verify npm is available ───────────────────────────────────
     const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
     if (check.error?.code === 'ENOENT') {
-        console.error(chalk.red('\n✘ npm is not installed or not on PATH.'));
-        console.error(chalk.dim('  Install Node.js from https://nodejs.org and try again.'));
+        ui.error('npm is not installed or not on PATH.');
+        ui.dim('Install Node.js from https://nodejs.org and try again.');
         process.exit(1);
     }
 
     // ── Guard against non-empty target directory ──────────────────────────────
     if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
-        console.error(chalk.red(`\n✘ Directory '${path.basename(projectDir)}' already exists and is not empty.`));        console.error(chalk.dim(`  To integrate RenWeb into an existing project, run: ${chalk.bold('rw init')}`));        process.exit(1);
+        ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+        ui.dim('To integrate RenWeb into an existing project, run: rw init');
+        process.exit(1);
     }
 
     const parent = path.dirname(projectDir);
@@ -221,18 +224,18 @@ async function createFramework(projectDir, info, type) {
     fs.mkdirSync(parent, { recursive: true });
 
     // ── Scaffold with create-vite ─────────────────────────────────────────────
-    console.log(chalk.cyan(`\n  Scaffolding ${type} project via Vite…`));
+    ui.step(`Scaffolding ${type} project via Vite…`);
     const npxCmd  = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     const scaffold = spawnSync(
         npxCmd,
         ['--yes', 'create-vite@5', name, '--template', template],
-        { cwd: parent, stdio: 'inherit' },
+        { cwd: parent, stdio: 'pipe' },
     );
     // Verify by checking the output directory rather than relying on exit code,
     // since some npm/npx versions return non-zero even on success.
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
-        console.error(chalk.red('  ✘ Vite scaffolding failed — package.json not found.'));
+        ui.error('Vite scaffolding failed — package.json not found.');
         process.exit(scaffold.status ?? 1);
     }
     const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -268,7 +271,7 @@ export default defineConfig({
     fs.writeFileSync(path.join(projectDir, 'vite.config.js'), viteConfig, 'utf8');
 
     // ── RenWeb engine config ──────────────────────────────────────────────────
-    console.log(chalk.cyan('  Writing RenWeb config files…'));
+    ui.step('Writing RenWeb config files…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
     const buildDir   = path.join(projectDir, 'build');
@@ -280,15 +283,15 @@ export default defineConfig({
     fetchEngineExecutable(buildDir);
 
     // ── Extra directories from engine repo ────────────────────────────────────
-    console.log(chalk.cyan('  Fetching licenses…'));
+    ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
-    console.log(chalk.cyan('  Fetching resource files…'));
+    ui.step('Fetching resource files…');
     fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
-    console.log(chalk.cyan('  Fetching credentials template…'));
+    ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
     // ── Copilot instructions ──────────────────────────────────────────────────
-    console.log(chalk.cyan('  Writing Copilot instructions…'));
+    ui.step('Writing Copilot instructions…');
     const githubDir = path.join(projectDir, '.github');
     fs.mkdirSync(githubDir, { recursive: true });
     fs.writeFileSync(
@@ -305,10 +308,10 @@ export default defineConfig({
     if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
 
     // ── npm install ───────────────────────────────────────────────────────────
-    console.log(chalk.cyan('\n  Installing packages…'));
-    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'inherit' });
-    if (install.status !== 0) console.warn(chalk.yellow('  ⚠ npm install failed — run it manually'));
-    else console.log(chalk.green('  ✓ packages installed'));
+    ui.step('Installing packages…');
+    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
+    if (install.status !== 0) ui.warn('npm install failed — run it manually');
+    else ui.ok('packages installed');
 }
 
 
@@ -320,15 +323,15 @@ async function createAngular(projectDir, info) {
     // ── Pre-flight: verify npm is available ───────────────────────────────────
     const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
     if (check.error?.code === 'ENOENT') {
-        console.error(chalk.red('\n✘ npm is not installed or not on PATH.'));
-        console.error(chalk.dim('  Install Node.js from https://nodejs.org and try again.'));
+        ui.error('npm is not installed or not on PATH.');
+        ui.dim('Install Node.js from https://nodejs.org and try again.');
         process.exit(1);
     }
 
     // ── Guard against non-empty target directory ──────────────────────────────
     if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
-        console.error(chalk.red(`\n✘ Directory '${path.basename(projectDir)}' already exists and is not empty.`));
-        console.error(chalk.dim(`  To integrate RenWeb into an existing project, run: ${chalk.bold('rw init')}`));
+        ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+        ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
     }
 
@@ -337,21 +340,21 @@ async function createAngular(projectDir, info) {
     fs.mkdirSync(parent, { recursive: true });
 
     // ── Scaffold with Angular CLI ─────────────────────────────────────────────
-    console.log(chalk.cyan(`\n  Scaffolding Angular project…`));
+    ui.step('Scaffolding Angular project…');
     const scaffold = spawnSync(
         npxCmd,
         ['--yes', '@angular/cli@latest', 'new', name,
          '--routing=false', '--style=css', '--ssr=false', '--defaults', '--skip-install'],
-        { cwd: parent, stdio: 'inherit' },
+        { cwd: parent, stdio: 'pipe' },
     );
     const angJsonPath = path.join(projectDir, 'angular.json');
     if (!fs.existsSync(angJsonPath)) {
-        console.error(chalk.red('  ✘ Angular scaffolding failed — angular.json not found.'));
+        ui.error('Angular scaffolding failed — angular.json not found.');
         process.exit(scaffold.status ?? 1);
     }
 
     // ── Patch angular.json outputPath ────────────────────────────────────────
-    console.log(chalk.cyan('  Augmenting angular.json…'));
+    ui.step('Augmenting angular.json…');
     const angJson   = JSON.parse(fs.readFileSync(angJsonPath, 'utf8'));
     const buildOpts = angJson.projects?.[name]?.architect?.build?.options;
     if (buildOpts) {
@@ -363,7 +366,7 @@ async function createAngular(projectDir, info) {
     fs.writeFileSync(angJsonPath, JSON.stringify(angJson, null, 2) + '\n', 'utf8');
 
     // ── Augment package.json ──────────────────────────────────────────────────
-    console.log(chalk.cyan('  Augmenting package.json…'));
+    ui.step('Augmenting package.json…');
     const pkgPath = path.join(projectDir, 'package.json');
     const pkg     = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
     pkg.name      = toKebab(info.title);
@@ -378,7 +381,7 @@ async function createAngular(projectDir, info) {
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 
     // ── RenWeb config files ───────────────────────────────────────────────────
-    console.log(chalk.cyan('  Writing RenWeb config files…'));
+    ui.step('Writing RenWeb config files…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
     const buildDir   = path.join(projectDir, 'build');
@@ -390,15 +393,15 @@ async function createAngular(projectDir, info) {
     fetchEngineExecutable(buildDir);
 
     // ── Extra directories from engine repo ────────────────────────────────────
-    console.log(chalk.cyan('  Fetching licenses…'));
+    ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
-    console.log(chalk.cyan('  Fetching resource files…'));
+    ui.step('Fetching resource files…');
     fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
-    console.log(chalk.cyan('  Fetching credentials template…'));
+    ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
     // ── Copilot instructions ──────────────────────────────────────────────────
-    console.log(chalk.cyan('  Writing Copilot instructions…'));
+    ui.step('Writing Copilot instructions…');
     const githubDir = path.join(projectDir, '.github');
     fs.mkdirSync(githubDir, { recursive: true });
     fs.writeFileSync(
@@ -415,10 +418,10 @@ async function createAngular(projectDir, info) {
     if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
 
     // ── npm install ───────────────────────────────────────────────────────────
-    console.log(chalk.cyan('\n  Installing packages…'));
-    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'inherit' });
-    if (install.status !== 0) console.warn(chalk.yellow('  ⚠ npm install failed — run it manually'));
-    else console.log(chalk.green('  ✓ packages installed'));
+    ui.step('Installing packages…');
+    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
+    if (install.status !== 0) ui.warn('npm install failed — run it manually');
+    else ui.ok('packages installed');
 }
 
 async function createPlugin(projectDir, info) {
@@ -460,7 +463,7 @@ async function createPlugin(projectDir, info) {
         makePluginWorkflow(pluginName), 'utf8');
 
     // ── Test environment (build/ with engine + minimal JSONs + test harness) ──
-    console.log(chalk.cyan('\n  Setting up test environment in build/…'));
+    ui.step('Setting up test environment in build/…');
     fetchPluginTestEnv(projectDir, info, pluginName);
 }
 
@@ -494,7 +497,7 @@ function fetchPluginTestEnv(projectDir, info, pluginName) {
 
 function createEngine(projectDir, skipSubmodules) {
     const gitOk = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
-    if (!gitOk) { console.error('git is required for `rw create engine`'); process.exit(1); }
+    if (!gitOk) { ui.error('git is required for `rw create engine`'); process.exit(1); }
 
     const parent    = path.dirname(projectDir);
     const name      = path.basename(projectDir);
@@ -503,9 +506,9 @@ function createEngine(projectDir, skipSubmodules) {
         ? ['clone', repoUrl, name]
         : ['clone', '--recurse-submodules', repoUrl, name];
 
-    console.log(chalk.cyan(`\nCloning RenWeb Engine repository into ${name}/…${skipSubmodules ? '' : ' (including submodules)'}`));
+    ui.step(`Cloning RenWeb Engine repository into ${name}/…${skipSubmodules ? '' : ' (including submodules)'}`);
     const r = spawnSync('git', cloneArgs, { cwd: parent, stdio: 'inherit' });
-    if (r.status !== 0) { console.error(chalk.red('git clone failed')); process.exit(r.status); }
+    if (r.status !== 0) { ui.error('git clone failed'); process.exit(r.status); }
 }
 
 // ─── Argument parsing ─────────────────────────────────────────────────────────
@@ -536,7 +539,7 @@ async function run(args) {
     if (rawType && ALL_TYPES.includes(rawType)) {
         type = rawType;
     } else if (rawType) {
-        console.error(chalk.red(`Unknown type '${rawType}'. Options: ${ALL_TYPES.join(', ')}`));
+        ui.error(`Unknown type '${rawType}'. Options: ${ALL_TYPES.join(', ')}`);
         if (rl) rl.close();
         process.exit(1);
     } else if (yes) {
@@ -551,89 +554,90 @@ async function run(args) {
     if (type === 'engine') {
         if (rl) rl.close();
         createEngine(projectDir, skipSubmodules);
-        console.log(chalk.bold.green('\n✓ Repository cloned.'));
+        ui.ok('Repository cloned.');
         return;
     }
 
     // ── Plugin: existing flow ─────────────────────────────────────────────────
     if (type === 'plugin') {
-        console.log(chalk.bold.cyan(`\n── RenWeb Plugin Project ──────────────────────────────`));
-        const info = await promptInfo(rl, [], yes);
+        ui.section('RenWeb Plugin Project');
+        const info = await promptInfo(rl, [], yes, 'Plugin');
         info.internalName = toSnake(info.title);
         if (rl) rl.close();
 
-        console.log(`\nScaffolding plugin project at: ${chalk.bold(projectDir)}`);
+        ui.step(`Scaffolding plugin project at: ${projectDir}`);
         if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
-            console.error(chalk.red(`\n✘ Directory '${path.basename(projectDir)}' already exists and is not empty.`));
-            console.error(chalk.dim(`  To integrate RenWeb into an existing project, run: ${chalk.bold('rw init')}`));
+            ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+            ui.dim('To integrate RenWeb into an existing project, run: rw init');
             process.exit(1);
         }
         fs.mkdirSync(projectDir, { recursive: true });
         await createPlugin(projectDir, info);
-        console.log(chalk.bold.green('\n✓ Plugin project ready.'));
-        console.log(chalk.bold('\nNext steps:'));
-        console.log(`  ${chalk.bold('cd')} ${path.basename(projectDir)}`);
-        console.log(`  ${chalk.bold('make')}                    ${chalk.dim('# build for the current OS/arch')}`);
-        console.log(`  ${chalk.bold('./build_all_archs.sh')}    ${chalk.dim('# build for all supported architectures')}`);
-        console.log(chalk.dim(`  # Output goes to build/plugins/ — copy it to your RenWeb project`) + '\n');
+        ui.ok('Plugin project ready.');
+        ui.nextSteps([
+            ['cd ' + path.basename(projectDir), null],
+            ['make', 'build for the current OS/arch'],
+            ['./build_all_archs.sh', 'build for all supported architectures'],
+        ]);
+        ui.dim('Output goes to build/plugins/ — copy it to your RenWeb project');
         return;
     }
 
     // ── Angular: dedicated CLI, node is implicit ─────────────────────────────
     if (ANGULAR_TYPES.includes(type)) {
-        console.log(chalk.bold.cyan(`\n── RenWeb Angular Project ──────────────────────────────────────────`));
-        const info = await promptInfo(rl, [], yes);
+        ui.section('RenWeb Angular Project');
+        const info = await promptInfo(rl, [], yes, 'Angular');
         if (rl) rl.close();
 
-        console.log(`\nScaffolding ${chalk.bold('angular')} project at: ${chalk.bold(projectDir)}`);
+        ui.step(`Scaffolding angular project at: ${projectDir}`);
         await createAngular(projectDir, info);
 
-        console.log(chalk.bold.green('\n✓ Project scaffolded.'));
-        console.log(chalk.bold('\nNext steps:'));
+        ui.ok('Project scaffolded.');
         const relA = path.relative(process.cwd(), projectDir) || '.';
-        console.log(`  ${chalk.bold('cd')} ${relA}`);
-        console.log(`  ${chalk.bold('ng build')}     ${chalk.dim('# build → build/content/main/')}`);
-        console.log(`  ${chalk.bold('rw run')}       ${chalk.dim('# launch the engine')}`);
-        console.log('');
+        ui.nextSteps([
+            ['cd ' + relA, null],
+            ['ng build', 'build → build/content/main/'],
+            ['rw run', 'launch the engine'],
+        ]);
         return;
     }
 
     // ── Framework types: node is implicit, skip engine prompt ────────────────
     if (FRAMEWORK_TYPES.includes(type)) {
         const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
-        console.log(chalk.bold.cyan(`\n── RenWeb ${typeLabel} Project ──────────────────────────────────────────`));
-        const info = await promptInfo(rl, [], yes);
+        ui.section(`RenWeb ${typeLabel} Project`);
+        const info = await promptInfo(rl, [], yes, typeLabel);
         if (rl) rl.close();
 
-        console.log(`\nScaffolding ${chalk.bold(type)} project at: ${chalk.bold(projectDir)}`);
+        ui.step(`Scaffolding ${type} project at: ${projectDir}`);
         await createFramework(projectDir, info, type);
 
-        console.log(chalk.bold.green('\n✓ Project scaffolded.'));
-        console.log(chalk.bold('\nNext steps:'));
+        ui.ok('Project scaffolded.');
         const relF = path.relative(process.cwd(), projectDir) || '.';
-        console.log(`  ${chalk.bold('cd')} ${relF}`);
-        console.log(`  ${chalk.bold('rw build')}     ${chalk.dim('# run Vite build → build/content/main/')}`);
-        console.log(`  ${chalk.bold('rw run')}       ${chalk.dim('# launch the engine')}`);
-        console.log('');
+        ui.nextSteps([
+            ['cd ' + relF, null],
+            ['rw build', 'run Vite build → build/content/main/'],
+            ['rw run', 'launch the engine'],
+        ]);
         return;
     }
 
     // ── Step 2: Project metadata (vanilla) ──────────────────────────────────
-    console.log(chalk.bold.cyan(`\n── RenWeb ${type.charAt(0).toUpperCase() + type.slice(1)} Project ──────────────────────────────`));
-    const info = await promptInfo(rl, [], yes);
+    ui.section(`RenWeb ${type.charAt(0).toUpperCase() + type.slice(1)} Project`);
+    const info = await promptInfo(rl, [], yes, type.charAt(0).toUpperCase() + type.slice(1));
     if (rl) rl.close();
 
-    console.log(`\nScaffolding ${chalk.bold(type)} project at: ${chalk.bold(projectDir)}`);
+    ui.step(`Scaffolding ${type} project at: ${projectDir}`);
     await createFrontend(projectDir, info);
 
-    console.log(chalk.bold.green('\n✓ Project scaffolded.'));
-    console.log(chalk.bold('\nNext steps:'));
+    ui.ok('Project scaffolded.');
     const rel = path.relative(process.cwd(), projectDir) || '.';
-    console.log(`  ${chalk.bold('cd')} ${rel}`);
-    console.log(`  ${chalk.bold('rw build')}     ${chalk.dim('# copy src → build')}`);
-    console.log(`  ${chalk.bold('rw run')}       ${chalk.dim('# launch the engine')}`);
-    console.log(chalk.dim(`  Tip: need npm packages? Use ${chalk.bold('rw create --type lit')} for a lightweight Vite setup.`));
-    console.log('');
+    ui.nextSteps([
+        ['cd ' + rel, null],
+        ['rw build', 'copy src → build'],
+        ['rw run', 'launch the engine'],
+    ]);
+    ui.dim('Tip: need npm packages? Use rw create lit for a lightweight Vite setup.');
 }
 
 module.exports = { run };

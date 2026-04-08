@@ -4,7 +4,7 @@
 
 const fs   = require('fs');
 const path = require('path');
-const chalk = require('chalk');
+const ui = require('./ui');
 const {
     download, downloadText, detectTarget, fetchRelease,
     resolveEngineRepo, engineRawBase, engineApiBase,
@@ -15,12 +15,12 @@ const {
  * Download the RenWeb JS API files (index.js + index.d.ts) into renwebDir.
  */
 function fetchWebApi(renwebDir) {
-    console.log(chalk.cyan('  Fetching RenWeb JS API…'));
+    ui.step('Fetching RenWeb JS API…');
     fs.mkdirSync(renwebDir, { recursive: true });
     const rawBase = engineRawBase(resolveEngineRepo());
     for (const file of ['index.js', 'index.d.ts']) {
         const ok = download(`${rawBase}/web/api/${file}`, path.join(renwebDir, file));
-        if (!ok) console.warn(chalk.yellow(`  ⚠ Failed to fetch ${file} — skipping`));
+        if (!ok) ui.warn(`Failed to fetch ${file} — skipping`);
     }
 }
 
@@ -30,26 +30,26 @@ function fetchWebApi(renwebDir) {
  */
 function fetchEngineExecutable(buildDir) {
     const { os: tOs, arch: tArch } = detectTarget();
-    console.log(chalk.cyan(`  Fetching latest RenWeb engine for ${tOs}-${tArch}…`));
+    ui.step(`Fetching latest RenWeb engine for ${tOs}-${tArch}…`);
 
     const release = fetchRelease(null);
     if (!release) {
-        console.warn(chalk.yellow('  ⚠ Could not reach GitHub — download the engine executable manually'));
+        ui.warn('Could not reach GitHub — download the engine executable manually');
         return null;
     }
     const ver     = release.tag_name || release.name || 'latest';
     const pattern = new RegExp(`-${tOs}-${tArch}(\\.exe)?$`, 'i');
     const asset   = (release.assets || []).find(a => pattern.test(a.name));
     if (!asset) {
-        console.warn(chalk.yellow(`  ⚠ No release asset found for ${tOs}-${tArch} — add the engine executable to build/ manually`));
+        ui.warn(`No release asset found for ${tOs}-${tArch} — add the engine executable to build/ manually`);
         return null;
     }
 
     fs.mkdirSync(buildDir, { recursive: true });
     const dest = path.join(buildDir, asset.name);
-    console.log(chalk.cyan(`  Downloading: ${asset.name}`));
+    ui.step(`Downloading: ${asset.name}`);
     if (!download(asset.browser_download_url, dest)) {
-        console.warn(chalk.yellow('  ⚠ Download failed — add the engine executable to build/ manually'));
+        ui.warn('Download failed — add the engine executable to build/ manually');
         return null;
     }
     try { fs.chmodSync(dest, 0o755); } catch (_) {}
@@ -60,11 +60,11 @@ function fetchEngineExecutable(buildDir) {
  * Download plugin.hpp from the engine repo into includeDir.
  */
 function fetchPluginHpp(includeDir) {
-    console.log(chalk.cyan('  Fetching plugin.hpp…'));
+    ui.step('Fetching plugin.hpp…');
     fs.mkdirSync(includeDir, { recursive: true });
     const rawBase = engineRawBase(resolveEngineRepo());
     const ok = download(`${rawBase}/include/plugin.hpp`, path.join(includeDir, 'plugin.hpp'));
-    if (!ok) console.warn(chalk.yellow('  ⚠ Failed to fetch plugin.hpp'));
+    if (!ok) ui.warn('Failed to fetch plugin.hpp');
 }
 
 /**
@@ -74,19 +74,19 @@ function fetchGitHubDirectory(repoPath, localDir) {
     const apiBase = engineApiBase(resolveEngineRepo());
     const text = downloadText(`${apiBase}/contents/${repoPath}`);
     if (!text) {
-        console.warn(chalk.yellow(`  ⚠ Could not list ${repoPath} from GitHub — skipping`));
+        ui.warn(`Could not list ${repoPath} from GitHub — skipping`);
         return;
     }
     let entries;
     try { entries = JSON.parse(text); } catch (_) {
-        console.warn(chalk.yellow(`  ⚠ Could not parse ${repoPath} listing — skipping`));
+        ui.warn(`Could not parse ${repoPath} listing — skipping`);
         return;
     }
     fs.mkdirSync(localDir, { recursive: true });
     for (const entry of entries) {
         if (entry.type === 'file' && entry.download_url) {
             if (!download(entry.download_url, path.join(localDir, entry.name)))
-                console.warn(chalk.yellow(`  ⚠ Failed to fetch ${entry.name}`));
+                ui.warn(`Failed to fetch ${entry.name}`);
         }
     }
 }
@@ -112,7 +112,7 @@ function fetchPlugins(projectRoot, buildDir, targetOs, targetArch) {
     for (const repoUrl of repos) {
         const parsed = parseGitHubUrl(repoUrl);
         if (!parsed) {
-            console.warn(chalk.yellow(`  ⚠ Skipping invalid plugin URL: ${repoUrl}`));
+            ui.warn(`Skipping invalid plugin URL: ${repoUrl}`);
             continue;
         }
         const slug     = `${parsed.owner}-${parsed.repo}`;
@@ -123,25 +123,25 @@ function fetchPlugins(projectRoot, buildDir, targetOs, targetArch) {
         try { cached = fs.readdirSync(cacheDir).find(f => extRE.test(f)) || null; } catch (_) {}
 
         if (cached) {
-            console.log(`  Using cached plugin: ${cached}`);
+            ui.info(`Using cached plugin: ${cached}`);
         } else {
-            console.log(chalk.cyan(`  Fetching plugin ${slug} for ${targetOs}-${targetArch}…`));
+            ui.step(`Fetching plugin ${slug} for ${targetOs}-${targetArch}…`);
             const release = fetchRelease(null, repoUrl);
             if (!release) {
-                console.warn(chalk.yellow(`  ⚠ Could not reach GitHub for plugin: ${slug}`));
+                ui.warn(`Could not reach GitHub for plugin: ${slug}`);
                 continue;
             }
             const asset = (release.assets || []).find(a => extRE.test(a.name));
             if (!asset) {
-                console.warn(chalk.yellow(`  ⚠ No plugin asset found for ${targetOs}-${targetArch} in ${slug}`));
+                ui.warn(`No plugin asset found for ${targetOs}-${targetArch} in ${slug}`);
                 continue;
             }
             cached = asset.name;
             if (!download(asset.browser_download_url, path.join(cacheDir, cached))) {
-                console.warn(chalk.yellow(`  ⚠ Failed to download plugin: ${cached}`));
+                ui.warn(`Failed to download plugin: ${cached}`);
                 continue;
             }
-            console.log(chalk.green(`  ✓ Plugin cached: ${cached}`));
+            ui.ok(`Plugin cached: ${cached}`);
         }
 
         fs.copyFileSync(path.join(cacheDir, cached), path.join(pluginsOutDir, cached));

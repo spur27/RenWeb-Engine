@@ -17,6 +17,7 @@ const {
     engineRawBase, resolveEngineRepo,
 } = require('../shared/utils');
 const { ProjectState } = require('../project/project_state');
+const ui = require('../shared/ui');
 
 // ─── Bundle detection ─────────────────────────────────────────────────────────
 
@@ -37,28 +38,28 @@ function updateExeOnly(projectRoot, buildDir, tOs, tArch, release) {
     const pattern = new RegExp(`-${tOs}-${tArch}(\\.exe)?$`, 'i');
     const asset   = (release.assets || []).find(a => pattern.test(a.name));
     if (!asset) {
-        console.warn(`  ⚠ No executable asset found for ${tOs}-${tArch}`);
+        ui.warn(`No executable asset found for ${tOs}-${tArch}`);
         return;
     }
 
     const currentExe = findProjectExecutable(buildDir, tOs, tArch);
     if (currentExe === asset.name) {
-        console.log(`  ✓ Engine already up-to-date (${asset.name})`);
+        ui.ok(`Engine already up-to-date (${asset.name})`);
     } else {
         const newDest = path.join(buildDir, asset.name);
-        console.log(`  Downloading: ${asset.name}`);
+        ui.step(`Downloading: ${asset.name}`);
         if (!download(asset.browser_download_url, newDest)) {
-            console.warn('  ⚠ Download failed — engine not updated');
+            ui.warn('Download failed — engine not updated');
             return;
         }
         try { fs.chmodSync(newDest, 0o755); } catch (_) {}
 
         if (currentExe && currentExe !== asset.name) {
             try { fs.unlinkSync(path.join(buildDir, currentExe)); } catch (_) {
-                console.warn(`  ⚠ Could not remove old executable: ${currentExe}`);
+                ui.warn(`Could not remove old executable: ${currentExe}`);
             }
         }
-        console.log(`  ✓ Engine updated to ${asset.name}`);
+        ui.ok(`Engine updated to ${asset.name}`);
     }
 
     // Sync version in info.json
@@ -80,16 +81,16 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
     }).sort((a, b) => (a.name.endsWith('.tar.gz') ? -1 : 1)); // prefer tar.gz
 
     if (!assets.length) {
-        console.warn(`  ⚠ No bundle asset found for ${tOs}-${tArch} — falling back to executable-only`);
+        ui.warn(`No bundle asset found for ${tOs}-${tArch} — falling back to executable-only`);
         updateExeOnly(projectRoot, buildDir, tOs, tArch, release);
         return;
     }
 
     const bundleAsset = assets[0];
-    console.log(`  Downloading bundle: ${bundleAsset.name}`);
+    ui.step(`Downloading bundle: ${bundleAsset.name}`);
     const tmpTar = path.join(os.tmpdir(), `renweb-bundle-${Date.now()}.tar.gz`);
     if (!download(bundleAsset.browser_download_url, tmpTar)) {
-        console.warn('  ⚠ Bundle download failed');
+        ui.warn('Bundle download failed');
         return;
     }
 
@@ -97,7 +98,7 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
     fs.mkdirSync(tmpExtract, { recursive: true });
     const r = spawnSync('tar', ['-xzf', tmpTar, '-C', tmpExtract], { stdio: 'inherit' });
     try { fs.unlinkSync(tmpTar); } catch (_) {}
-    if (r.status !== 0) { console.warn('  ⚠ Bundle extraction failed'); return; }
+    if (r.status !== 0) { ui.warn('Bundle extraction failed'); return; }
 
     // Archive is flat (created with `tar -C srcDir .`); files are at tmpExtract root
     const srcDir = tmpExtract;
@@ -105,11 +106,11 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
     // Update lib/
     const srcLib = path.join(srcDir, 'lib');
     if (fs.existsSync(srcLib)) {
-        console.log('  Updating lib/…');
+        ui.step('Updating lib/…');
         const destLib = path.join(buildDir, 'lib');
         try { fs.rmSync(destLib, { recursive: true, force: true }); } catch (_) {}
         copyDir(srcLib, destLib);
-        console.log('  ✓ lib/ updated');
+        ui.ok('lib/ updated');
     }
 
     // Update bundle_exec script(s)
@@ -118,7 +119,7 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
         if (fs.existsSync(src)) {
             fs.copyFileSync(src, path.join(buildDir, script));
             try { fs.chmodSync(path.join(buildDir, script), 0o755); } catch (_) {}
-            console.log(`  ✓ ${script} updated`);
+            ui.ok(`${script} updated`);
         }
     }
 
@@ -134,12 +135,12 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
             try { fs.chmodSync(path.join(buildDir, entry), 0o755); } catch (_) {}
             if (currentExe) {
                 try { fs.unlinkSync(path.join(buildDir, currentExe)); } catch (_) {
-                    console.warn(`  ⚠ Could not remove old executable: ${currentExe}`);
+                    ui.warn(`Could not remove old executable: ${currentExe}`);
                 }
             }
-            console.log(`  ✓ Engine updated to ${entry}`);
+            ui.ok(`Engine updated to ${entry}`);
         } else {
-            console.log(`  ✓ Engine already up-to-date (${entry})`);
+            ui.ok(`Engine already up-to-date (${entry})`);
         }
         break;
     }
@@ -165,20 +166,20 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
 function updateVanillaModules(projectRoot) {
     const renwebDir = path.join(projectRoot, 'src', 'modules', 'renweb');
     if (!fs.existsSync(renwebDir)) return;
-    console.log('Updating RenWeb JS API modules…');
+    ui.step('Updating RenWeb JS API modules…');
     const rawBase = engineRawBase(resolveEngineRepo(projectRoot));
     let updated = 0;
     for (const file of ['index.js', 'index.d.ts']) {
         const dest = path.join(renwebDir, file);
         const url  = `${rawBase}/web/api/${file}`;
         if (download(url, dest)) {
-            console.log(`  ✓ ${file}`);
+            ui.ok(file);
             updated++;
         } else {
-            console.warn(`  ⚠ Failed to update ${file}`);
+            ui.warn(`Failed to update ${file}`);
         }
     }
-    if (updated > 0) console.log(`  ✓ JS API modules updated (${updated} file${updated !== 1 ? 's' : ''})`);
+    if (updated > 0) ui.ok(`JS API modules updated (${updated} file${updated !== 1 ? 's' : ''})`);
 }
 
 // ─── Plugin update ────────────────────────────────────────────────────────────
@@ -200,18 +201,18 @@ function updatePlugins(projectRoot, buildDir) {
     fs.mkdirSync(buildPluginsDir, { recursive: true });
     ensureRwGitignore(projectRoot);
 
-    console.log(`\nUpdating ${plugins.length} plugin${plugins.length !== 1 ? 's' : ''}…`);
+    ui.section(`Updating ${plugins.length} plugin${plugins.length !== 1 ? 's' : ''}`);
 
     for (const repoUrl of plugins) {
         const parsed = parseGitHubUrl(repoUrl);
-        if (!parsed) { console.warn(`  ⚠ Cannot parse plugin URL: ${repoUrl}`); continue; }
+        if (!parsed) { ui.warn(`Cannot parse plugin URL: ${repoUrl}`); continue; }
         const { owner, repo } = parsed;
         const cacheDir = path.join(pluginCacheRoot, `${owner}-${repo}`);
         fs.mkdirSync(cacheDir, { recursive: true });
 
-        console.log(`  ${owner}/${repo}`);
+        ui.step(`${owner}/${repo}`);
         const rel = fetchLatestRelease(repoUrl);
-        if (!rel) { console.warn(`    ⚠ Could not fetch release metadata`); continue; }
+        if (!rel) { ui.warn('Could not fetch release metadata'); continue; }
 
         // Download all assets to cache
         for (const asset of (rel.assets || [])) {
@@ -220,9 +221,9 @@ function updatePlugins(projectRoot, buildDir) {
             if (!name || !url) continue;
             const destPath = path.join(cacheDir, name);
             if (!download(url, destPath)) {
-                console.warn(`    ⚠ Failed to download ${name}`);
+                ui.warn(`Failed to download ${name}`);
             } else {
-                console.log(`    ✓ ${name}`);
+                ui.ok(name);
             }
         }
 
@@ -233,7 +234,7 @@ function updatePlugins(projectRoot, buildDir) {
         const hostBinary = entries.find(f => hostPattern.test(f) && /\.(so|dll)$/.test(f));
         if (hostBinary) {
             fs.copyFileSync(path.join(cacheDir, hostBinary), path.join(buildPluginsDir, hostBinary));
-            console.log(`    ✓ Installed: ${hostBinary}`);
+            ui.ok(`Installed: ${hostBinary}`);
         }
     }
 }
@@ -249,7 +250,7 @@ function run(args) {
 
     const state = ProjectState.detect();
     if (!state) {
-        console.error('Not inside a RenWeb project (no info.json found).');
+        ui.error('Not inside a RenWeb project (no info.json found).');
         process.exit(1);
     }
     const projectRoot = state.root;
@@ -257,10 +258,10 @@ function run(args) {
     // ── 1. Package manager update ─────────────────────────────────────────────
     const pm = state.pkg_manager();
     if (pm && pm.name() !== 'none') {
-        console.log(`\nUpdating ${pm.name()} packages…`);
+        ui.step(`Updating ${pm.name()} packages…`);
         const r = pm.install();
-        if (r && r.status !== 0) console.warn('  ⚠ Package install returned non-zero');
-        else if (r) console.log('  ✓ Packages up to date');
+        if (r && r.status !== 0) ui.warn('Package install returned non-zero');
+        else if (r) ui.ok('Packages up to date');
     }
 
     // ── 2. Vanilla JS API modules ─────────────────────────────────────────────
@@ -275,19 +276,19 @@ function run(args) {
     const isMacOs  = process.platform === 'darwin';
 
     const label = tag ? `v${tag}` : 'latest';
-    console.log(`\nChecking for release ${label} (${tOs}-${tArch})…`);
+    ui.step(`Checking for release ${label} (${tOs}-${tArch})…`);
     const release = fetchRelease(tag);
     if (!release) {
-        console.error('Could not reach GitHub — aborting.');
+        ui.error('Could not reach GitHub — aborting.');
         process.exit(1);
     }
 
     // macOS never uses bundles; warn if --bundle-only was passed
     if (isMacOs) {
-        if (bundleOnly) console.warn('  ⚠ Bundles are not used on macOS — running executable-only update');
+        if (bundleOnly) ui.warn('Bundles are not used on macOS — running executable-only update');
         updateExeOnly(projectRoot, buildDir, tOs, tArch, release);
         updatePlugins(projectRoot, buildDir);
-        console.log('\nDone.');
+        ui.ok('Done.');
         return;
     }
 
@@ -297,7 +298,7 @@ function run(args) {
     const useBundle = bundleOnly || (!executableOnly && isBundleInstall);
 
     if (useBundle) {
-        if (bundleScript) console.log(`  (Bundle install detected via ${bundleScript})`);
+        if (bundleScript) ui.info(`Bundle install detected via ${bundleScript}`);
         updateBundle(projectRoot, buildDir, tOs, tArch, release);
     } else {
         updateExeOnly(projectRoot, buildDir, tOs, tArch, release);
@@ -306,7 +307,7 @@ function run(args) {
     // ── 4. Plugin update ──────────────────────────────────────────────────────
     updatePlugins(projectRoot, buildDir);
 
-    console.log('\nDone.');
+    ui.ok('Done');
 }
 
 module.exports = { run };

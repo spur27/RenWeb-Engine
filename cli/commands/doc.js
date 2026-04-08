@@ -6,6 +6,7 @@
 //   rw doc plugin → ?page=plugins
 
 const { spawnSync } = require('child_process');
+const ui = require('../shared/ui');
 
 const BASE  = 'https://spur27.github.io/RenWeb-Engine/';
 const PAGES = {
@@ -30,10 +31,10 @@ function openBrowser(url) {
 
     const r = spawnSync(cmd, args, { stdio: 'ignore' });
     if (r.error) {
-        console.error(`Could not open browser: ${r.error.message}`);
-        console.log(`Visit: ${url}`);
+        ui.error(`Could not open browser: ${r.error.message}`);
+        ui.info(`Visit: ${url}`);
     } else {
-        console.log(`Opening: ${url}`);
+        ui.step(`Opening: ${url}`);
     }
 }
 
@@ -46,8 +47,8 @@ function run(args) {
     }
     const unknown = tokens.filter(t => !PAGES[t.toLowerCase()]);
     if (unknown.length > 0) {
-        console.error(`Unknown page(s): ${unknown.join(', ')}`);
-        console.error(`Valid pages: ${[...new Set(Object.keys(PAGES))].join(' | ')}`);
+        ui.error(`Unknown page(s): ${unknown.join(', ')}`);
+        ui.info(`Valid pages: ${[...new Set(Object.keys(PAGES))].join(' | ')}`);
         process.exit(1);
     }
     // Deduplicate pages (e.g. 'js' and 'api' both map to 'api')

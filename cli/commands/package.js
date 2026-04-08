@@ -6,6 +6,7 @@ const path   = require('path');
 const os     = require('os');
 const crypto = require('crypto');
 const { spawnSync, spawn } = require('child_process');
+const ui = require('../shared/ui');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -394,7 +395,7 @@ function fetchLatestRelease(repoUrl) {
     }
     const ownerRepo = repoUrl.split('github.com/').pop().replace(/\.git$/, '');
     const apiUrl    = `https://api.github.com/repos/${ownerRepo}/releases/latest`;
-    console.log(`  Fetching release metadata: ${apiUrl}`);
+    ui.step(`Fetching release metadata: ${apiUrl}`);
     const tmpFile = path.join(os.tmpdir(), `renweb-rel-${Date.now()}.json`);
     if (!download(apiUrl, tmpFile)) {
         throw new Error(`Failed to fetch release metadata from ${apiUrl}`);
@@ -681,19 +682,19 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                         : '';
     const stagingDir = path.join(tmpDir, stem + stagingSuffix);    
 
-    console.log(`\n── Building ${stem}${engineAsset.isBundle ? ' [bundle]' : ''} ──`);
+    ui.section(`Building ${stem}${engineAsset.isBundle ? ' [bundle]' : ''}`);
 
     // 1. Fresh staging tree
     if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
 
     // 2. Copy sanitised build/ content
-    console.log('  Copying build files…');
+    ui.step('Copying build files…');
     copyDir(buildSrc, stagingDir);
 
     // 3. Copy matching plugins → staging/plugins/
     if (pluginDirs.length > 0) {
-        console.log(`  Copying ${pluginDirs.length} plugin bundle(s)…`);
+        ui.step(`Copying ${pluginDirs.length} plugin bundle(s)…`);
         const stagingPlugins = path.join(stagingDir, 'plugins');
         fs.mkdirSync(stagingPlugins, { recursive: true });
         for (const pDir of pluginDirs) copyDir(pDir, stagingPlugins);
@@ -701,7 +702,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     // 4. Place the engine executable (or extract bundle)
     if (engineAsset.isBundle) {
-        console.log('  Extracting bundle archive…');
+        ui.step('Extracting bundle archive…');
         if (!extractTar(engineAsset.localPath, stagingDir)) {
             throw new Error(`Failed to extract bundle archive: ${path.basename(engineAsset.localPath)}`);
         }
@@ -726,14 +727,14 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     if (wantTarGz) {
         const dest = path.join(outDir, `${stem}.tar.gz`);
-        console.log(`  → ${path.relative(process.cwd(), dest)}`);
-           if (!makeTarGz(stagingDir, dest)) console.warn(`  ⚠ tar failed for ${stem}`);
+        ui.ok(`→ ${path.relative(process.cwd(), dest)}`);
+           if (!makeTarGz(stagingDir, dest)) ui.warn(`tar failed for ${stem}`);
            else if (targetOs === 'linux') gpgSign(opts, dest);
     }
     if (wantZip) {
         const dest = path.join(outDir, `${stem}.zip`);
-        console.log(`  → ${path.relative(process.cwd(), dest)}`);
-           if (!makeZip(stagingDir, dest)) console.warn(`  ⚠ zip failed for ${stem}`);
+        ui.ok(`→ ${path.relative(process.cwd(), dest)}`);
+           if (!makeZip(stagingDir, dest)) ui.warn(`zip failed for ${stem}`);
            else if (targetOs === 'linux') gpgSign(opts, dest);
     }
 
@@ -779,7 +780,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
         // macOS .pkg installer via pkgbuild (macOS-only binary, always at /usr/bin/pkgbuild)
         if (opts.exts.size === 0 || opts.exts.has('osxpkg') || opts.exts.has('pkg')) {
             if (!findBin('pkgbuild')) {
-                console.log('  [osxpkg] skipped — pkgbuild not available (macOS only)');
+                ui.dim('[osxpkg] skipped — pkgbuild not available (macOS only)');
             } else {
                 const exeFor   = engineAsset.isBundle ? 'bundle_exec.sh' : engineAsset.filename;
                 const pkgOut   = path.join(outDir, `${stem}.pkg`);
@@ -849,14 +850,14 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                     try { fs.unlinkSync(componentPkg); } catch (_) {}
                     try { fs.rmSync(pkgTmp, { recursive: true, force: true }); } catch (_) {}
                     if (prodR.status === 0) {
-                        console.log(`  [osxpkg] \u2192 ${path.relative(process.cwd(), pkgOut)}`);
+                        ui.ok(`[osxpkg] \u2192 ${path.relative(process.cwd(), pkgOut)}`);
                         macosProductsign(opts, pkgOut, 'osxpkg');
                     } else {
-                        console.warn('  \u26a0 productbuild (distribution) failed');
+                        ui.warn('productbuild (distribution) failed');
                     }
                 } else {
                     try { fs.rmSync(pkgTmp, { recursive: true, force: true }); } catch (_) {}
-                    console.warn('  \u26a0 pkgbuild failed');
+                    ui.warn('pkgbuild failed');
                 }
             }
         }
@@ -866,7 +867,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
         buildMacAppStorePackage(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
     }
 
-    console.log(`  \u2713 ${stem} done`);
+    ui.ok(`${stem} done`);
 
     // Free the staging tree immediately to avoid accumulating gigabytes of
     // bundle libs across the many targets (would exhaust disk in Docker).
@@ -888,7 +889,7 @@ function injectFreebsdDeps(txzPath, depNames) {
     try {
         fs.mkdirSync(tmpDir, { recursive: true });
         const ex = spawnSync('tar', ['-xJf', txzPath, '-C', tmpDir], { stdio: 'inherit' });
-        if (ex.status !== 0) { console.warn('  ⚠ FreeBSD dep-inject: extract failed'); return; }
+        if (ex.status !== 0) { ui.warn('FreeBSD dep-inject: extract failed'); return; }
         for (const fname of ['+MANIFEST', '+COMPACT_MANIFEST']) {
             const fpath = path.join(tmpDir, fname);
             if (!fs.existsSync(fpath)) continue;
@@ -898,8 +899,8 @@ function injectFreebsdDeps(txzPath, depNames) {
         }
         fs.unlinkSync(txzPath);
         const re = spawnSync('tar', ['-Jcf', txzPath, '-C', tmpDir, '.'], { stdio: 'inherit' });
-        if (re.status === 0) console.log('  ✓ FreeBSD deps injected into +MANIFEST');
-        else console.warn('  ⚠ FreeBSD dep-inject: re-archive failed');
+        if (re.status === 0) ui.ok('FreeBSD deps injected into +MANIFEST');
+        else ui.warn('FreeBSD dep-inject: re-archive failed');
     } finally {
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
     }
@@ -926,7 +927,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
     // Require fpm
     const fpmCheck = spawnSync('fpm', ['--version'], { encoding: 'utf8' });
     if (fpmCheck.status !== 0) {
-        console.warn('  ⚠ fpm not found — skipping native Linux packages');
+        ui.warn('fpm not found — skipping native Linux packages');
         return;
     }
 
@@ -950,7 +951,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         // APK is handled exclusively by nfpm.
         if (fmt === 'apk') {
             const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-apk`);
-            console.log(`  [nfpm apk] → ${path.relative(process.cwd(), outputFile)}`);
+            ui.ok(`[nfpm apk] → ${path.relative(process.cwd(), outputFile)}`);
             try { fs.unlinkSync(outputFile); } catch (_) {}
             const r = runNfpmApk({ pkgId, version, targetArch, desc, website, license,
                                    fmtRoot, outputFile,
@@ -959,7 +960,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
             try { fs.unlinkSync(postInstall); } catch (_) {}
             try { fs.unlinkSync(postRemove); } catch (_) {}
             try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
-            if (r.status !== 0) console.warn('  ⚠ nfpm failed for format: apk');
+            if (r.status !== 0) ui.warn('nfpm failed for format: apk');
             continue;
         }
 
@@ -991,14 +992,14 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-${fmt}`);
         fpmArgs.push('--after-install', postInstall, '--after-remove', postRemove, '.');
 
-        console.log(`  [fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
+        ui.ok(`[fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
         try { fs.unlinkSync(outputFile); } catch (_) {}
         const r = spawnSync('fpm', fpmArgs, { stdio: 'inherit' });
         try { fs.unlinkSync(postInstall); } catch (_) {}
         try { fs.unlinkSync(postRemove); } catch (_) {}
         try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
         if (r.status !== 0) {
-            console.warn(`  ⚠ fpm failed for format: ${fmt}`);
+            ui.warn(`fpm failed for format: ${fmt}`);
         } else if (fmt === 'freebsd' && !isBundle) {
             // fpm's FreeBSD backend never writes deps into +MANIFEST (open bug
             // jordansissel/fpm#1156).  Post-process the archive to inject them.
@@ -1074,7 +1075,7 @@ function patchWindowsExe(exePath, info) {
     const wineBin  = findBin('wine64', 'wine64-stable');
     const rceditOk = fs.existsSync(RCEDIT_EXE);
     if (!wineBin || !rceditOk) {
-        console.log('  (rcedit/wine64 not available — skipping PE version patch)');
+        ui.dim('(rcedit/wine64 not available — skipping PE version patch)');
         return;
     }
 
@@ -1104,16 +1105,16 @@ function patchWindowsExe(exePath, info) {
     const iconPath = findWindowsIconPath(exeDir, info);
     if (iconPath) {
         rcArgs.push('--set-icon', iconPath);
-        console.log(`  Using icon: ${path.relative(process.cwd(), iconPath)}`);
+        ui.info(`Using icon: ${path.relative(process.cwd(), iconPath)}`);
     } else {
-        console.warn('  \u26a0 No .ico found — executable icon will not be changed');
+        ui.warn('No .ico found — executable icon will not be changed');
     }
 
     // Use the pre-initialised Wine prefix from /opt/wine.
     // Wine refuses to use a prefix not owned by the current user, so when
     // running as --user in Docker (where /opt/wine is root-owned), copy the
     // prefix to a user-owned tmpdir and point WINEPREFIX there.
-    console.log('  Patching Windows PE resources (rcedit via wine64)…');
+    ui.step('Patching Windows PE resources (rcedit via wine64)…');
     const BASE_WINE_PREFIX = '/opt/wine';
     let winePrefix = BASE_WINE_PREFIX;
     const myUid = typeof process.getuid === 'function' ? process.getuid() : -1;
@@ -1125,7 +1126,7 @@ function patchWindowsExe(exePath, info) {
     if (!prefixOwnedByUs) {
         const tmpPrefix = path.join(require('os').tmpdir(), `renweb-wine-${myUid >= 0 ? myUid : 'u'}`);
         if (!fs.existsSync(tmpPrefix)) {
-            console.log('  Copying Wine prefix to user-owned tmpdir…');
+            ui.step('Copying Wine prefix to user-owned tmpdir…');
             fs.mkdirSync(tmpPrefix, { recursive: true });
             // --no-preserve=ownership so copied files are owned by the current user.
             spawnSync('cp', ['-a', '--no-preserve=ownership', BASE_WINE_PREFIX + '/.', tmpPrefix + '/'], { stdio: 'inherit' });
@@ -1136,8 +1137,8 @@ function patchWindowsExe(exePath, info) {
         stdio : 'inherit',
         env   : { ...process.env, WINEDEBUG: '-all', WINEARCH: 'win64', WINEPREFIX: winePrefix },
     });
-    if (r.status !== 0) console.warn('  \u26a0 rcedit returned non-zero — PE patch may have failed');
-    else console.log('  PE resources patched: ProductName, FileDescription, CompanyName, version ' + winVer);
+    if (r.status !== 0) ui.warn('rcedit returned non-zero — PE patch may have failed');
+    else ui.ok('PE resources patched: ProductName, FileDescription, CompanyName, version ' + winVer);
 }
 
 /** Resolve the preferred Windows .ico asset from a staged build tree. */
@@ -1202,11 +1203,11 @@ function authenticodeSign(opts, filePath) {
     if (!opts.credDir) return false;
     const pfx = path.join(opts.credDir, 'windows.authenticode.pfx');
     if (!fs.existsSync(pfx)) {
-        console.warn(`  \u26a0 Authenticode: windows.authenticode.pfx not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        ui.warn(`Authenticode: windows.authenticode.pfx not found \u2014 ${path.basename(filePath)} will be unsigned`);
         return false;
     }
     if (!findBin('osslsigncode')) {
-        console.warn('  \u26a0 osslsigncode not found \u2014 skipping Authenticode signing');
+        ui.warn('osslsigncode not found \u2014 skipping Authenticode signing');
         return false;
     }
     const pass = readPass(opts.credDir, 'windows.authenticode', 'RENWEB_WIN_PFX_PASS') || '';
@@ -1218,11 +1219,11 @@ function authenticodeSign(opts, filePath) {
     ], { stdio: 'inherit' });
     if (r.status === 0) {
         fs.renameSync(tmp, filePath);
-        console.log(`  \u2713 Authenticode-signed: ${path.basename(filePath)}`);
+        ui.ok(`Authenticode-signed: ${path.basename(filePath)}`);
         return true;
     }
     try { fs.unlinkSync(tmp); } catch (_) {}
-    console.warn(`  \u26a0 osslsigncode failed \u2014 ${path.basename(filePath)} unsigned`);
+    ui.warn(`osslsigncode failed \u2014 ${path.basename(filePath)} unsigned`);
     return false;
 }
 
@@ -1235,7 +1236,7 @@ function macosCodesign(opts, filePath) {
     if (!opts.credDir || process.platform !== 'darwin') return false;
     const p12 = path.join(opts.credDir, 'macos.developer-id-app.p12');
     if (!fs.existsSync(p12)) {
-        console.warn(`  \u26a0 macOS codesign: macos.developer-id-app.p12 not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        ui.warn(`macOS codesign: macos.developer-id-app.p12 not found \u2014 ${path.basename(filePath)} will be unsigned`);
         return false;
     }
     const pass = readPass(opts.credDir, 'macos.certs', 'RENWEB_MACOS_CERTS_PASS') || '';
@@ -1245,13 +1246,13 @@ function macosCodesign(opts, filePath) {
         spawnSync('security', ['create-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
         spawnSync('security', ['unlock-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
         const imp = spawnSync('security', ['import', p12, '-k', kc, '-P', pass, '-T', '/usr/bin/codesign', '-A'], { stdio: 'pipe' });
-        if (imp.status !== 0) { console.warn('  \u26a0 Failed to import macOS signing cert'); return false; }
+        if (imp.status !== 0) { ui.warn('Failed to import macOS signing cert'); return false; }
         const listR = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning', kc], { encoding: 'utf8' });
         const match = (listR.stdout || '').match(/"(Developer ID Application[^"]+)"/);
         const identity = match ? match[1] : '-';
         const r = spawnSync('codesign', ['--deep', '--force', '--sign', identity, '--keychain', kc, filePath], { stdio: 'inherit' });
-        if (r.status === 0) { console.log(`  \u2713 codesigned: ${path.basename(filePath)}`); return true; }
-        console.warn(`  \u26a0 codesign failed \u2014 ${path.basename(filePath)} unsigned`);
+        if (r.status === 0) { ui.ok(`codesigned: ${path.basename(filePath)}`); return true; }
+        ui.warn(`codesign failed \u2014 ${path.basename(filePath)} unsigned`);
         return false;
     } finally {
         try { spawnSync('security', ['delete-keychain', kc], { stdio: 'pipe' }); } catch (_) {}
@@ -1269,7 +1270,7 @@ function macosProductsign(opts, filePath, certType) {
     const p12Name = certType === 'mas' ? 'macos.app-distribution.p12' : 'macos.developer-id-installer.p12';
     const p12 = path.join(opts.credDir, p12Name);
     if (!fs.existsSync(p12)) {
-        console.warn(`  \u26a0 macOS productsign: ${p12Name} not found \u2014 ${path.basename(filePath)} will be unsigned`);
+        ui.warn(`macOS productsign: ${p12Name} not found \u2014 ${path.basename(filePath)} will be unsigned`);
         return false;
     }
     const pass = readPass(opts.credDir, 'macos.certs', 'RENWEB_MACOS_CERTS_PASS') || '';
@@ -1279,20 +1280,20 @@ function macosProductsign(opts, filePath, certType) {
         spawnSync('security', ['create-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
         spawnSync('security', ['unlock-keychain', '-p', kcPass, kc], { stdio: 'pipe' });
         const imp = spawnSync('security', ['import', p12, '-k', kc, '-P', pass, '-T', '/usr/bin/productsign', '-A'], { stdio: 'pipe' });
-        if (imp.status !== 0) { console.warn('  \u26a0 Failed to import macOS signing cert'); return false; }
+        if (imp.status !== 0) { ui.warn('Failed to import macOS signing cert'); return false; }
         const searchStr = certType === 'mas' ? 'Mac App Distribution' : 'Developer ID Installer';
         const listR = spawnSync('security', ['find-identity', '-v', kc], { encoding: 'utf8' });
         const match = (listR.stdout || '').match(new RegExp('"(' + searchStr + '[^"]+)"'));
-        if (!match) { console.warn(`  \u26a0 ${searchStr} identity not found in cert`); return false; }
+        if (!match) { ui.warn(`${searchStr} identity not found in cert`); return false; }
         const signed = filePath.replace(/\.pkg$/, '._signtmp.pkg');
         const r = spawnSync('productsign', ['--sign', match[1], '--keychain', kc, filePath, signed], { stdio: 'inherit' });
         if (r.status === 0) {
             fs.renameSync(signed, filePath);
-            console.log(`  \u2713 productsigned (${certType}): ${path.basename(filePath)}`);
+            ui.ok(`productsigned (${certType}): ${path.basename(filePath)}`);
             return true;
         }
         try { fs.unlinkSync(signed); } catch (_) {}
-        console.warn('  \u26a0 productsign failed');
+        ui.warn('productsign failed');
         return false;
     } finally {
         try { spawnSync('security', ['delete-keychain', kc], { stdio: 'pipe' }); } catch (_) {}
@@ -1309,17 +1310,17 @@ function gpgSign(opts, filePath) {
     if (!opts.credDir) return false;
     const keyFile = path.join(opts.credDir, 'linux.gpg.asc');
     if (!fs.existsSync(keyFile)) {
-        console.warn(`  \u26a0 GPG: linux.gpg.asc not found \u2014 ${path.basename(filePath)} will not be signed`);
+        ui.warn(`GPG: linux.gpg.asc not found \u2014 ${path.basename(filePath)} will not be signed`);
         return false;
     }
-    if (!findBin('gpg')) { console.warn('  \u26a0 gpg not found \u2014 skipping GPG signing'); return false; }
+    if (!findBin('gpg')) { ui.warn('gpg not found \u2014 skipping GPG signing'); return false; }
     const pass = readPass(opts.credDir, 'linux.gpg', 'RENWEB_GPG_PASS') || '';
     const tmpGnupg = path.join(os.tmpdir(), '_renweb-gpg-' + process.pid);
     fs.mkdirSync(tmpGnupg, { recursive: true, mode: 0o700 });
     try {
         const env = { ...process.env, GNUPGHOME: tmpGnupg };
         const imp = spawnSync('gpg', ['--batch', '--import', keyFile], { env, stdio: 'pipe' });
-        if (imp.status !== 0) { console.warn('  \u26a0 GPG key import failed'); return false; }
+        if (imp.status !== 0) { ui.warn('GPG key import failed'); return false; }
         const listR = spawnSync('gpg', ['--batch', '--list-secret-keys', '--with-colons'], { env, encoding: 'utf8' });
         const fpLine = (listR.stdout || '').split('\n').find(l => l.startsWith('fpr'));
         const fingerprint = fpLine ? fpLine.split(':')[9] : null;
@@ -1328,8 +1329,8 @@ function gpgSign(opts, filePath) {
         if (fingerprint) sigArgs.push('-u', fingerprint);
         sigArgs.push(filePath);
         const r = spawnSync('gpg', sigArgs, { env, input: pass + '\n', stdio: ['pipe', 'inherit', 'inherit'] });
-        if (r.status === 0) { console.log(`  \u2713 GPG signed: ${path.basename(filePath)}.asc`); return true; }
-        console.warn('  \u26a0 GPG detach-sign failed');
+        if (r.status === 0) { ui.ok(`GPG signed: ${path.basename(filePath)}.asc`); return true; }
+        ui.warn('GPG detach-sign failed');
         return false;
     } finally {
         try { fs.rmSync(tmpGnupg, { recursive: true, force: true }); } catch (_) {}
@@ -1340,13 +1341,13 @@ function xbpsSign(opts, filePath) {
     if (!opts.credDir) return;
     const keyPath = path.join(opts.credDir, 'linux.xbps.pem');
     if (!fs.existsSync(keyPath)) {
-        console.warn(`  ⚠ XBPS signing: linux.xbps.pem not found — ${path.basename(filePath)} will not be signed`);
+        ui.warn(`XBPS signing: linux.xbps.pem not found — ${path.basename(filePath)} will not be signed`);
         return;
     }
-    if (!findBin('xbps-rindex')) { console.warn('  ⚠ xbps-rindex not found — skipping XBPS signing'); return; }
+    if (!findBin('xbps-rindex')) { ui.warn('xbps-rindex not found — skipping XBPS signing'); return; }
     const r = spawnSync('xbps-rindex', ['--sign-pkg', '--privkey', keyPath, filePath], { stdio: 'inherit' });
-    if (r.status === 0) console.log(`  ✓ XBPS signed: ${path.basename(filePath)}`);
-    else console.warn('  ⚠ xbps-rindex --sign-pkg failed');
+    if (r.status === 0) ui.ok(`XBPS signed: ${path.basename(filePath)}`);
+    else ui.warn('xbps-rindex --sign-pkg failed');
 }
 
 // ─── Windows package builders ─────────────────────────────────────────────────
@@ -1362,7 +1363,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
 
     if (spawnSync('which', ['makensis'], { encoding: 'utf8' }).status !== 0) {
-        console.warn('  ⚠ makensis not found — skipping NSIS installer'); return;
+        ui.warn('makensis not found — skipping NSIS installer'); return;
     }
 
     const title   = info.title       || 'App';
@@ -1387,7 +1388,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
         const cacheBootstrapper = path.join(os.tmpdir(), `_renweb-${bootstrapperName}`);
         if (!fs.existsSync(cacheBootstrapper)) {
             if (!download(WEBVIEW2_BOOTSTRAPPER_URL, cacheBootstrapper)) {
-                console.warn('  ⚠ Failed to fetch WebView2 bootstrapper; installer will not auto-install WebView2.');
+                ui.warn('Failed to fetch WebView2 bootstrapper; installer will not auto-install WebView2.');
             }
         }
         if (fs.existsSync(cacheBootstrapper)) bootstrapperPath = cacheBootstrapper;
@@ -1516,9 +1517,9 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     const nsiPath = path.join(os.tmpdir(), '_renweb-nsis-' + pkgId + '-' + arch + '.nsi');
     fs.writeFileSync(nsiPath, 'Unicode true\n' + lines.join('\n'), 'utf8');
-    console.log('  [nsis] \u2192 ' + path.relative(process.cwd(), outPath));
+    ui.ok('[nsis] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync('makensis', [nsiPath], { stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 makensis failed');
+    if (r.status !== 0) ui.warn('makensis failed');
         else authenticodeSign(opts, outPath);
     try { fs.unlinkSync(nsiPath); } catch (_) {}
     if (nsisBgBmp) { try { fs.unlinkSync(nsisBgBmp); } catch (_) {} }
@@ -1531,7 +1532,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
 function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = false) {
     if (opts.exts.size > 0 && !opts.exts.has('msi')) return;
     if (!findBin('wixl')) {
-        console.warn('  \u26a0 wixl not found \u2014 skipping MSI'); return;
+        ui.warn('wixl not found \u2014 skipping MSI'); return;
     }
 
     const title       = info.title    || 'App';
@@ -1704,9 +1705,9 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
     fs.writeFileSync(productWxs, wxsContent, 'utf8');
 
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    console.log('  [msi] \u2192 ' + path.relative(process.cwd(), outPath));
+    ui.ok('[msi] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync('wixl', ['-o', outPath, productWxs, filesWxs], { stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 wixl failed');
+    if (r.status !== 0) ui.warn('wixl failed');
         else authenticodeSign(opts, outPath);
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
@@ -1722,7 +1723,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
 
     const makemsix = fs.existsSync('/opt/makemsix') ? '/opt/makemsix'
                    : (spawnSync('which', ['makemsix'], { encoding: 'utf8' }).stdout || '').trim();
-    if (!makemsix) { console.warn('  \u26a0 makemsix not found \u2014 skipping MSIX'); return; }
+    if (!makemsix) { ui.warn('makemsix not found \u2014 skipping MSIX'); return; }
 
     const title    = info.title    || 'App';
     const version  = (info.version || '0.0.1').trim();
@@ -1825,11 +1826,11 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
     fs.writeFileSync(path.join(tmpBase, 'AppxManifest.xml'), manifest, 'utf8');
 
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    console.log('  [msix] \u2192 ' + path.relative(process.cwd(), outPath));
+    ui.ok('[msix] \u2192 ' + path.relative(process.cwd(), outPath));
     const r = spawnSync(makemsix, ['pack', '-d', tmpBase, '-p', outPath], { stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 makemsix failed');
+    if (r.status !== 0) ui.warn('makemsix failed');
         else if (!authenticodeSign(opts, outPath))
-            console.log('  \u2139 MSIX is unsigned \u2014 sign with signtool before Store submission, or install with Add-AppxPackage -AllowUnsigned');
+            ui.info('MSIX is unsigned \u2014 sign with signtool before Store submission, or install with Add-AppxPackage -AllowUnsigned');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1856,7 +1857,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
     fs.mkdirSync(toolsDir, { recursive: true });
 
     if (!nsisExePath || !fs.existsSync(nsisExePath)) {
-        console.warn('  ⚠ Chocolatey skipped — NSIS setup exe is missing (build with exe/choco formats together).');
+        ui.warn('Chocolatey skipped — NSIS setup exe is missing (build with exe/choco formats together).');
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -1908,9 +1909,9 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
 
     const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.choco.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
-    console.log('  [choco] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[choco] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 Chocolatey nupkg failed');
+    if (r.status !== 0) ui.warn('Chocolatey nupkg failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1940,7 +1941,7 @@ function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '', isBundle 
     if (nsisExePath && fs.existsSync(nsisExePath)) {
         fs.copyFileSync(nsisExePath, path.join(toolsDir, setupName));
     } else {
-        console.warn('  ⚠ NuGet package is metadata-only because NSIS setup exe was not found.');
+        ui.warn('NuGet package is metadata-only because NSIS setup exe was not found.');
     }
 
     const nuspec = [
@@ -1964,9 +1965,9 @@ function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '', isBundle 
 
     const outFile = path.join(outDir, pkgId + '.' + version + '-' + arch + '.nuget.nupkg');
     fs.mkdirSync(outDir, { recursive: true });
-    console.log('  [nuget] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[nuget] \u2192 ' + path.relative(process.cwd(), outFile));
     const r = spawnSync('zip', ['-r', outFile, '.'], { cwd: tmpBase, stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 NuGet nupkg failed');
+    if (r.status !== 0) ui.warn('NuGet nupkg failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -1978,7 +1979,7 @@ function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = f
     if (opts.exts.size > 0 && !opts.exts.has('winget')) return;
     if (isBundle) return;
     if (!nsisExePath || !fs.existsSync(nsisExePath)) {
-        console.warn('  ⚠ winget manifest skipped — NSIS setup exe is missing.');
+        ui.warn('winget manifest skipped — NSIS setup exe is missing.');
         return;
     }
 
@@ -2049,9 +2050,9 @@ function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = f
     fs.writeFileSync(installerPath, installerManifest, 'utf8');
     fs.writeFileSync(localePath, localeManifest, 'utf8');
     fs.writeFileSync(versionPath, versionManifest, 'utf8');
-    console.log('  [winget] → ' + path.relative(process.cwd(), manifestRoot));
+    ui.ok('[winget] → ' + path.relative(process.cwd(), manifestRoot));
     if (!process.env.RENWEB_WINGET_INSTALLER_URL && !autoUrl) {
-        console.log('  ℹ Set RENWEB_WINGET_INSTALLER_URL to your public setup.exe URL before submitting to winget.');
+        ui.info('Set RENWEB_WINGET_INSTALLER_URL to your public setup.exe URL before submitting to winget.');
     }
 }
 
@@ -2212,7 +2213,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
     fs.mkdirSync(tmpBase, { recursive: true });
     buildMacAppBundle(stagingDir, exeFor, info, tmpBase);
 
-    console.log(`  [dmg] \u2192 ${path.relative(process.cwd(), outPath)}`);
+    ui.ok(`[dmg] \u2192 ${path.relative(process.cwd(), outPath)}`);
 
     // Prefer native hdiutil on macOS — produces a proper HFS+ UDZO DMG.
     const volname       = title.slice(0, 27);
@@ -2251,9 +2252,9 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
             try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
             return;
         }
-        console.warn('  \u26a0 create-dmg failed — falling back to hdiutil');
+        ui.warn('create-dmg failed — falling back to hdiutil');
     } else {
-        console.warn('  \u26a0 create-dmg not found; install via `brew install create-dmg` for the classic drag-to-install DMG look. Falling back to plain hdiutil.');
+        ui.warn('create-dmg not found; install via `brew install create-dmg` for the classic drag-to-install DMG look. Falling back to plain hdiutil.');
     }
 
     // ── Fallback: hdiutil 3-step UDRW → AppleScript → UDZO ────────────────
@@ -2271,7 +2272,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
             '-ov', '-format', 'UDRW', rwPath,
         ], { stdio: 'pipe' });
         if (rw.status !== 0) {
-            console.warn('  \u26a0 DMG creation failed (hdiutil UDRW)');
+            ui.warn('DMG creation failed (hdiutil UDRW)');
             try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
             try { fs.unlinkSync(rwPath); } catch (_) {}
             return;
@@ -2325,7 +2326,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
         ], { stdio: 'inherit' });
         try { fs.unlinkSync(rwPath); } catch (_) {}
 
-        if (conv.status !== 0) console.warn('  \u26a0 DMG conversion to UDZO failed');
+        if (conv.status !== 0) ui.warn('DMG conversion to UDZO failed');
         else macosCodesign(opts, outPath);
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
@@ -2337,7 +2338,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
         if (spawnSync('which', [cmd], { encoding: 'utf8' }).status === 0) { isoCmd = cmd; break; }
     }
     if (!isoCmd) {
-        console.warn('  \u26a0 hdiutil/xorrisofs/genisoimage not found — skipping DMG');
+        ui.warn('hdiutil/xorrisofs/genisoimage not found — skipping DMG');
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -2345,7 +2346,7 @@ function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, ex
     const r = spawnSync(isoCmd,
         ['-V', title.slice(0, 32), '-D', '-R', '-o', outPath, tmpBase],
         { stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 DMG creation failed');
+    if (r.status !== 0) ui.warn('DMG creation failed');
     else macosCodesign(opts, outPath);
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
@@ -2417,10 +2418,10 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
     const tarR = spawnSync('tar', ['-czf', bottlePath, pkgId], { cwd: tmpBase, stdio: 'inherit' });
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
     if (tarR.status !== 0) {
-        console.warn('  \u26a0 homebrew bottle tar failed');
+        ui.warn('homebrew bottle tar failed');
         return;
     }
-    console.log('  [homebrew bottle] \u2192 ' + path.relative(process.cwd(), bottlePath));
+    ui.ok('[homebrew bottle] \u2192 ' + path.relative(process.cwd(), bottlePath));
 
     // ── Compute sha256 of the bottle ───────────────────────────────────────
     const sha256 = require('crypto')
@@ -2479,7 +2480,7 @@ function writeHomebrewFormula(bottles) {
     );
 
     const formulaPath = path.join(outDir, pkgId + '.rb');
-    console.log('  [homebrew formula] \u2192 ' + path.relative(process.cwd(), formulaPath));
+    ui.ok('[homebrew formula] \u2192 ' + path.relative(process.cwd(), formulaPath));
     fs.writeFileSync(formulaPath, rb.join('\n'), 'utf8');
 }
 
@@ -2495,7 +2496,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
     if (opts.exts.size > 0 && !opts.exts.has('mas')) return;
 
     if (!findBin('productbuild')) {
-        console.log('  [mas] skipped \u2014 productbuild not available (macOS only)');
+        ui.dim('[mas] skipped \u2014 productbuild not available (macOS only)');
         return;
     }
 
@@ -2513,7 +2514,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
 
     fs.mkdirSync(outDir, { recursive: true });
     const outFile = path.join(outDir, stem + '.pkg');
-    console.log('  [mas] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[mas] \u2192 ' + path.relative(process.cwd(), outFile));
 
     // Wrap with a distribution XML so productbuild shows a license agreement screen.
     const masLicSrc   = path.join(stagingDir, 'licenses', 'LICENSE');
@@ -2571,9 +2572,9 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
         const r = spawnSync('productbuild', masArgs, { stdio: 'inherit' });
         try { fs.unlinkSync(masComponentPkg); } catch (_) {}
         if (r.status === 0) macosProductsign(opts, outFile, 'mas');
-        else console.warn('  \u26a0 productbuild (mas distribution) failed');
+        else ui.warn('productbuild (mas distribution) failed');
     } else {
-        console.warn('  \u26a0 pkgbuild (mas component) failed');
+        ui.warn('pkgbuild (mas component) failed');
     }
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
@@ -2602,12 +2603,12 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
 
     const archFlag = APPIMAGE_ARCH_MAP[arch];
     if (!archFlag) {
-        console.log(`  [AppImage] skipped — ${arch} is not a supported AppImage architecture`);
+        ui.dim(`[AppImage] skipped — ${arch} is not a supported AppImage architecture`);
         return;
     }
 
     if (!fs.existsSync(APPIMAGETOOL)) {
-        console.warn('  \u26a0 ' + APPIMAGETOOL + ' not found — skipping AppImage'); return;
+        ui.warn(APPIMAGETOOL + ' not found — skipping AppImage'); return;
     }
 
     const title   = info.title    || 'App';
@@ -2709,13 +2710,13 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     const wantMachine = ELF_MACHINE_FOR_APPIMAGE_ARCH[archFlag];
     if (wantMachine !== undefined) purgeForeignElfs(appDir, wantMachine);
 
-    console.log('  [AppImage] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[AppImage] \u2192 ' + path.relative(process.cwd(), outFile));
     const appimageArgs = [appDir, outFile];
     const runtimeFile = path.join(APPIMAGE_RUNTIME_DIR, APPIMAGE_RUNTIME_FOR_ARCH[archFlag] || '');
     if (APPIMAGE_RUNTIME_FOR_ARCH[archFlag] && fs.existsSync(runtimeFile)) {
         appimageArgs.unshift('--runtime-file', runtimeFile);
     } else {
-        console.warn('  \u26a0 No runtime file for ' + archFlag + ' — AppImage may not run on target arch');
+        ui.warn('No runtime file for ' + archFlag + ' — AppImage may not run on target arch');
     }
     const r = spawnSync(APPIMAGETOOL, appimageArgs, {
         stdio : 'inherit',
@@ -2729,7 +2730,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
         }),
     });
     if (r.status !== 0) {
-        console.warn('  \u26a0 appimagetool failed');
+        ui.warn('appimagetool failed');
     } else if (fs.existsSync(outFile)) {
         // Verify the embedded ELF runtime matches the target architecture.
         // The AppImage runtime stub is at byte offset 0; its e_machine field is
@@ -2745,11 +2746,11 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
             const archName  = eMachine !== null ? (ELF_MACHINE_NAMES[eMachine] || `0x${eMachine.toString(16)}`) : '(not ELF)';
             const wantMachineName = ELF_MACHINE_NAMES[wantMachine] || archFlag;
             if (eMachine !== wantMachine) {
-                console.warn(`  \u26a0 AppImage runtime arch mismatch: embedded=${archName}, expected=${wantMachineName}`);
-                console.warn('     This AppImage will fail with "Exec format error" on the target.');
-                console.warn('     Rebuild the Docker image so the per-arch runtime stubs are present.');
+                ui.warn(`AppImage runtime arch mismatch: embedded=${archName}, expected=${wantMachineName}`);
+                ui.warn('This AppImage will fail with "Exec format error" on the target.');
+                ui.warn('Rebuild the Docker image so the per-arch runtime stubs are present.');
             } else {
-                console.log(`  \u2714 AppImage runtime arch verified: ${archName}`);
+                ui.ok(`AppImage runtime arch verified: ${archName}`);
             }
         } catch (_) {}
     }
@@ -2764,7 +2765,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
 function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('snap')) return;
     if (spawnSync('which', ['mksquashfs'], { encoding: 'utf8' }).status !== 0) {
-        console.warn('  \u26a0 mksquashfs not found \u2014 skipping snap'); return;
+        ui.warn('mksquashfs not found \u2014 skipping snap'); return;
     }
 
     const title    = info.title    || 'App';
@@ -2935,14 +2936,14 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
 
     const outFile = path.join(outDir, pkgId + '_' + version + '_' + snapArch + '.snap');
     fs.mkdirSync(outDir, { recursive: true });
-    console.log('  [snap] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[snap] \u2192 ' + path.relative(process.cwd(), outFile));
     try { fs.unlinkSync(outFile); } catch (_) {}
     const r = spawnSync('mksquashfs', [
         tmpBase, outFile,
         '-noappend', '-comp', 'xz', '-no-progress',
     ], { stdio: 'inherit' });
-    if (r.status !== 0) console.warn('  \u26a0 snap build failed');
-    else console.log('  \u2139 To install: sudo snap install --dangerous' +
+    if (r.status !== 0) ui.warn('snap build failed');
+    else ui.info('To install: sudo snap install --dangerous' +
         (confinement === 'classic' ? ' --classic' : '') +
         ' ' + path.relative(process.cwd(), outFile));
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
@@ -2956,7 +2957,7 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
 function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('flatpak')) return;
     if (spawnSync('which', ['flatpak'], { encoding: 'utf8' }).status !== 0) {
-        console.warn('  \u26a0 flatpak not found \u2014 skipping flatpak'); return;
+        ui.warn('flatpak not found \u2014 skipping flatpak'); return;
     }
 
     const pkgId   = toKebab(info.title || 'app');
@@ -2976,7 +2977,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         'org.freedesktop.Sdk', 'org.freedesktop.Platform', '23.08',
     ], { stdio: 'inherit' });
     if (initR.status !== 0) {
-        console.warn('  \u26a0 flatpak build-init failed');
+        ui.warn('flatpak build-init failed');
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -3016,7 +3017,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
 
     const outFile = path.join(outDir, pkgId + '-' + version + '-' + arch + '.flatpak');
     fs.mkdirSync(outDir, { recursive: true });
-    console.log('  [flatpak] \u2192 ' + path.relative(process.cwd(), outFile));
+    ui.ok('[flatpak] \u2192 ' + path.relative(process.cwd(), outFile));
 
     // Step 3: finalise metadata (finish-args, command) — no bwrap
     const finishR = spawnSync('flatpak', [
@@ -3032,7 +3033,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         buildDir,
     ], { stdio: 'inherit' });
     if (finishR.status !== 0) {
-        console.warn('  \u26a0 flatpak build-finish failed');
+        ui.warn('flatpak build-finish failed');
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -3042,7 +3043,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         'build-export', repoDir, buildDir,
     ], { stdio: 'inherit' });
     if (exportR.status !== 0) {
-        console.warn('  \u26a0 flatpak build-export failed');
+        ui.warn('flatpak build-export failed');
         try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -3053,7 +3054,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         '--runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo',
         repoDir, outFile, appId,
     ], { stdio: 'inherit' });
-    if (bundleR.status !== 0) console.warn('  \u26a0 flatpak build-bundle failed');
+    if (bundleR.status !== 0) ui.warn('flatpak build-bundle failed');
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
@@ -3066,7 +3067,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
 function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, isBundle = false, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('xbps')) return;
     if (!findBin('xbps-create')) {
-        console.warn('  \u26a0 xbps-create not found \u2014 skipping Void Linux package');
+        ui.warn('xbps-create not found \u2014 skipping Void Linux package');
         return;
     }
 
@@ -3136,14 +3137,14 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
         xbpsArgs.push('-D', LINUX_DEPS.void.required.join(' '));
     xbpsArgs.push(xbpsRoot);
 
-    console.log(`  [xbps] \u2192 ${path.relative(process.cwd(), outputFile)}`);
+    ui.ok(`[xbps] \u2192 ${path.relative(process.cwd(), outputFile)}`);
     try { fs.unlinkSync(outputFile); } catch (_) {}
 
     // xbps-create writes <pkgver>.<arch>.xbps in the current working directory.
     const r = spawnSync('xbps-create', xbpsArgs, { cwd: xbpsOutDir, stdio: 'inherit' });
     try { fs.rmSync(xbpsRoot, { recursive: true, force: true }); } catch (_) {}
     if (r.status !== 0) {
-        console.warn('  \u26a0 xbps-create failed');
+        ui.warn('xbps-create failed');
         try { fs.rmSync(xbpsOutDir, { recursive: true, force: true }); } catch (_) {}
         return;
     }
@@ -3156,7 +3157,7 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     } else {
         const found = fs.readdirSync(xbpsOutDir).find(f => f.endsWith('.xbps'));
         if (found) fs.copyFileSync(path.join(xbpsOutDir, found), outputFile);
-        else console.warn('  \u26a0 xbps-create output not found');
+        else ui.warn('xbps-create output not found');
     }
     try { fs.rmSync(xbpsOutDir, { recursive: true, force: true }); } catch (_) {}
 
@@ -3243,35 +3244,35 @@ function run(args) {
 
     // ── 1. Locate and validate build/info.json ────────────────────────────────
     const buildDir = findBuildDir();
-    if (!buildDir) { console.error('Error: Could not find a build/ directory.'); process.exit(1); }
+    if (!buildDir) { ui.error('Could not find a build/ directory.'); process.exit(1); }
     const infoPath = path.join(buildDir, 'info.json');
-    if (!fs.existsSync(infoPath)) { console.error(`Error: ${infoPath} not found.`); process.exit(1); }
+    if (!fs.existsSync(infoPath)) { ui.error(`${infoPath} not found.`); process.exit(1); }
     let info;
     try { info = JSON.parse(fs.readFileSync(infoPath, 'utf8')); }
-    catch (e) { console.error(`Error: Failed to parse info.json — ${e.message}`); process.exit(1); }
+    catch (e) { ui.error(`Failed to parse info.json — ${e.message}`); process.exit(1); }
 
     const engineRepo  = (info['engine-repository'] || info['engine_repository'] || info['executable_repository'] || DEFAULT_ENGINE_REPO).trim();
     const pluginRepos = Array.isArray(info['plugin-repositories'] ?? info['plugin_repositories'])
         ? (info['plugin-repositories'] ?? info['plugin_repositories'])
         : [];
 
-    console.log('RenWeb CLI — package');
-    console.log(`  build dir : ${buildDir}`);
-    console.log(`  engine    : ${engineRepo}`);
-    console.log(`  plugins   : ${pluginRepos.length} repo(s)`);
-    if (opts.bundleOnly)      console.log('  mode      : bundle-only');
-    if (opts.executableOnly)  console.log('  mode      : executable-only');
-    if (opts.exts.size > 0)   console.log(`  formats   : ${[...opts.exts].join(', ')}`);
-    if (opts.oses.size > 0)   console.log(`  os filter : ${[...opts.oses].join(', ')}`);
-    if (opts.arches.size > 0) console.log(`  arch filter: ${[...opts.arches].join(', ')}`);
-    if (opts.cache)           console.log('  cache     : enabled (.rw/package/)');
+    ui.section('RenWeb CLI — package');
+    ui.info(`build dir : ${buildDir}`);
+    ui.info(`engine    : ${engineRepo}`);
+    ui.info(`plugins   : ${pluginRepos.length} repo(s)`);
+    if (opts.bundleOnly)      ui.info('mode      : bundle-only');
+    if (opts.executableOnly)  ui.info('mode      : executable-only');
+    if (opts.exts.size > 0)   ui.info(`formats   : ${[...opts.exts].join(', ')}`);
+    if (opts.oses.size > 0)   ui.info(`os filter : ${[...opts.oses].join(', ')}`);
+    if (opts.arches.size > 0) ui.info(`arch filter: ${[...opts.arches].join(', ')}`);
+    if (opts.cache)           ui.info('cache     : enabled (.rw/package/)');
 
         opts.credDir = opts.noCredentials ? null : findCredentialsDir();
-        if (opts.noCredentials)       console.log('  signing   : disabled (--no-credentials)');
-        else if (opts.credDir)        console.log(`  signing   : ${opts.credDir}`);
-        else                          console.log('  signing   : credentials/ not found — outputs will be unsigned');
+        if (opts.noCredentials)       ui.info('signing   : disabled (--no-credentials)');
+        else if (opts.credDir)        ui.info(`signing   : ${opts.credDir}`);
+        else                          ui.info('signing   : credentials/ not found — outputs will be unsigned');
     if (process.env.IN_DOCKER !== '1')
-        console.log('\n  Tip: run `rw build` first to ensure build/ is up to date before packaging.');
+        ui.info('Tip: run `rw build` first to ensure build/ is up to date before packaging.');
 
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
@@ -3284,7 +3285,7 @@ function run(args) {
 
     // Always clear ./package before starting a fresh build
     if (fs.existsSync(pkgDir)) {
-        console.log('Clearing previous package output…');
+        ui.step('Clearing previous package output…');
         fs.rmSync(pkgDir, { recursive: true, force: true });
     }
     fs.mkdirSync(pkgDir, { recursive: true });
@@ -3298,14 +3299,14 @@ function run(args) {
     fs.mkdirSync(pluginsDir,  { recursive: true });
 
     // ── 3. Fetch engine release metadata ─────────────────────────────────────
-    console.log('\n── Fetching engine releases ──');
+    ui.section('Fetching engine releases');
     let engineRelease;
     try { engineRelease = fetchLatestRelease(engineRepo); }
-    catch (e) { console.error(`Error: ${e.message}`); process.exit(1); }
+    catch (e) { ui.error(e.message); process.exit(1); }
 
     const engineGroups = groupAssets(engineRelease.assets);
     if (engineGroups.size === 0) {
-        console.error('Error: No recognisable engine assets found in the latest release.');
+        ui.error('No recognisable engine assets found in the latest release.');
         process.exit(1);
     }
 
@@ -3318,11 +3319,11 @@ function run(args) {
         const isWindowsTarget = targetOs === 'windows' || targetOs === 'win';
         // OS filter
         if (opts.oses.size > 0 && !opts.oses.has(targetOs)) {
-            console.log(`  skip (os filter): ${key}`); continue;
+            ui.dim(`skip (os filter): ${key}`); continue;
         }
         // Arch filter
         if (opts.arches.size > 0 && !opts.arches.has(targetArch)) {
-            console.log(`  skip (arch filter): ${key}`); continue;
+            ui.dim(`skip (arch filter): ${key}`); continue;
         }
 
         // Decide which asset type(s) to produce for this key
@@ -3334,7 +3335,7 @@ function run(args) {
         if (!opts.executableOnly && group.bootstrap)
             picks.push({ ...group.bootstrap, isBundle: true,  isBootstrap: true  });
         if (!opts.executableOnly && group.bundle && isWindowsTarget) {
-            console.log(`  ℹ  ${key}: skipping fixed-runtime bundle asset (bootstrap bundles only)`);
+            ui.info(`${key}: skipping fixed-runtime bundle asset (bootstrap bundles only)`);
         }
         // Graceful fallback: if the requested type doesn't exist in this release
         if (picks.length === 0) {
@@ -3353,20 +3354,20 @@ function run(args) {
                 const kind = fallback === group.bootstrap ? 'bundle-bootstrap'
                     : fallback === group.bundle ? 'bundle'
                     : 'bare';
-                console.log(`  ℹ  ${key}: requested type unavailable, using ${kind}`);
+                ui.info(`${key}: requested type unavailable, using ${kind}`);
             } else if (isWindowsTarget && group.bundle && !group.bootstrap && !opts.executableOnly) {
-                console.log(`  ℹ  ${key}: only fixed-runtime bundle available; skipped by policy`);
+                ui.info(`${key}: only fixed-runtime bundle available; skipped by policy`);
             }
         }
 
         for (const pick of picks) {
             const destPath = path.join(enginesDir, pick.filename);
             if (opts.cache && fs.existsSync(destPath)) {
-                console.log(`  cached  ${pick.filename}`);
+                ui.info(`cached  ${pick.filename}`);
             } else {
-                console.log(`  Downloading ${pick.filename}…`);
+                ui.step(`Downloading ${pick.filename}…`);
                 if (!download(pick.url, destPath)) {
-                    console.warn(`  ⚠ Failed to download ${pick.filename}`); continue;
+                    ui.warn(`Failed to download ${pick.filename}`); continue;
                 }
             }
             if (!pick.isBundle) makeExecutable(destPath);
@@ -3377,24 +3378,24 @@ function run(args) {
     }
 
     if (toProcess.length === 0) {
-        console.error('Error: No engine assets available to package.');
+        ui.error('No engine assets available to package.');
         process.exit(1);
     }
 
     // ── 5. Copy ./build → ./.package/build-src (skip exe, log, plugins, lib) ──────
-    console.log('\n── Copying build files ──');
+    ui.section('Copying build files');
     for (const entry of fs.readdirSync(buildDir, { withFileTypes: true })) {
         const name = entry.name;
         if (BUILD_EXCLUDES.has(name) || BUILD_EXCLUDE_PREFIXES.some(p => name.startsWith(p)))
-            { console.log(`  skip: ${name}`); continue; }
+            { ui.dim(`skip: ${name}`); continue; }
         // Skip any file that parses as an engine binary (any name/os/arch combination).
         // This prevents host-arch binaries from leaking into cross-platform packages.
         if (parseExecAsset(name) || parseBundleAsset(name))
-            { console.log(`  skip (exe): ${name}`); continue; }
+            { ui.dim(`skip (exe): ${name}`); continue; }
         const src  = path.join(buildDir, name);
         const dest = path.join(buildSrcDir, name);
         if (entry.isDirectory()) copyDir(src, dest); else fs.copyFileSync(src, dest);
-        console.log(`  copy: ${name}`);
+        ui.step(`copy: ${name}`);
     }
 
     // Warn when build/plugins/ has plugin files but no plugin-repositories are configured,
@@ -3404,33 +3405,33 @@ function run(args) {
         if (fs.existsSync(buildPluginsDir)) {
             const pluginFiles = fs.readdirSync(buildPluginsDir).filter(f => /\.(so|dll)$/.test(f));
             if (pluginFiles.length > 0)
-                console.warn(`\n  ⚠ build/plugins/ has ${pluginFiles.length} plugin file(s) but no "plugin-repositories" in info.json — plugins will be excluded from packages.`);
+                ui.warn(`build/plugins/ has ${pluginFiles.length} plugin file(s) but no "plugin-repositories" in info.json — plugins will be excluded from packages.`);
         }
     }
 
     // ── 6. Download plugins → .package/plugins/0, /1, … (with optional cache) ─
-    if (pluginRepos.length > 0) console.log('\n── Fetching plugins ──');
+    if (pluginRepos.length > 0) ui.section('Fetching plugins');
     for (let i = 0; i < pluginRepos.length; i++) {
         const repoUrl = pluginRepos[i];
         const pDir    = path.join(pluginsDir, String(i));
         fs.mkdirSync(pDir, { recursive: true });
-        console.log(`  Plugin ${i}: ${repoUrl}`);
+        ui.step(`Plugin ${i}: ${repoUrl}`);
         let rel;
         try { rel = fetchLatestRelease(repoUrl); }
-        catch (e) { console.warn(`  ⚠ Skipping plugin ${i}: ${e.message}`); continue; }
+        catch (e) { ui.warn(`Skipping plugin ${i}: ${e.message}`); continue; }
         for (const asset of (rel.assets || [])) {
             const name = (asset.name || '').trim();
             const url  = asset.browser_download_url;
             if (!name || !url) continue;
             const destPath = path.join(pDir, name);
-            if (opts.cache && fs.existsSync(destPath)) { console.log(`    cached  ${name}`); continue; }
-            console.log(`    Downloading ${name}…`);
-            if (!download(url, destPath)) console.warn(`    ⚠ Failed: ${name}`);
+            if (opts.cache && fs.existsSync(destPath)) { ui.info(`cached  ${name}`); continue; }
+            ui.step(`Downloading ${name}…`);
+            if (!download(url, destPath)) ui.warn(`Failed: ${name}`);
         }
     }
 
     // ── 7. Build packages per asset ───────────────────────────────────────────
-    console.log('\n── Building packages ──');
+    ui.section('Building packages');
     // Accumulate Homebrew bottle info across all macOS arches so we can write
     // a single unified formula with all sha256 entries after the loop.
     const homebrewBottles = [];
@@ -3456,7 +3457,7 @@ function run(args) {
         try {
             buildPackageForTarget(opts, buildSrcDir, matchingPluginDirs, engineAsset, info, pkgDir, tmpDir, homebrewBottles);
         } catch (e) {
-            console.warn(`⚠ Failed to build package for ${targetOs}-${targetArch}: ${e.message}`);
+            ui.warn(`Failed to build package for ${targetOs}-${targetArch}: ${e.message}`);
         }
     }
 
@@ -3464,15 +3465,15 @@ function run(args) {
     if (homebrewBottles.length > 0) writeHomebrewFormula(homebrewBottles);
 
     // ── 8. Clean up staging (always); wipe all .package when --cache is off ──
-    console.log('\n── Cleaning up ──');
+    ui.section('Cleaning up');
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
     if (!opts.cache) {
         try { fs.rmSync(cacheDir, { recursive: true, force: true }); } catch (_) {}
     }
 
-    console.log('\n✓ Packaging complete.');
-    console.log(`  Output: ${path.relative(process.cwd(), pkgDir)}/`);
-    if (opts.cache) console.log(`  Cache:  ${path.relative(process.cwd(), cacheDir)}/`);
+    ui.ok('Packaging complete.');
+    ui.info(`Output: ${path.relative(process.cwd(), pkgDir)}/`);
+    if (opts.cache) ui.info(`Cache:  ${path.relative(process.cwd(), cacheDir)}/`);
 }
 
 // ─── Docker / native dispatch ─────────────────────────────────────────────────
@@ -3522,7 +3523,7 @@ function dispatch(args) {
     }
 
     function runNative(nativeArgs) {
-        console.log('\n── Running natively for macOS packages (hdiutil / pkgbuild / productbuild) ──');
+        ui.section('Running natively for macOS packages (hdiutil / pkgbuild / productbuild)');
         run(nativeArgs);
     }
 
@@ -3530,7 +3531,7 @@ function dispatch(args) {
         let dockerOk = false;
         try { dockerOk = spawnSync('docker', ['--version'], { stdio: 'ignore' }).status === 0; } catch (e) {}
         if (!dockerOk) {
-            console.error('docker is required to build Linux / Windows packages. Please install Docker and try again.');
+            ui.error('docker is required to build Linux / Windows packages. Please install Docker and try again.');
             process.exit(2);
         }
 
@@ -3547,10 +3548,10 @@ function dispatch(args) {
         } catch (e) {}
 
         if (!imageExists) {
-            console.log(`Docker image '${image}' not found locally — building it now.`);
+            ui.step(`Docker image '${image}' not found locally — building it now.`);
             const buildRes = spawnSync('docker', ['build', '-t', image, cliDir], { stdio: 'inherit' });
             if (buildRes.status !== 0) {
-                console.error('Failed to build docker image; cannot continue.');
+                ui.error('Failed to build docker image; cannot continue.');
                 process.exit(buildRes.status || 3);
             }
         }
@@ -3561,8 +3562,8 @@ function dispatch(args) {
                 fs.mkdirSync(pkgCache, { recursive: true });
             } catch (e) {
                 if (e.code === 'EACCES') {
-                    console.error(
-                        `Error: ${pkgCache} is owned by root from a previous run.\n` +
+                    ui.error(
+                        `${pkgCache} is owned by root from a previous run.\n` +
                         `Fix with: sudo chown -R $USER "${pkgCache}"`
                     );
                     process.exit(4);
@@ -3579,6 +3580,8 @@ function dispatch(args) {
             '--name', containerName,
             '-e', 'IN_DOCKER=1',
             '-e', 'RENWEB_CWD=/project',
+            '-e', 'FORCE_COLOR=3',
+            '-e', `COLUMNS=${process.stdout.columns || 80}`,
             ...userFlag,
             '-v', `${hostCwd}:/project`,
             '-v', `${hostDir}:/work`,
@@ -3617,13 +3620,13 @@ function dispatch(args) {
             : argsWithOs(macosOses.length > 0 ? macosOses : ['macos']);
 
         if (process.platform !== 'darwin') {
-            console.log('── Packaging: running Docker (linux/windows) — macOS packages require a macOS host ──');
+            ui.section('Packaging: running Docker (linux/windows) — macOS packages require a macOS host');
             runInDocker(args, (code) => process.exit(code));
             return;
         }
-        console.log('── Packaging: running Docker (linux/windows) then native (macos) ──');
+        ui.section('Packaging: running Docker (linux/windows) then native (macos)');
         runInDocker(dockerArgs, (dockerCode) => {
-            if (dockerCode !== 0) console.warn(`⚠ Docker packaging exited with code ${dockerCode}`);
+            if (dockerCode !== 0) ui.warn(`Docker packaging exited with code ${dockerCode}`);
             runNative(nativeArgs);
         });
     }
