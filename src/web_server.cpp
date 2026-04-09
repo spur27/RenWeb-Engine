@@ -81,8 +81,6 @@ WebServer::~WebServer() {
             this->server_thread.join();
         } catch (...) { }
     }
-
-    this->logger->trace("[server] Deconstructing WebServer");
 }
 
 
@@ -136,7 +134,7 @@ void WebServer::stop() /*override*/ {
     } catch (const std::exception& e) {
         this->logger->error("[server] " + std::string(e.what()));
     }
-    this->logger->trace("[server] Deconstructing WebServer");
+    this->logger->trace("[server] Server stopped");
 }
 
 bool WebServer::isURI(const std::string& uri) const {
@@ -171,8 +169,6 @@ void WebServer::sendMessage(const std::string& ip, const json::value& message, t
         client.Post("/??q=", json::serialize(payload), "application/json");
         client.stop();
     }).detach();
-
-    this->logger->trace("[server] Messaged " + ip);    
 }
 
 json::object WebServer::whoAreYou(const std::string& ip, time_t timeout_s, time_t timeout_ms) const /*override*/ {
@@ -198,7 +194,7 @@ void WebServer::setHandles() {
     this->server->set_write_timeout(10, 0);
     
     this->server->set_logger([this](const httplib::Request& req, const httplib::Response& res) {
-        this->logger->info("[server] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
+        this->logger->debug("[server] " + req.method + " " + req.path + " -> " + std::to_string(res.status));
     });
     this->server->set_error_logger([this](const httplib::Error& err, const httplib::Request* req) {
         (void)req;

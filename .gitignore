@@ -41,3 +41,6 @@ credentials/*.token
 credentials/*.rsa
 credentials/*.rsa.pub
 credentials/*.json
+
+# RenWeb cache
+.rw/

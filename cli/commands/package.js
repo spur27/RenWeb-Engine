@@ -24,7 +24,9 @@ const LINUX_DEPS = {
     rpm: {
         // Fedora / RHEL / openSUSE (dnf / zypper) — names differ from apt
         required:    ['gtk3', 'webkit2gtk4.1', 'mesa-libEGL', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
-        recommended: ['gstreamer1-plugins-bad-free', 'gstreamer1-plugins-ugly-free'],
+            /* FPM doesn't expose the recommended fields flags */
+            //recommended: ['gstreamer1-plugins-bad-free', 'gstreamer1-plugins-ugly-free'],
+        recommended: [],
     },
     pacman: {
         // Arch Linux (pacman) — no Recommends concept
@@ -984,9 +986,6 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
             for (const dep of fmtDeps.required) fpmArgs.push('--depends', dep);
             if (fmt === 'deb') {
                 for (const dep of fmtDeps.recommended) fpmArgs.push('--deb-recommends', dep);
-            }
-            if (fmt === 'rpm') {
-                for (const dep of fmtDeps.recommended) fpmArgs.push('--rpm-suggests', dep);
             }
         }
         const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-${fmt}`);
@@ -3410,6 +3409,9 @@ function run(args) {
     }
 
     // ── 6. Download plugins → .package/plugins/0, /1, … (with optional cache) ─
+    // Build a lookup of (os, arch) pairs we're actually building for so we only
+    // download the plugin flavours that will be used — honouring --arch / --os filters.
+    const targetCombos = toProcess.map(a => ({ os: a.os, arch: a.arch }));
     if (pluginRepos.length > 0) ui.section('Fetching plugins');
     for (let i = 0; i < pluginRepos.length; i++) {
         const repoUrl = pluginRepos[i];
@@ -3423,6 +3425,11 @@ function run(args) {
             const name = (asset.name || '').trim();
             const url  = asset.browser_download_url;
             if (!name || !url) continue;
+            // Only fetch assets that match at least one target (os, arch) combo
+            const fl = name.toLowerCase();
+            const matchesTarget = targetCombos.some(({ os: tOs, arch: tArch }) =>
+                fl.includes(tOs) && fl.includes(tArch));
+            if (!matchesTarget) { ui.dim(`skip (arch filter): ${name}`); continue; }
             const destPath = path.join(pDir, name);
             if (opts.cache && fs.existsSync(destPath)) { ui.info(`cached  ${name}`); continue; }
             ui.step(`Downloading ${name}…`);

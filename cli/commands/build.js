@@ -178,6 +178,13 @@ function run(args) {
 
     if (metaOnly) return;
 
+    const makefilePath = ['makefile', 'Makefile'].find(f => fs.existsSync(path.join(projectRoot, f)));
+    if (makefilePath && state.js_engine === 'none') {
+        ui.step('Building plugin (make)…');
+        const r = spawnSync('make', [], { cwd: projectRoot, stdio: 'inherit' });
+        process.exit(r.status ?? 0);
+    }
+
     if (hasBuildScript(projectRoot, state.js_engine)) {
         const [bin, bin_args] = state.pkg_manager().build_cmd();
         const buildLabel = state.isVanilla() ? state.js_engine : state.framework;

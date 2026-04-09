@@ -210,15 +210,14 @@ void App::run() {
             json::object defaults = this->config->getDefaultsJson().is_object() 
                 ? this->config->getDefaultsJson().as_object() : json::object{};
             auto merged_state = JSON::merge(defaults, current_state);
-            this->fns->setup(merged_state);
             this->fns->setState(merged_state);
+            this->fns->setup(merged_state);
         } else {
-            this->fns->setup(current_state);
             this->fns->setState(current_state);
+            this->fns->setup(current_state);
         }
+        this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     });
-
-    this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     this->w->run();
     this->fns->teardown();
 }

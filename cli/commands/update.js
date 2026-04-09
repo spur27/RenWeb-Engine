@@ -214,11 +214,13 @@ function updatePlugins(projectRoot, buildDir) {
         const rel = fetchLatestRelease(repoUrl);
         if (!rel) { ui.warn('Could not fetch release metadata'); continue; }
 
-        // Download all assets to cache
+        // Download only the asset matching the host OS+arch
+        const hostPattern = new RegExp(`[_.-]${tOs}[_.-]${tArch}`, 'i');
         for (const asset of (rel.assets || [])) {
             const name = (asset.name || '').trim();
             const url  = asset.browser_download_url;
             if (!name || !url) continue;
+            if (!hostPattern.test(name)) { continue; }
             const destPath = path.join(cacheDir, name);
             if (!download(url, destPath)) {
                 ui.warn(`Failed to download ${name}`);
@@ -228,10 +230,9 @@ function updatePlugins(projectRoot, buildDir) {
         }
 
         // Copy the host-arch binary to build/plugins/
-        const hostPattern = new RegExp(`[_.-]${tOs}[_.-]${tArch}`, 'i');
         let entries;
         try { entries = fs.readdirSync(cacheDir); } catch (_) { entries = []; }
-        const hostBinary = entries.find(f => hostPattern.test(f) && /\.(so|dll)$/.test(f));
+        const hostBinary = entries.find(f => hostPattern.test(f) && /\.(so|dll|dylib)$/.test(f));
         if (hostBinary) {
             fs.copyFileSync(path.join(cacheDir, hostBinary), path.join(buildPluginsDir, hostBinary));
             ui.ok(`Installed: ${hostBinary}`);

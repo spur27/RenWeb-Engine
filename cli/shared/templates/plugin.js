@@ -154,25 +154,20 @@ function makePluginMakefile(info, pluginName) {
 # ${info.title} — RenWeb Plugin Makefile
 # =============================================================================
 # Usage:
-#   make                          Build for current OS/arch (release)
-#   make TARGET=debug             Build in debug mode
+#   make                          Build for current OS/arch (debug)
+#   make TARGET=release           Build in release mode
 #   make TOOLCHAIN=<triplet>      Cross-compile (Linux only, same triplets as
 #                                 the engine makefile)
 #   make ARCH=<arch>              Override the arch label in the output filename
-#   make clean                    Remove build outputs and object files
+#   make clear                    Remove only object files (between arch passes)
+#   make clean                    Remove object files and build/plugins/ output
 #   make info                     Print build configuration
+#   make help                     Show this help
 #
-# Output filename: <name>-<version>-<os>-<arch>.<ext>
-#   e.g.  ${pluginName}-${info.version}-linux-x86_64.so
-#         ${pluginName}-${info.version}-windows-x86_64.dll
-#         ${pluginName}-${info.version}-macos-arm64.dylib
+# Plugin name and version are read from the RenWeb::Plugin constructor in
+# src/*.cpp — the second string param is the internal_name; third is version.
+# Output: <internal_name>-<version>-<os>-<arch>.<ext>
 # =============================================================================
-
-# -----------------------------------------------------------------------------
-# Metadata (override on the command line: make PLUGIN_NAME=foo PLUGIN_VERSION=1.2.3)
-# -----------------------------------------------------------------------------
-PLUGIN_NAME    := ${pluginName}
-PLUGIN_VERSION := ${info.version}
 
 # -----------------------------------------------------------------------------
 # Cross-compilation toolchain (Linux only)
@@ -225,57 +220,53 @@ endif
 # Build target
 # -----------------------------------------------------------------------------
 ifndef TARGET
-\tTARGET := release
+\tTARGET := debug
 endif
 
 # -----------------------------------------------------------------------------
 # OS / compiler / architecture detection
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
+\tSHELL      := C:\\Program Files\\Git\\usr\\bin\\sh.exe
 \tOS_NAME    := windows
 \tSHARED_EXT := .dll
 \tOBJ_EXT    := .obj
 \tOBJ_DIR    := src\\\\.build
-\t# Prefer MSVC (cl.exe) when available; fall back to MinGW (g++)
+\tifeq ($(RENWEB_VS_BOOTSTRAPPED),)
+\tCL_IN_PATH := $(shell which cl 2>/dev/null)
+\tifeq ($(CL_IN_PATH),)
+\tNEED_VS_BOOTSTRAP := 1
+\tendif
+\tendif
+\tCXX      := cl
+\tCXXFLAGS := /std:c++17 /utf-8 /EHsc /W3 /FS /nologo
+\tifeq ($(TARGET),debug)
+\t\tCXXFLAGS += /Zi /Od /MTd
+\t\tLDFLAGS  := /DEBUG
+\telse
+\t\tCXXFLAGS += /O2 /GL /GS- /Gy /MT
+\t\tLDFLAGS  := /LTCG /OPT:REF /OPT:ICF
+\tendif
 \tifdef VSCMD_ARG_TGT_ARCH
-\t\tCXX            := cl
-\t\tWINDOWS_CXX    := msvc
-\t\tCXXFLAGS       := /std:c++17 /utf-8 /EHsc /W3 /FS /nologo
-\t\tifneq ($(TARGET),debug)
-\t\t\tCXXFLAGS   += /O2 /GL /GS- /Gy /MT
-\t\t\tLDFLAGS    := /LTCG /OPT:REF /OPT:ICF
-\t\telse
-\t\t\tCXXFLAGS   += /Zi /Od /MTd
-\t\t\tLDFLAGS    := /DEBUG
-\t\tendif
 \t\tifeq ($(VSCMD_ARG_TGT_ARCH),x64)
-\t\t\tARCH := x86_64
+\t\t\tARCH    := x86_64
 \t\t\tLDFLAGS += /MACHINE:X64
 \t\telse ifeq ($(VSCMD_ARG_TGT_ARCH),x86)
-\t\t\tARCH := x86_32
+\t\t\tARCH    := x86_32
 \t\t\tLDFLAGS += /MACHINE:X86
 \t\telse ifeq ($(VSCMD_ARG_TGT_ARCH),arm64)
-\t\t\tARCH := arm64
+\t\t\tARCH    := arm64
 \t\t\tLDFLAGS += /MACHINE:ARM64
 \t\telse
-\t\t\tARCH := x86_64
+\t\t\tARCH    := x86_64
+\t\t\tLDFLAGS += /MACHINE:X64
 \t\tendif
-\telse
-\t\tCXX          := g++
-\t\tWINDOWS_CXX  := mingw
-\t\tCXXFLAGS     := -std=c++17 -fPIC -Wall
-\t\tifneq ($(TARGET),debug)
-\t\t\tCXXFLAGS += -O3 -flto
-\t\telse
-\t\t\tCXXFLAGS += -g -O0
-\t\tendif
-\t\tSHARED_FLAGS := -shared
-\t\tifndef ARCH
-\t\t\tARCH := x86_64
-\t\tendif
+\telse ifndef ARCH
+\t\tARCH    := x86_64
+\t\tLDFLAGS += /MACHINE:X64
 \tendif
 else
-\tSHELL   := /bin/bash
+\tSHELL   := /bin/sh
 \tUNAME_S := $(shell uname -s)
 \tOBJ_EXT := .o
 \tOBJ_DIR := src/.build
@@ -316,6 +307,9 @@ else
 \t\tendif
 \t\tifdef TOOLCHAIN
 \t\t\tCXXFLAGS += -isystem /usr/$(TOOLCHAIN)/usr/local/include
+\t\t\tLDFLAGS  := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
+\t\telse
+\t\t\tLDFLAGS  :=
 \t\tendif
 \t\tifndef ARCH
 \t\t\tUNAME_M := $(shell uname -m)
@@ -335,31 +329,108 @@ else
 endif
 
 # -----------------------------------------------------------------------------
-# Paths and output filename
+# Utility — colored output (matches engine makefile conventions)
 # -----------------------------------------------------------------------------
-BUILD_DIR := build/plugins
-SRC       := src/${pluginName}.cpp
-OBJ       := $(OBJ_DIR)/${pluginName}$(OBJ_EXT)
-OUT       := $(BUILD_DIR)/$(PLUGIN_NAME)-$(PLUGIN_VERSION)-$(OS_NAME)-$(ARCH)$(SHARED_EXT)
+RESET   := \\033[0m
+RED     := \\033[31m
+GREEN   := \\033[32m
+YELLOW  := \\033[33m
+MAGENTA := \\033[35m
+CYAN    := \\033[36m
+BOLD    := \\033[1m
+define describe
+\t@printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\\n" "$(1)" "$(2)" "$(3)" "$(4)"
+endef
+define warn
+\t@printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\\n" "$(1)" "$(2)" "$(3)" "$(4)"
+endef
+define step
+\t@printf "$(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\\n" "$(1)" "$(2)" "$(3)" "$(4)"
+endef
 
 # -----------------------------------------------------------------------------
-# Build targets
+# Paths and plugin metadata
+# Plugin name and version are read from the RenWeb::Plugin() constructor
+# in src/*.cpp: the 2nd string param is internal_name; the 3rd is version.
 # -----------------------------------------------------------------------------
+BUILD_DIR      := build/plugins
+SRC            := src/${pluginName}.cpp
+OBJ            := $(OBJ_DIR)/${pluginName}$(OBJ_EXT)
+PLUGIN_NAME    := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '2p' | tr -d '"' | xargs)
+PLUGIN_VERSION := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '3p' | tr -d '"' | xargs)
+OUT            := $(BUILD_DIR)/$(PLUGIN_NAME)-$(PLUGIN_VERSION)-$(OS_NAME)-$(ARCH)$(SHARED_EXT)
+
+# =============================================================================
+# VS auto-bootstrap (Windows only: runs when cl.exe is absent from PATH)
+# Locates vcvarsall via vswhere, re-execs make with the VS environment set up.
+# RENWEB_VS_BOOTSTRAPPED=1 prevents re-entry.
+# =============================================================================
+ifdef NEED_VS_BOOTSTRAP
+VCVARS_BAT := vcvars64.bat
+ifeq ($(ARCH),x86_32)
+VCVARS_BAT := vcvars32.bat
+else ifeq ($(ARCH),arm64)
+VCVARS_BAT := vcvarsamd64_arm64.bat
+endif
+_VS_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+_VS_VARS  := $(strip $(foreach v,TARGET ARCH,\\
+               $(if $(filter-out undefined default,$(origin $v)),$v=$($v))))
+_vs_bootstrap:
+\t@VSWHERE="C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"; \\
+\tif [ ! -f "$$VSWHERE" ]; then \\
+\t\tprintf "\\033[31;1mError\\033[0m cl.exe not in PATH and vswhere.exe not found.\\n"; \\
+\t\texit 1; \\
+\tfi; \\
+\tTMP_VS="/tmp/_rw_plugin_vs.txt"; \\
+\tprintf "\\033[36;1mBootstrapping\\033[0m Locating Visual Studio toolchain...\\n"; \\
+\t"$$VSWHERE" -latest -products '*' \\
+\t\t-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \\
+\t\t-find "VC/Auxiliary/Build/$(VCVARS_BAT)" \\
+\t\t> "$$TMP_VS" 2>/dev/null; \\
+\tif [ ! -s "$$TMP_VS" ]; then \\
+\t\tprintf "\\033[31;1mError\\033[0m No VS C++ build tools found.\\n"; \\
+\t\texit 1; \\
+\tfi; \\
+\tVCBAT=$$(tr -d '\\r' < "$$TMP_VS" | head -1); \\
+\trm -f "$$TMP_VS"; \\
+\tprintf "\\033[36;1mBootstrapping\\033[0m Using: %s\\n" "$$VCBAT"; \\
+\t_esc=$$(printf '%s' "$$VCBAT" | sed 's/[^0-9A-Za-z]/^&/g'); \\
+\tENV_OUT=$$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \\
+\t\tcmd.exe /s /c " ; $$_esc && set" </dev/null 2>/dev/null | tr -d '\\r'); \\
+\tif [ -z "$$ENV_OUT" ]; then \\
+\t\tprintf "\\033[31;1mError\\033[0m cmd.exe returned empty output.\\n"; \\
+\t\texit 1; \\
+\tfi; \\
+\t_vs_path=$$(printf '%s\\n' "$$ENV_OUT" | grep -i '^Path=' | head -1 | cut -d= -f2-); \\
+\t_vs_lib=$$(printf '%s\\n' "$$ENV_OUT" | grep -i '^LIB=' | head -1 | cut -d= -f2-); \\
+\t_vs_include=$$(printf '%s\\n' "$$ENV_OUT" | grep -i '^INCLUDE=' | head -1 | cut -d= -f2-); \\
+\tif [ -n "$$_vs_path" ]; then \\
+\t\t_posix_path=$$(cygpath --path --unix "$$_vs_path" 2>/dev/null); \\
+\t\t[ -n "$$_posix_path" ] && export PATH="$$_posix_path:$$PATH"; \\
+\tfi; \\
+\t[ -n "$$_vs_include" ] && export INCLUDE="$$_vs_include"; \\
+\t[ -n "$$_vs_lib" ]     && export LIB="$$_vs_lib"; \\
+\tprintf "\\033[36;1mBootstrapping\\033[0m VS environment ready. Re-running make...\\n"; \\
+\texport RENWEB_VS_BOOTSTRAPPED=1; \\
+\t$(MAKE) $(_VS_GOALS) $(_VS_VARS)
+$(_VS_GOALS): _vs_bootstrap
+.PHONY: _vs_bootstrap $(_VS_GOALS)
+else
+# =============================================================================
+# Build targets
+# =============================================================================
 .PHONY: all clear clean info help
 
 all: $(OUT)
 
 # ── Link ──────────────────────────────────────────────────────────────────────
 ifeq ($(OS_NAME),windows)
-ifeq ($(WINDOWS_CXX),msvc)
 $(OUT): $(OBJ) | $(BUILD_DIR)
+\t$(call step,Linking,$(PLUGIN_NAME))
 \t$(CXX) $(OBJ) /LD /Fe:$(OUT) /link $(LDFLAGS)
 else
 $(OUT): $(OBJ) | $(BUILD_DIR)
-\t$(CXX) $(SHARED_FLAGS) $(LDFLAGS) -o $@ $^
-endif
-else
-$(OUT): $(OBJ) | $(BUILD_DIR)
+\t$(call step,Linking,$(PLUGIN_NAME))
 \t$(CXX) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) -o $@ $^
 endif
 
@@ -372,15 +443,12 @@ endif
 
 # ── Compile ───────────────────────────────────────────────────────────────────
 ifeq ($(OS_NAME),windows)
-ifeq ($(WINDOWS_CXX),msvc)
 $(OBJ): $(SRC) include/${pluginName}.hpp include/plugin.hpp | $(OBJ_DIR)
+\t$(call step,Compiling,$<)
 \t$(CXX) $(CXXFLAGS) /I include/ /c $(SRC) /Fo$@
 else
 $(OBJ): $(SRC) include/${pluginName}.hpp include/plugin.hpp | $(OBJ_DIR)
-\t$(CXX) $(CXXFLAGS) -I include/ -c $< -o $@
-endif
-else
-$(OBJ): $(SRC) include/${pluginName}.hpp include/plugin.hpp | $(OBJ_DIR)
+\t$(call step,Compiling,$<)
 \t$(CXX) $(CXXFLAGS) -I include/ -c $< -o $@
 endif
 
@@ -392,16 +460,16 @@ else
 endif
 
 # ── Utility ───────────────────────────────────────────────────────────────────
-# clear: remove only object files (used between cross-compile builds)
 clear:
+\t$(call step,Clearing,object files)
 ifeq ($(OS_NAME),windows)
 \t-rmdir /s /q "$(OBJ_DIR)" 2>nul
 else
 \trm -rf $(OBJ_DIR)
 endif
 
-# clean: remove object files AND build/plugins output
 clean:
+\t$(call step,Cleaning,all build outputs)
 ifeq ($(OS_NAME),windows)
 \t-rmdir /s /q "$(OBJ_DIR)" 2>nul
 \t-rmdir /s /q "$(BUILD_DIR)" 2>nul
@@ -410,17 +478,14 @@ else
 endif
 
 info:
-\t@echo "Plugin:   $(PLUGIN_NAME)"
-\t@echo "Version:  $(PLUGIN_VERSION)"
-\t@echo "OS:       $(OS_NAME)"
-\t@echo "Arch:     $(ARCH)"
-\t@echo "Target:   $(TARGET)"
-\t@echo "Compiler: $(CXX)"
-\t@echo "Output:   $(OUT)"
+\t$(call describe,Plugin,$(PLUGIN_NAME),Version,$(PLUGIN_VERSION))
+\t$(call describe,OS,$(OS_NAME),Arch,$(ARCH))
+\t$(call describe,Target,$(TARGET),Compiler,$(CXX))
+\t$(call step,Output,$(OUT))
 
 help:
 \t@echo ""
-\t@echo "Usage: make [TARGET=release|debug] [CROSS_COMPILE=<prefix>]"
+\t@echo "Usage: make [TARGET=debug|release] [TOOLCHAIN=<triplet>]"
 \t@echo ""
 \t@echo "  all     Build the plugin shared library (default)"
 \t@echo "  clear   Remove object files only (useful between cross-compile passes)"
@@ -431,9 +496,10 @@ help:
 \t@echo "Tip: run ./build_all_archs.sh to build for all supported architectures."
 \t@echo ""
 
-# ── Dependency tracking (gcc/clang only) ──────────────────────────────────────
+# ── Dependency tracking (gcc/clang only) ─────────────────────────────────────
 ifneq ($(OS_NAME),windows)
 -include $(OBJ:.o=.d)
+endif
 endif
 `;
 }
@@ -699,6 +765,74 @@ main() {
 main "$@"
 `;
 }
+// ─── build_for_release.sh ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate `build_for_release.sh` content.
+ * Cleans ./release/, runs build_all_archs.sh, then moves build/plugins/*
+ * to ./release/.
+ * @returns {string}
+ */
+function makePluginBuildForRelease() {
+    return `#!/usr/bin/env bash
+# build_for_release.sh — collect all plugin binaries into ./release/
+#
+# Usage: ./build_for_release.sh
+#
+# 1. Removes and recreates ./release/
+# 2. Runs ./build_all_archs.sh (builds build/plugins/ for all platforms)
+# 3. Moves every file from build/plugins/ into ./release/
+
+set -e
+
+RESET='\\033[0m'
+RED='\\033[31m'
+GREEN='\\033[32m'
+YELLOW='\\033[33m'
+CYAN='\\033[36m'
+BOLD='\\033[1m'
+
+RELEASE_DIR="./release"
+PLUGINS_DIR="./build/plugins"
+
+print_header()  { echo -e "$CYAN$BOLD========================================$RESET"; echo -e "$CYAN$BOLD  $1$RESET"; echo -e "$CYAN$BOLD========================================$RESET"; }
+print_info()    { echo -e "$GREEN$BOLD[INFO]$RESET $1"; }
+print_warning() { echo -e "$YELLOW$BOLD[WARN]$RESET $1"; }
+print_error()   { echo -e "$RED$BOLD[ERROR]$RESET $1" >&2; }
+print_success() { echo -e "$GREEN$BOLD[SUCCESS]$RESET $1"; }
+
+print_header "Cleaning release directory"
+rm -rf "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR"
+print_info "Ready: $RELEASE_DIR/"
+
+print_header "Building all architectures"
+bash ./build_all_archs.sh
+
+print_header "Collecting plugins"
+plugin_count=0
+if [ -d "$PLUGINS_DIR" ]; then
+    for f in "$PLUGINS_DIR"/*; do
+        [ -f "$f" ] || continue
+        mv "$f" "$RELEASE_DIR/"
+        print_info "$(basename "$f")"
+        plugin_count=$((plugin_count + 1))
+    done
+else
+    print_warning "build/plugins/ not found — build_all_archs.sh may have failed"
+fi
+
+echo ""
+if [ $plugin_count -gt 0 ]; then
+    print_success "$plugin_count plugin(s) ready in $RELEASE_DIR/"
+    ls -lh "$RELEASE_DIR/"
+else
+    print_error "No plugins collected — check build_all_archs.sh output above"
+    exit 1
+fi
+`;
+}
+
 
 // ─── README.md ────────────────────────────────────────────────────────────────
 
@@ -722,13 +856,15 @@ ${pluginName}/
 │   ├── info.json                     # minimal launch config
 │   ├── config.json
 │   ├── content/test/index.html       # plugin test harness page
-│   └── plugins/                      # drop your built .so/.dll/.dylib here
+│   └── plugins/                      # compiled plugin output (per arch)
+├── release/                          # output from build_for_release.sh
 ├── include/
 │   ├── plugin.hpp          # RenWeb Plugin base class (fetched from engine)
 │   └── ${pluginName}.hpp   # Plugin class declaration
 ├── src/
-│   └── ${pluginName}.cpp   # Plugin implementation
-├── build_all_archs.sh  # Build for all OS/arch targets
+│   └── ${pluginName}.cpp   # Plugin implementation (defines name + version)
+├── build_all_archs.sh      # Build for all OS/arch targets
+├── build_for_release.sh    # Build all arches, collect binaries into release/
 └── makefile
 \`\`\`
 
@@ -765,9 +901,16 @@ make TOOLCHAIN=aarch64-linux-gnu
 make
 \`\`\`
 
-Output: \`${pluginName}-${info.version}-<os>-<arch>.so\` (or \`.dll\` / \`.dylib\`)
+Output: \`<internal_name>-<version>-<os>-<arch>.so\` (or \`.dll\` / \`.dylib\`)
 
 Run \`make info\` to see the resolved build configuration.
+
+### Multi-architecture builds
+
+\`\`\`sh
+./build_all_archs.sh         # build all supported OS/arch targets
+./build_for_release.sh       # build all arches and collect output into ./release/
+\`\`\`
 
 ## Installing
 
@@ -818,10 +961,15 @@ function makePluginGitignore() {
 *.a
 src/.build/
 
+# Release output
+release/
+
 # Test environment (fetched at project creation time)
 build/content/
+build/plugins/
 build/renweb-*
 build/*.exe
+build/log*.txt
 `;
 }
 
@@ -856,7 +1004,9 @@ jobs:
 
       - name: Install Boost headers (macOS)
         if: runner.os == 'macOS'
-        run: brew install boost
+        run: |
+          brew install boost
+          echo "CPATH=$(brew --prefix boost)/include:$CPATH" >> "$GITHUB_ENV"
 
       - name: Install Boost headers (Windows)
         if: runner.os == 'Windows'
@@ -967,6 +1117,7 @@ module.exports = {
     makePluginCpp,
     makePluginMakefile,
     makePluginBuildAllArchs,
+    makePluginBuildForRelease,
     makePluginReadme,
     makePluginGitignore,
     makePluginWorkflow,

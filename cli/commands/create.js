@@ -12,10 +12,11 @@ const {
     fetchWebApi, fetchEngineExecutable, fetchPluginHpp, fetchGitHubDirectory,
 } = require('../shared/fetchers');
 const {
-    makeCopilotInstructions, makeConfigJson, makeInfoJson,
+    makeConfigJson, makeInfoJson,
 } = require('../shared/templates/project');
 const {
     makePluginHpp, makePluginCpp, makePluginMakefile, makePluginBuildAllArchs,
+    makePluginBuildForRelease,
     makePluginReadme, makePluginGitignore, makePluginWorkflow,
     makePluginTestInfoJson, makePluginTestConfigJson, makePluginTestHarnessHtml,
 } = require('../shared/templates/plugin');
@@ -55,9 +56,9 @@ async function promptType(rl) {
 
 // ─── Interactive prompts ─────────────────────────────────────────────────────
 
-async function promptInfo(rl, extra = [], yes = false, type = '') {
+async function promptInfo(rl, extra = [], yes = false, type = '', defaultTitle = 'My RenWeb App') {
     if (yes) {
-        const title = 'My RenWeb App';
+        const title = defaultTitle;
         return {
             title,
             description: '',
@@ -74,7 +75,7 @@ async function promptInfo(rl, extra = [], yes = false, type = '') {
     ui.spacer();
     ui.section(`${type} Project info`);
     ui.spacer();
-    const title       = await prompt(rl, 'App title', 'My RenWeb App');
+    const title       = await prompt(rl, 'App title', defaultTitle);
     const description = await prompt(rl, 'Description', '');
     const author      = await prompt(rl, 'Author', '');
     const version     = await prompt(rl, 'Version', '0.0.1');
@@ -96,7 +97,7 @@ async function promptInfo(rl, extra = [], yes = false, type = '') {
 async function createFrontend(projectDir, info) {
     const pageName = 'main';
 
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
+    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -140,15 +141,6 @@ async function createFrontend(projectDir, info) {
     fetchGitHubDirectory('resource', path.join(projectDir, 'resource'));
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
-
-    // ── Copilot instructions ──────────────────────────────────────────────────
-    const githubDir = path.join(projectDir, '.github');
-    fs.mkdirSync(githubDir, { recursive: true });
-    fs.writeFileSync(
-        path.join(githubDir, 'copilot-instructions.md'),
-        makeCopilotInstructions(info, pageName),
-        'utf8',
-    );
 
     // ── jsconfig.json (IDE support) ───────────────────────────────────────────
     const jsconfig = {
@@ -213,7 +205,7 @@ async function createFramework(projectDir, info, type) {
     }
 
     // ── Guard against non-empty target directory ──────────────────────────────
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
+    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -290,16 +282,6 @@ export default defineConfig({
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── Copilot instructions ──────────────────────────────────────────────────
-    ui.step('Writing Copilot instructions…');
-    const githubDir = path.join(projectDir, '.github');
-    fs.mkdirSync(githubDir, { recursive: true });
-    fs.writeFileSync(
-        path.join(githubDir, 'copilot-instructions.md'),
-        makeCopilotInstructions(info, pageName),
-        'utf8',
-    );
-
     // ── .gitignore — append RenWeb entries to Vite's generated file ──────────
     const giPath       = path.join(projectDir, '.gitignore');
     const giExisting   = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
@@ -329,7 +311,7 @@ async function createAngular(projectDir, info) {
     }
 
     // ── Guard against non-empty target directory ──────────────────────────────
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
+    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -400,16 +382,6 @@ async function createAngular(projectDir, info) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── Copilot instructions ──────────────────────────────────────────────────
-    ui.step('Writing Copilot instructions…');
-    const githubDir = path.join(projectDir, '.github');
-    fs.mkdirSync(githubDir, { recursive: true });
-    fs.writeFileSync(
-        path.join(githubDir, 'copilot-instructions.md'),
-        makeCopilotInstructions(info, pageName),
-        'utf8',
-    );
-
     // ── .gitignore — append RenWeb entries ───────────────────────────────────
     const giPath     = path.join(projectDir, '.gitignore');
     const giExisting = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
@@ -451,6 +423,10 @@ async function createPlugin(projectDir, info) {
     const buildAllArchsPath = path.join(projectDir, 'build_all_archs.sh');
     fs.writeFileSync(buildAllArchsPath, makePluginBuildAllArchs(pluginName), 'utf8');
     try { fs.chmodSync(buildAllArchsPath, 0o755); } catch (_) {}
+
+    const buildForReleasePath = path.join(projectDir, 'build_for_release.sh');
+    fs.writeFileSync(buildForReleasePath, makePluginBuildForRelease(), 'utf8');
+    try { fs.chmodSync(buildForReleasePath, 0o755); } catch (_) {}
 
     // ── Write project metadata ────────────────────────────────────────────────
     fs.writeFileSync(path.join(projectDir, 'README.md'),
@@ -561,12 +537,12 @@ async function run(args) {
     // ── Plugin: existing flow ─────────────────────────────────────────────────
     if (type === 'plugin') {
         ui.section('RenWeb Plugin Project');
-        const info = await promptInfo(rl, [], yes, 'Plugin');
+        const info = await promptInfo(rl, [], yes, 'Plugin', 'My RenWeb Plugin');
         info.internalName = toSnake(info.title);
         if (rl) rl.close();
 
         ui.step(`Scaffolding plugin project at: ${projectDir}`);
-        if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).length > 0) {
+        if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
             ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
             ui.dim('To integrate RenWeb into an existing project, run: rw init');
             process.exit(1);

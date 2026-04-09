@@ -230,7 +230,7 @@ json::value WF::processInput(const std::string& input) {
 json::value WF::processInput(const json::value& input) {
     switch (input.kind()) {
         case json::kind::string:
-            this->logger->warn("[function] Received string in processInput(std::string)");
+            this->logger->trace("[function] Received string in processInput(std::string)");
             [[fallthrough]];
         case json::kind::int64:
         case json::kind::uint64:
@@ -326,10 +326,10 @@ json::value WF::formatOutput(const T& output) {
 json::value WF::getSingleParameter(const json::value& param) {
     if (param.is_array()) {
         if (param.as_array().size() > 1) {
-            this->logger->warn("[function] Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
+            this->logger->debug("[function] Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
             return param.as_array()[0];
         } else if (param.as_array().size() == 0) {
-            this->logger->warn("[function] Expected single parameter but received empty array. Using null.");
+            this->logger->debug("[function] Expected single parameter but received empty array. Using null.");
             return json::value(nullptr);
         } else {
             return param.as_array()[0];
@@ -410,7 +410,7 @@ json::object WF::getState() {
     json::object state = json::object();
     for (const auto& [key, getset] : this->getsets->getMap()) {
         try {
-            this->logger->info("[function] Getting for " + key);
+            this->logger->trace("[function] Getting for " + key);
             state[key] = this->get(key);
         } catch (...) { }
     }
@@ -419,7 +419,7 @@ json::object WF::getState() {
 void WF::setState(const json::object& json) {
     for (const auto& property : json) {
         try {
-            this->logger->info("[function] Setting for " + std::string(property.key()));
+            this->logger->trace("[function] Setting for " + std::string(property.key()));
             this->set(property.key(), property.value());
         } catch (...) { }
     }
@@ -533,8 +533,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            GtkWidget* titlebar = gtk_window_get_titlebar(GTK_WINDOW(window_widget));
-            return json::value(titlebar == NULL); // Null means has titlebar
+            return json::value(gtk_window_get_titlebar(GTK_WINDOW(window_widget)) == NULL);
         #endif
         }),
     // -----------------------------------------
@@ -566,11 +565,29 @@ WF* WF::setGetSets() {
             [nsWindow setStyleMask:styleMask];
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            if (has_titlebar) {
-                gtk_window_set_titlebar(GTK_WINDOW(window_widget), NULL);
+            auto apply_titlebar = [&](GtkWidget* w) {
+                if (has_titlebar) {
+                    gtk_window_set_titlebar(GTK_WINDOW(w), NULL);
+                } else {
+                    GtkWidget* empty = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+                    gtk_widget_set_size_request(empty, 0, 0);
+                    gtk_window_set_titlebar(GTK_WINDOW(w), empty);
+                }
+            };
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                apply_titlebar(GTK_WIDGET(window_widget));
             } else {
-                GtkWidget* empty_titlebar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-                gtk_window_set_titlebar(GTK_WINDOW(window_widget), empty_titlebar);
+                int saved_w = 0, saved_h = 0;
+                gtk_window_get_size(GTK_WINDOW(window_widget), &saved_w, &saved_h);
+                gtk_widget_unrealize(GTK_WIDGET(window_widget));
+                apply_titlebar(GTK_WIDGET(window_widget));
+                GtkWidget* tb = gtk_window_get_titlebar(GTK_WINDOW(window_widget));
+                if (tb) gtk_widget_show(GTK_WIDGET(tb));
+                gtk_widget_hide(GTK_WIDGET(window_widget));
+                gtk_widget_show(GTK_WIDGET(window_widget));
+                if (saved_w > 0 && saved_h > 0) {
+                    gtk_window_resize(GTK_WINDOW(window_widget), saved_w, saved_h);
+                }
             }
         #endif
         })
@@ -633,7 +650,9 @@ WF* WF::setGetSets() {
             }
             gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), NULL, &hints, 
                 (GdkWindowHints)(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
-            gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
+            if (gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
+            }
         #endif
         })
     ))
@@ -690,6 +709,7 @@ WF* WF::setGetSets() {
                 return json::value([nsWindow isMiniaturized]);
             #elif defined(__linux__)
                 auto window_widget = this->app->w->window().value();
+                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
                 return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget)))
                     & GDK_WINDOW_STATE_ICONIFIED) != 0);
             #endif
@@ -717,7 +737,8 @@ WF* WF::setGetSets() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_minimize = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_ICONIFIED) != 0);
+            bool is_currently_minimize = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_ICONIFIED) != 0);
             if (minimize && !is_currently_minimize) {
                 gtk_window_iconify(GTK_WINDOW(window_widget));
             } else if (!minimize && is_currently_minimize) {
@@ -741,6 +762,7 @@ WF* WF::setGetSets() {
             return json::value([nsWindow isZoomed]);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
             return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget)))
                 & GDK_WINDOW_STATE_MAXIMIZED) != 0);
         #endif
@@ -766,7 +788,8 @@ WF* WF::setGetSets() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_maximize = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_MAXIMIZED) != 0);
+            bool is_currently_maximize = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_MAXIMIZED) != 0);
             if (maximize && !is_currently_maximize) {
                 gtk_window_maximize(GTK_WINDOW(window_widget));
             } else if (!maximize && is_currently_maximize) {
@@ -791,6 +814,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
             return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) 
                 & GDK_WINDOW_STATE_FULLSCREEN) != 0);
         #endif
@@ -824,7 +848,8 @@ WF* WF::setGetSets() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_fullscreen = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_FULLSCREEN) != 0);
+            bool is_currently_fullscreen = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_FULLSCREEN) != 0);
             if (fullscreen && !is_currently_fullscreen) {
                 gtk_window_fullscreen(GTK_WINDOW(window_widget));
             } else if (!fullscreen && is_currently_fullscreen) {
@@ -843,7 +868,7 @@ WF* WF::setGetSets() {
             }
             return json::value(true);
         #elif defined(__APPLE__)
-            this->logger->warn("[function] getTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->debug("[function] getTaskbarShow can't be set via RenWeb on Apple");
             return json::value(true); 
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -860,7 +885,7 @@ WF* WF::setGetSets() {
             }
         #elif defined(__APPLE__)
             (void)req; 
-            this->logger->warn("[function] setTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->debug("[function] setTaskbarShow can't be set via RenWeb on Apple");
         #elif defined(__linux__)
             const bool taskbar_show = this->getSingleParameter(req).as_bool();
             auto window_widget = this->app->w->window().value();
@@ -910,7 +935,7 @@ WF* WF::setGetSets() {
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 [nsWindow setAlphaValue:opacity_amt];
         #elif defined(__linux__)
-                this->logger->warn("[function] setOpacity has not been tested for Linux");
+                this->logger->debug("[function] setOpacity has not been tested for Linux");
                 auto window_window = this->app->w->window().value();
                 gtk_widget_set_opacity(GTK_WIDGET(window_window), opacity_amt);
         #endif
@@ -1003,7 +1028,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             if (this->saved_states.find("current_title") == this->saved_states.end()) {
-                this->logger->warn("[function] Title has not been set yet, returning empty string");
+                this->logger->debug("[function] Title not yet set, returning executable name");
                 return json::value(Locate::executable().filename().string());
             }
             return this->saved_states["current_title"];
@@ -1028,10 +1053,10 @@ WF* WF::setWindowCallbacks() {
                 R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
             );
             if (std::regex_match(this->app->config->current_page, uri_regex)) {
-                this->logger->warn("[function] Reloading URI " + this->app->config->current_page);
+                this->logger->info("[function] Reloading URI " + this->app->config->current_page);
                 this->app->w->navigate(this->app->config->current_page);
             } else {
-                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + this->app->config->current_page);
+                this->logger->info("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + this->app->config->current_page);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);
@@ -1043,7 +1068,7 @@ WF* WF::setWindowCallbacks() {
             );
             if (uri != "_") this->app->config->current_page = uri;
             if (std::regex_match(uri, uri_regex)) {
-                this->logger->warn("[function] Navigating to page " + uri);
+                this->logger->info("[function] Navigating to page " + uri);
                 const auto csp = this->app->info->getProperty("origins");
                 if (csp.is_array()) {
                     std::string origin_str;
@@ -1058,7 +1083,7 @@ WF* WF::setWindowCallbacks() {
                             return json::value(nullptr);
                         }
                     }
-                    this->logger->warn("[function] Blocked: " + uri);
+                    this->logger->warn("[function] Navigation blocked (origin not in allowlist): " + uri);
                     this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
                 } else if (csp.is_string()) {
                     std::string origin_str = std::string(csp.as_string().c_str());
@@ -1068,11 +1093,11 @@ WF* WF::setWindowCallbacks() {
                 } else if (uri == this->app->ws->getURL()) {
                     this->app->w->navigate(this->app->ws->getURL());
                 } else {
-                    this->logger->warn("[function] Blocked: " + uri);
+                    this->logger->warn("[function] Navigation blocked (no origins configured): " + uri);
                     this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
                 }
             } else {
-                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
+                this->logger->info("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);
@@ -1105,7 +1130,7 @@ WF* WF::setWindowCallbacks() {
             gint root_x, root_y;
             gdk_device_get_position(device, NULL, &root_x, &root_y);
 
-            this->logger->info("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
+            this->logger->trace("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
 
             gdk_window_begin_move_drag(gdk_window, 1, root_x, root_y, GDK_CURRENT_TIME);
         #endif
@@ -1372,7 +1397,7 @@ WF* WF::setWindowCallbacks() {
             std::string js = "window.find('', false, false, false, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->warn("[function] apple doesn't have bindings for this findNext");
+            this->logger->debug("[function] apple doesn't have bindings for this findNext");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1387,7 +1412,7 @@ WF* WF::setWindowCallbacks() {
             std::string js = "window.find('', false, true, false, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->warn("apple doesn't have bindings for this findPrevious");
+            this->logger->debug("[function] apple doesn't have bindings for this findPrevious");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1512,7 +1537,7 @@ WF* WF::setFileSystemCallbacks() {
                 return json::value(false);
             }
             if (contents.empty()) {
-                this->logger->debug("Input content empty. Attempting empty write");
+                this->logger->debug("[function] Input content empty. Attempting empty write.");
             }
             file.write(contents.data(), contents.size());
             file.close();
@@ -2019,7 +2044,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] get_load_progress not yet implemented for Windows");
+            this->logger->debug("[function] get_load_progress not yet implemented for Windows");
             return json::value(0.0);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -2040,7 +2065,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] is_loading not yet implemented for Windows");
+            this->logger->debug("[function] is_loading not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -3188,7 +3213,7 @@ WF* WF::setInternalCallbacks() {
             #if defined(__linux__)
                 auto widget_result = this->app->w->widget();
                 if (!widget_result.has_value()) {
-                    this->logger->warn("[function] Webview widget not ready yet - skipping performance settings");
+                    this->logger->debug("[function] Webview widget not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
@@ -3226,13 +3251,13 @@ WF* WF::setInternalCallbacks() {
                 
                 auto webview2_opt = this->app->w->widget();
                 if (!webview2_opt.has_value()) {
-                    this->logger->warn("[function] WebView2 not yet initialized - skipping performance settings");
+                    this->logger->debug("[function] WebView2 not yet initialized - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
                 ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
                 if (!webview2) {
-                    this->logger->warn("[function] WebView2 pointer invalid - skipping performance settings");
+                    this->logger->debug("[function] WebView2 pointer invalid - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3306,7 +3331,7 @@ WF* WF::setInternalCallbacks() {
             #elif defined(__APPLE__)
                 auto window_result = this->app->w->window();
                 if (!window_result.has_value()) {
-                    this->logger->warn("[function] Window not ready yet - skipping performance settings");
+                    this->logger->debug("[function] Window not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3320,7 +3345,7 @@ WF* WF::setInternalCallbacks() {
                 }
                 
                 if (!webview) {
-                    this->logger->warn("[function] WKWebView not ready yet - skipping performance settings");
+                    this->logger->debug("[function] WKWebView not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3383,7 +3408,6 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup(const json::object& setup_state) {
     const json::value req = json::value(nullptr);
-    std::cout << setup_state << std::endl;
     bool initially_shown = (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool())
         ? setup_state.at("initially_shown").as_bool()
         : true;
