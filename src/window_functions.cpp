@@ -997,6 +997,9 @@ WF* WF::setWindowCallbacks() {
             if (show_window) {
                 gtk_widget_show_all(GTK_WIDGET(window_widget));
             } else {
+                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                    gtk_widget_realize(GTK_WIDGET(window_widget));
+                }
                 gtk_widget_hide(GTK_WIDGET(window_widget));
             }
         #endif

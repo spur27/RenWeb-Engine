@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 'use strict';
 
 const fs            = require('fs');
@@ -304,7 +303,6 @@ async function run(args) {
 
     const rl = yes ? null : makeRl();
 
-    // ── Confirm ────────────────────────────────────────────────────────────────
     if (!yes) {
         const answer = await prompt(rl, 'Integrate RenWeb?', 'Y');
         if (!['y', 'yes', ''].includes(answer.trim().toLowerCase())) {
@@ -314,7 +312,6 @@ async function run(args) {
         }
     }
 
-    // ── App metadata ──────────────────────────────────────────────────────────
     const info = await promptInitInfo(rl, yes, projectDir);
     if (rl) rl.close();
 
@@ -359,7 +356,6 @@ async function run(args) {
         fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
     }
 
-    // ── RenWeb manifests ──────────────────────────────────────────────────────
     ui.step('Writing info.json, config.json…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
@@ -368,7 +364,6 @@ async function run(args) {
     fs.writeFileSync(path.join(buildDir, 'info.json'),     infoText,   'utf8');
     fs.writeFileSync(path.join(buildDir, 'config.json'),   configText, 'utf8');
 
-    // ── Static assets from engine repo ───────────────────────────────────────
     ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
     ui.step('Fetching resource files…');
@@ -376,14 +371,11 @@ async function run(args) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── Engine executable ─────────────────────────────────────────────────────
     ui.step('Fetching engine executable…');
     fetchEngineExecutable(buildDir);
 
-    // ── .gitignore ────────────────────────────────────────────────────────────
     updateGitignore(projectDir);
 
-    // ── Install packages ──────────────────────────────────────────────────────
     if (type === 'angular' || isViteBased || type === 'node-vanilla') {
         const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
         ui.step('Installing npm packages…');
@@ -397,7 +389,6 @@ async function run(args) {
         else ui.ok('deno packages installed');
     }
 
-    // ── Summary ───────────────────────────────────────────────────────────────
     ui.ok('RenWeb integration complete.');
     ui.section('Next steps');
     if (type === 'angular') {

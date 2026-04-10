@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 'use strict';
 
 const fs     = require('fs');
@@ -3428,7 +3427,7 @@ function run(args) {
             // Only fetch assets that match at least one target (os, arch) combo
             const fl = name.toLowerCase();
             const matchesTarget = targetCombos.some(({ os: tOs, arch: tArch }) =>
-                fl.includes(tOs) && fl.includes(tArch));
+                fl.includes(tOs) && new RegExp(tArch + '(?![a-z0-9])').test(fl));
             if (!matchesTarget) { ui.dim(`skip (arch filter): ${name}`); continue; }
             const destPath = path.join(pDir, name);
             if (opts.cache && fs.existsSync(destPath)) { ui.info(`cached  ${name}`); continue; }
@@ -3452,7 +3451,7 @@ function run(args) {
             if (!fs.existsSync(pluginOD)) continue;
             const matching = fs.readdirSync(pluginOD).filter(f => {
                 const fl = f.toLowerCase();
-                return fl.includes(targetOs) && fl.includes(targetArch);
+                return fl.includes(targetOs) && new RegExp(targetArch + '(?![a-z0-9])').test(fl);
             });
             if (matching.length === 0) continue;
             const filteredDir = path.join(tmpDir, `plugin-${i}-${targetOs}-${targetArch}`);

@@ -21,10 +21,7 @@ const ui = require('../shared/ui');
 
 // ─── Bundle detection ─────────────────────────────────────────────────────────
 
-/**
- * Returns the bundle-exec script filename present in buildDir, or null.
- * Bundles always ship with bundle_exec.sh (Linux) or bundle_exec.bat (Windows).
- */
+/** Returns 'bundle_exec.sh' or 'bundle_exec.bat' if present in buildDir, else null. */
 function findBundleExecScript(buildDir) {
     for (const name of ['bundle_exec.sh', 'bundle_exec.bat']) {
         if (fs.existsSync(path.join(buildDir, name))) return name;
@@ -155,14 +152,9 @@ function updateBundle(projectRoot, buildDir, tOs, tArch, release) {
     }
 }
 
-// ─── Entry ────────────────────────────────────────────────────────────────────
-
 // ─── Vanilla module update ────────────────────────────────────────────────────
 
-/**
- * Re-download the RenWeb JS API files from GitHub raw into src/modules/renweb/.
- * Silently skips if the directory does not exist (non-vanilla or Vite project).
- */
+/** Re-download JS API files to src/modules/renweb/. No-ops if directory doesn't exist. */
 function updateVanillaModules(projectRoot) {
     const renwebDir = path.join(projectRoot, 'src', 'modules', 'renweb');
     if (!fs.existsSync(renwebDir)) return;
@@ -184,11 +176,7 @@ function updateVanillaModules(projectRoot) {
 
 // ─── Plugin update ────────────────────────────────────────────────────────────
 
-/**
- * Update all plugins listed in info.json["plugin_repositories"].
- * Each entry is a GitHub URL; for each, downloads all release assets to
- * .rw/plugins/<owner>-<repo>/ and copies the host-arch binary to build/plugins/.
- */
+/** Download the host-arch binary for each plugin in info.json["plugin_repositories"] to build/plugins/. */
 function updatePlugins(projectRoot, buildDir) {
     const info    = loadInfo(projectRoot);
     const plugins = (info && Array.isArray(info.plugin_repositories)) ? info.plugin_repositories : [];

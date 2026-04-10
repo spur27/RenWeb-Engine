@@ -1108,10 +1108,7 @@ export var Application;
                     const filename = file.split(/[\\/]/).pop() ?? "";
                     const match = filename.match(version_regex);
                     if (match) {
-                        const plugin_name = filename
-                            .replace(version_regex, "")
-                            .replace(/[-_.]+$/, "")
-                            .replace(/^[-_.]+/, "");
+                        const plugin_name = filename.match(/^(.*?)-\d/)?.[1] ?? filename;
                         plugin_versions[plugin_name] = match[0];
                     }
                 }

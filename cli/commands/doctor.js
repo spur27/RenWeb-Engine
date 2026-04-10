@@ -11,7 +11,6 @@ const PASS = '\u2713'; // ✓
 const FAIL = '\u2717'; // ✗
 const WARN = '\u26a0'; // ⚠
 
-// ─── Entry ────────────────────────────────────────────────────────────────────
 
 function run() {
     let exitCode = 0;
@@ -22,7 +21,6 @@ function run() {
     const warn = (msg) => ui.warn(msg);
     const sect = (msg) => ui.section(msg);
 
-    // ── Binary helpers ──────────────────────────────────────────────────────
     function checkBin(name, installHint) {
         const r = spawnSync(name, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
         if (r.status === 0 || r.stdout) {
@@ -43,7 +41,6 @@ function run() {
         }
     }
 
-    // ── Node version ────────────────────────────────────────────────────────
     function checkNodeVersion() {
         const ver = process.version;
         const maj = parseInt(ver.slice(1), 10);
@@ -51,7 +48,6 @@ function run() {
         else           { fail(`Node.js ${ver} — v16 or later required`); }
     }
 
-    // ── Project checks ──────────────────────────────────────────────────────
     function checkProject() {
         const state = ProjectState.detect();
         if (!state) {
@@ -103,11 +99,9 @@ function run() {
         }
     }
 
-    // ── Run all checks ──────────────────────────────────────────────────────
     sect('Environment');
     checkNodeVersion();
 
-    // curl and wget are interchangeable; only report failure if neither exists
     const hasCurl = spawnSync('curl', ['--version'], { stdio: 'ignore' }).status === 0;
     const hasWget = spawnSync('wget', ['--version'], { stdio: 'ignore' }).status === 0;
     if      (hasCurl && hasWget) ok('curl + wget  (both available)');

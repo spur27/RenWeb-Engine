@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 'use strict';
 
 const fs            = require('fs');
@@ -104,18 +103,13 @@ async function createFrontend(projectDir, info) {
     }
     fs.mkdirSync(projectDir, { recursive: true });
 
-    // ── src/ structure ────────────────────────────────────────────────────────
     const srcContent = path.join(projectDir, 'src', 'content', pageName);
     const srcAssets  = path.join(projectDir, 'src', 'assets');
     fs.mkdirSync(srcContent, { recursive: true });
     fs.mkdirSync(srcAssets,  { recursive: true });
 
-    // ── RenWeb JS API (static download, no bundler needed) ────────────────────
     fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
 
-    // ── Starter HTML page ─────────────────────────────────────────────────────
-    // After rw build, content lives at build/content/<page>/ and modules at
-    // build/content/<page>/modules/renweb/ — so ./modules/renweb/index.js works.
     fs.writeFileSync(path.join(srcContent, 'index.html'),
 `<!DOCTYPE html>
 <html lang="en">
@@ -134,7 +128,6 @@ async function createFrontend(projectDir, info) {
 </html>
 `, 'utf8');
 
-    // ── Extra directories from engine repo ────────────────────────────────────
     ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
     ui.step('Fetching resource files…');
@@ -142,7 +135,6 @@ async function createFrontend(projectDir, info) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── jsconfig.json (IDE support) ───────────────────────────────────────────
     const jsconfig = {
         compilerOptions: {
             module:           'ESNext',
@@ -156,20 +148,17 @@ async function createFrontend(projectDir, info) {
         'utf8',
     );
 
-    // ── info.json / config.json ───────────────────────────────────────────────
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
     fs.writeFileSync(path.join(projectDir, 'info.json'),   infoText,   'utf8');
     fs.writeFileSync(path.join(projectDir, 'config.json'), configText, 'utf8');
 
-    // ── build/ skeleton ───────────────────────────────────────────────────────
     const buildDir = path.join(projectDir, 'build');
     fs.mkdirSync(path.join(buildDir, 'content', pageName), { recursive: true });
     fs.writeFileSync(path.join(buildDir, 'config.json'), configText, 'utf8');
     fs.writeFileSync(path.join(buildDir, 'info.json'),   infoText,   'utf8');
     fetchEngineExecutable(buildDir);
 
-    // ── .gitignore ────────────────────────────────────────────────────────────
     const ignoreEntries = [
         'build/',
         'package/',
@@ -196,7 +185,6 @@ async function createFramework(projectDir, info, type) {
     const template  = fw.template;
     const npmCmd    = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-    // ── Pre-flight: verify npm is available ───────────────────────────────────
     const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
     if (check.error?.code === 'ENOENT') {
         ui.error('npm is not installed or not on PATH.');
@@ -204,7 +192,6 @@ async function createFramework(projectDir, info, type) {
         process.exit(1);
     }
 
-    // ── Guard against non-empty target directory ──────────────────────────────
     if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
@@ -215,7 +202,6 @@ async function createFramework(projectDir, info, type) {
     const name   = path.basename(projectDir);
     fs.mkdirSync(parent, { recursive: true });
 
-    // ── Scaffold with create-vite ─────────────────────────────────────────────
     ui.step(`Scaffolding ${type} project via Vite…`);
     const npxCmd  = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     const scaffold = spawnSync(
@@ -223,8 +209,7 @@ async function createFramework(projectDir, info, type) {
         ['--yes', 'create-vite@5', name, '--template', template],
         { cwd: parent, stdio: 'pipe' },
     );
-    // Verify by checking the output directory rather than relying on exit code,
-    // since some npm/npx versions return non-zero even on success.
+    // Check package.json rather than exit code — some npm/npx versions return non-zero on success.
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
         ui.error('Vite scaffolding failed — package.json not found.');
@@ -233,10 +218,7 @@ async function createFramework(projectDir, info, type) {
     const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
     pkg.name   = toKebab(info.title);
     pkg.version = info.version || '0.0.1';
-    // Leave the Vite version untouched — create-vite already pins a version
-    // that satisfies all framework plugin peer deps. Overriding it to 'latest'
-    // risks breaking those peer constraints (e.g. @vitejs/plugin-vue only
-    // accepts vite ^5 || ^6 and would fail with a newer major).
+    // Don't override the Vite version — create-vite pins one matching framework plugin peer deps.
     pkg.dependencies = { ...pkg.dependencies, 'renweb-api': 'latest' };
     pkg.scripts = {
         ...pkg.scripts,
@@ -246,7 +228,6 @@ async function createFramework(projectDir, info, type) {
     };
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 
-    // ── Overwrite vite.config.js to output into build/content/main/ ──────────
     const pluginImport = fw.importLine ? `\n${fw.importLine}` : '';
     const pluginsArr   = fw.pluginCall  ? `[${fw.pluginCall}]` : '[]';
     const viteConfig =
@@ -262,7 +243,6 @@ export default defineConfig({
 `;
     fs.writeFileSync(path.join(projectDir, 'vite.config.js'), viteConfig, 'utf8');
 
-    // ── RenWeb engine config ──────────────────────────────────────────────────
     ui.step('Writing RenWeb config files…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
@@ -274,7 +254,6 @@ export default defineConfig({
     fs.writeFileSync(path.join(buildDir, 'config.json'),   configText, 'utf8');
     fetchEngineExecutable(buildDir);
 
-    // ── Extra directories from engine repo ────────────────────────────────────
     ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
     ui.step('Fetching resource files…');
@@ -282,14 +261,12 @@ export default defineConfig({
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── .gitignore — append RenWeb entries to Vite's generated file ──────────
     const giPath       = path.join(projectDir, '.gitignore');
     const giExisting   = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
     const giAppend     = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
         .filter(e => !giExisting.includes(e));
     if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
 
-    // ── npm install ───────────────────────────────────────────────────────────
     ui.step('Installing packages…');
     const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
     if (install.status !== 0) ui.warn('npm install failed — run it manually');
@@ -302,7 +279,6 @@ async function createAngular(projectDir, info) {
     const npmCmd   = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const npxCmd   = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
-    // ── Pre-flight: verify npm is available ───────────────────────────────────
     const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
     if (check.error?.code === 'ENOENT') {
         ui.error('npm is not installed or not on PATH.');
@@ -310,7 +286,6 @@ async function createAngular(projectDir, info) {
         process.exit(1);
     }
 
-    // ── Guard against non-empty target directory ──────────────────────────────
     if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
@@ -321,7 +296,6 @@ async function createAngular(projectDir, info) {
     const name   = path.basename(projectDir);
     fs.mkdirSync(parent, { recursive: true });
 
-    // ── Scaffold with Angular CLI ─────────────────────────────────────────────
     ui.step('Scaffolding Angular project…');
     const scaffold = spawnSync(
         npxCmd,
@@ -335,19 +309,15 @@ async function createAngular(projectDir, info) {
         process.exit(scaffold.status ?? 1);
     }
 
-    // ── Patch angular.json outputPath ────────────────────────────────────────
     ui.step('Augmenting angular.json…');
     const angJson   = JSON.parse(fs.readFileSync(angJsonPath, 'utf8'));
     const buildOpts = angJson.projects?.[name]?.architect?.build?.options;
     if (buildOpts) {
-        // Always use the object form — the application builder (Angular 17+) appends
-        // browser/ to any plain string path. Setting browser:'' places assets directly
-        // in base, which is what RenWeb expects at build/content/main/.
+        // Angular 17+: must use object form; browser:'' places assets directly in base.
         buildOpts.outputPath = { base: `build/content/${pageName}`, browser: '' };
     }
     fs.writeFileSync(angJsonPath, JSON.stringify(angJson, null, 2) + '\n', 'utf8');
 
-    // ── Augment package.json ──────────────────────────────────────────────────
     ui.step('Augmenting package.json…');
     const pkgPath = path.join(projectDir, 'package.json');
     const pkg     = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -362,7 +332,6 @@ async function createAngular(projectDir, info) {
     };
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
 
-    // ── RenWeb config files ───────────────────────────────────────────────────
     ui.step('Writing RenWeb config files…');
     const configText = makeConfigJson(info, pageName);
     const infoText   = makeInfoJson(info, pageName);
@@ -374,7 +343,6 @@ async function createAngular(projectDir, info) {
     fs.writeFileSync(path.join(buildDir, 'config.json'),   configText, 'utf8');
     fetchEngineExecutable(buildDir);
 
-    // ── Extra directories from engine repo ────────────────────────────────────
     ui.step('Fetching licenses…');
     fetchGitHubDirectory('licenses', path.join(projectDir, 'licenses'));
     ui.step('Fetching resource files…');
@@ -382,14 +350,12 @@ async function createAngular(projectDir, info) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    // ── .gitignore — append RenWeb entries ───────────────────────────────────
     const giPath     = path.join(projectDir, '.gitignore');
     const giExisting = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
     const giAppend   = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
         .filter(e => !giExisting.includes(e));
     if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
 
-    // ── npm install ───────────────────────────────────────────────────────────
     ui.step('Installing packages…');
     const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
     if (install.status !== 0) ui.warn('npm install failed — run it manually');
@@ -406,17 +372,14 @@ async function createPlugin(projectDir, info) {
     fs.mkdirSync(includeDir, { recursive: true });
     fs.mkdirSync(path.join(projectDir, '.github', 'workflows'), { recursive: true });
 
-    // ── Fetch deps ────────────────────────────────────────────────────────────
     fetchPluginHpp(includeDir);
 
-    // ── Write C++ source files ────────────────────────────────────────────────
     fs.writeFileSync(path.join(includeDir, `${pluginName}.hpp`),
         makePluginHpp(info, pluginName, pluginClass), 'utf8');
 
     fs.writeFileSync(path.join(srcDir, `${pluginName}.cpp`),
         makePluginCpp(info, pluginName, pluginClass), 'utf8');
 
-    // ── Write build files ─────────────────────────────────────────────────────
     fs.writeFileSync(path.join(projectDir, 'makefile'),
         makePluginMakefile(info, pluginName), 'utf8');
 
@@ -428,7 +391,6 @@ async function createPlugin(projectDir, info) {
     fs.writeFileSync(buildForReleasePath, makePluginBuildForRelease(), 'utf8');
     try { fs.chmodSync(buildForReleasePath, 0o755); } catch (_) {}
 
-    // ── Write project metadata ────────────────────────────────────────────────
     fs.writeFileSync(path.join(projectDir, 'README.md'),
         makePluginReadme(info, pluginName), 'utf8');
 
@@ -438,7 +400,6 @@ async function createPlugin(projectDir, info) {
     fs.writeFileSync(path.join(projectDir, '.github', 'workflows', 'build.yml'),
         makePluginWorkflow(pluginName), 'utf8');
 
-    // ── Test environment (build/ with engine + minimal JSONs + test harness) ──
     ui.step('Setting up test environment in build/…');
     fetchPluginTestEnv(projectDir, info, pluginName);
 }
@@ -462,10 +423,7 @@ function fetchPluginTestEnv(projectDir, info, pluginName) {
     fs.writeFileSync(path.join(contentDir, 'index.html'),
         makePluginTestHarnessHtml(info, pluginName), 'utf8');
 
-    // ── RenWeb API (flat copy alongside index.html) ───────────────────────────
     fetchWebApi(contentDir);
-
-    // ── Engine executable ─────────────────────────────────────────────────────
     fetchEngineExecutable(buildDir);
 }
 
