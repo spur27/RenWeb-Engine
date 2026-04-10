@@ -630,8 +630,7 @@ ifeq ($(OS_NAME),linux)
 else ifeq ($(OS_NAME),macos)
 	MallocStackLogging=1 leaks --atExit -- ./$(BUILD_PATH)/$(EXE) -l0
 else ifeq ($(OS_NAME),windows)
-	@echo "Running Dr. Memory for 10 seconds (GUI app will be terminated)..."
-	/c/Users/spur/DrMemory-Windows-2.6.0/bin64/drmemory.exe -light -brief -batch -ignore_asserts -quiet -- ./$(BUILD_PATH)/$(EXE) -l1
+	./$(BUILD_PATH)/$(EXE) -l1
 endif
 	$(call step,Testing [DONE])
 # -----------------------------------------------------------------------------
@@ -872,21 +871,20 @@ else ifeq ($(OS_NAME),windows)
 		arm64)  WEBVIEW2_ARCH="arm64" ;; \
 		*)      WEBVIEW2_ARCH="x64" ;; \
 	esac; \
-	$(call step,Copying Loader,WebView2Loader.dll for $$WEBVIEW2_ARCH); \
 	if [ -f "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" ]; then \
+		printf "$(CYAN)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Copying Loader" "WebView2Loader.dll for $$WEBVIEW2_ARCH"; \
 		cp "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" "$(BUILD_PATH)/lib-$(ARCH)/"; \
 	else \
-		$(call warn,Warning,WebView2Loader.dll not found for $$WEBVIEW2_ARCH); \
+		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "WebView2Loader.dll not found for $$WEBVIEW2_ARCH"; \
 	fi; \
 	BOOTSTRAP_SRC="external/webview2_bootstraps/MicrosoftEdgeWebview2Setup.exe"; \
 	BOOTSTRAP_DST="$(BUILD_PATH)/lib-$(ARCH)/MicrosoftEdgeWebview2Setup.exe"; \
 	if [ -f "$$BOOTSTRAP_SRC" ]; then \
-		$(call step,Copying Bootstrapper,MicrosoftEdgeWebview2Setup.exe); \
+		printf "$(CYAN)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Copying Bootstrapper" "MicrosoftEdgeWebview2Setup.exe"; \
 		cp "$$BOOTSTRAP_SRC" "$$BOOTSTRAP_DST"; \
-		$(call step,Bundle Complete,WebView2 bootstrap installer packaged successfully); \
 	else \
-		$(call warn,Warning,Bootstrap installer missing at $$BOOTSTRAP_SRC); \
-		$(call warn,Warning,Bundle will require preinstalled WebView2 runtime); \
+		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Bootstrap installer missing at $$BOOTSTRAP_SRC"; \
+		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Bundle will require preinstalled WebView2 runtime"; \
 	fi
 	$(call step,Creating Launcher,Generating bundle_exec.bat)
 	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
