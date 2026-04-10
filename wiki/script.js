@@ -1924,9 +1924,12 @@ function formatSignature(name, details) {
 // GitHub API configuration
 const GITHUB_REPO = 'spur27/RenWeb-Engine';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+const GITHUB_PLUGIN_EXAMPLE_REPO = 'spur27/renweb-example-plugin';
+const GITHUB_PLUGIN_EXAMPLE_API = `https://api.github.com/repos/${GITHUB_PLUGIN_EXAMPLE_REPO}/releases`;
 const RELEASES_CACHE_TIME = 5 * 60 * 1000; // 5 minutes
 
 let allReleases = [];
+let allPluginReleases = [];
 let currentRelease = null;
 let releasesPromiseResolve = null;
 const releasesPromise = new Promise(resolve => {
@@ -2446,7 +2449,22 @@ async function initDownloadsPage() {
     updateDownloads(releases[0]);
     updateBundles(releases[0], 'zip');
     updateExamples(releases[0], 'zip');
-    
+
+    // Load plugin releases (separate repo)
+    const pluginReleases = await fetchPluginReleases();
+    if (pluginReleases && pluginReleases.length > 0) {
+        allPluginReleases = pluginReleases;
+        populateVersionDropdown(pluginReleases, 'example-plugin-version-selector');
+        updatePlugins(pluginReleases[0]);
+    } else {
+        const sel = document.getElementById('example-plugin-version-selector');
+        if (sel) sel.innerHTML = '<option value="">No releases available</option>';
+        ['linux', 'windows', 'macos'].forEach(os => {
+            const el = document.getElementById(`plugin-${os}-downloads`);
+            if (el) el.innerHTML = `<div class="error">Unable to load. Visit <a href="https://github.com/${GITHUB_PLUGIN_EXAMPLE_REPO}/releases" target="_blank">GitHub Releases</a>.</div>`;
+        });
+    }
+
     // Set up event listeners
     setupDownloadsEventListeners();
 }
@@ -2483,6 +2501,57 @@ function createSelectionHandler(versionSelectId, archiveSelectId, updateFn) {
 }
 
 /**
+ * Fetch plugin releases from GitHub API (separate repo)
+ * @returns {Promise<Array>} Array of release objects
+ */
+async function fetchPluginReleases() {
+    try {
+        const cacheKey = 'renweb_plugin_releases';
+        const tsKey = 'renweb_plugin_releases_timestamp';
+        const cached = localStorage.getItem(cacheKey);
+        const ts = localStorage.getItem(tsKey);
+        if (cached && ts && (Date.now() - parseInt(ts)) < RELEASES_CACHE_TIME) {
+            return JSON.parse(cached);
+        }
+        const response = await fetch(GITHUB_PLUGIN_EXAMPLE_API);
+        if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+        const data = await response.json();
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        localStorage.setItem(tsKey, Date.now().toString());
+        return data;
+    } catch (e) {
+        console.error('fetchPluginReleases failed:', e);
+        return null;
+    }
+}
+
+/**
+ * Update plugin downloads display for the selected release
+ * @param {Object} release - Release object from the plugin repo
+ */
+function updatePlugins(release) {
+    if (!release) return;
+    ['linux', 'windows', 'macos'].forEach(os => {
+        const el = document.getElementById(`plugin-${os}-downloads`);
+        if (!el) return;
+        const matching = sortByArchitecture(
+            (release.assets || []).filter(a => getOSFromFilename(a.name) === os)
+        );
+        if (matching.length === 0) {
+            el.innerHTML = createNoItemsMessage('plugin binaries');
+        } else {
+            el.innerHTML = `<div class="arch-grid">${matching.map(a => `
+                <div class="arch-item">
+                    <strong>${getArchitecture(a.name)}</strong>
+                    <small>${(a.size / 1024 / 1024).toFixed(2)} MB</small>
+                    ${createDownloadButton(a.browser_download_url, a.name)}
+                </div>`).join('')}</div>`;
+        }
+    });
+    reHighlightCode();
+}
+
+/**
  * Set up event listeners for downloads page
  */
 function setupDownloadsEventListeners() {
@@ -2497,6 +2566,15 @@ function setupDownloadsEventListeners() {
     
     // Examples: version + archive extension
     createSelectionHandler('example-version-select', 'example-archive-ext-select', updateExamples);
+
+    // Plugins: version only (separate repo)
+    const pluginVersionSelect = document.getElementById('example-plugin-version-selector');
+    if (pluginVersionSelect) {
+        pluginVersionSelect.addEventListener('change', () => {
+            const rel = allPluginReleases.find(r => r.tag_name === pluginVersionSelect.value);
+            if (rel) updatePlugins(rel);
+        });
+    }
 }
 
 // Initialize Everything

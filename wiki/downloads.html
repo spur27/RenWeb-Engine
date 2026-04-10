@@ -213,6 +213,58 @@ xattr -d com.apple.quarantine renweb-macos-*
                 </div>
             </section>
 
+            <!-- Plugins Section -->
+            <section id="plugins" class="card">
+                <h2>Plugins</h2>
+                <p class="intro-text">
+                    Pre-built plugin binaries for use with RenWeb applications. The example plugin below demonstrates
+                    the RenWeb plugin API and can be used as a reference for building your own plugins. Place any
+                    downloaded <code>.so</code> / <code>.dll</code> / <code>.dylib</code> file into your application's
+                    <code>build/plugins/</code> directory.
+                </p>
+
+                <div class="subsection">
+                    <h3>Example Plugin
+                        <a href="https://github.com/spur27/renweb-example-plugin"
+                           target="_blank" rel="noopener noreferrer"
+                           style="font-size: 0.75rem; font-weight: normal; margin-left: 0.75rem;">
+                            View source
+                        </a>
+                    </h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                        A reference plugin that demonstrates the full plugin API — input/output encoding,
+                        logging, and multiple function exports.
+                    </p>
+
+                    <div class="version-selector-container">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <label for="example-plugin-version-selector">Version:</label>
+                            <select id="example-plugin-version-selector" class="version-select-input">
+                                <option value="">Loading versions...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="os-tabs-wrapper">
+                        <div class="os-tabs">
+                            <button class="tab-btn active" data-target="plugin-linux"><span class="os-linux">Linux</span></button>
+                            <button class="tab-btn" data-target="plugin-windows"><span class="os-windows">Windows</span></button>
+                            <button class="tab-btn" data-target="plugin-macos"><span class="os-macos">macOS</span></button>
+                        </div>
+
+                        <div id="plugin-linux" class="tab-content active">
+                            <div id="plugin-linux-downloads" class="loading">Loading...</div>
+                        </div>
+                        <div id="plugin-windows" class="tab-content">
+                            <div id="plugin-windows-downloads" class="loading">Loading...</div>
+                        </div>
+                        <div id="plugin-macos" class="tab-content">
+                            <div id="plugin-macos-downloads" class="loading">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- JSONs Section -->
             <section id="jsons" class="card">
                 <h2>Configuration Templates</h2>
