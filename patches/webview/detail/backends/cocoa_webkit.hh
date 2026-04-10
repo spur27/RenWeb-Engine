@@ -204,10 +204,10 @@ protected:
     }
     NSWindow_center(m_window);
 
-    // PATCH: Don't automatically show window when size is set.
-    // The window is already hidden by window_settings() before this runs,
-    // so no explicit orderOut: is needed here.
-    // Original: return window_show();
+    // PATCH: setFrame/display can re-show an ordered-out window; keep it hidden.
+    if (owns_window() && m_window && !m_is_window_shown) {
+      objc::msg_send<void>(m_window, objc::selector("orderOut:"), nullptr);
+    }
     return {};
   }
   

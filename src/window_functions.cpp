@@ -562,7 +562,11 @@ WF* WF::setGetSets() {
             } else {
                 styleMask &= ~NSWindowStyleMaskTitled;
             }
+            BOOL was_visible = [nsWindow isVisible];
             [nsWindow setStyleMask:styleMask];
+            if (!was_visible) {
+                [nsWindow orderOut:nil];
+            }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             auto apply_titlebar = [&](GtkWidget* w) {
@@ -627,7 +631,11 @@ WF* WF::setGetSets() {
             } else {
                 styleMask &= ~NSWindowStyleMaskResizable;
             }
+            BOOL was_visible = [nsWindow isVisible];
             [nsWindow setStyleMask:styleMask];
+            if (!was_visible) {
+                [nsWindow orderOut:nil];
+            }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             
@@ -732,7 +740,7 @@ WF* WF::setGetSets() {
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (minimize) {
                 [nsWindow miniaturize:nil];
-            } else {
+            } else if ([nsWindow isVisible]) {
                 [nsWindow deminiaturize:nil];
             }
         #elif defined(__linux__)
@@ -783,7 +791,7 @@ WF* WF::setGetSets() {
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-            if (maximize != [nsWindow isZoomed]) {
+            if (maximize != [nsWindow isZoomed] && [nsWindow isVisible]) {
                 [nsWindow zoom:nil];
             }
         #elif defined(__linux__)
@@ -843,7 +851,7 @@ WF* WF::setGetSets() {
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             BOOL isCurrentlyFullscreen = ([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0;
-            if (fullscreen != isCurrentlyFullscreen) {
+            if (fullscreen != isCurrentlyFullscreen && [nsWindow isVisible]) {
                 [nsWindow toggleFullScreen:nil];
             }
         #elif defined(__linux__)
@@ -3350,6 +3358,12 @@ WF* WF::setInternalCallbacks() {
                 if (!webview) {
                     this->logger->debug("[function] WKWebView not ready yet - skipping performance settings");
                     return json::value(nullptr);
+                }
+                
+                // drawsBackground = YES (default) initialises the CA backing store white,
+                // causing a flash if the window appears before the first composited frame.
+                if ([webview respondsToSelector:@selector(setDrawsBackground:)]) {
+                    [webview performSelector:@selector(setDrawsBackground:) withObject:@NO];
                 }
                 
                 id config = [webview configuration];
