@@ -294,6 +294,10 @@ else
 \t\t\t\tARCH := x86_64
 \t\t\tendif
 \t\tendif
+\t\tBREW_BOOST := $(shell brew --prefix boost 2>/dev/null)
+\t\tifdef BREW_BOOST
+\t\t\tCXXFLAGS += -isystem $(BREW_BOOST)/include
+\t\tendif
 \telse
 \t\tOS_NAME      := linux
 \t\tSHARED_EXT   := .so
