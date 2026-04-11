@@ -79,15 +79,14 @@ esac
 unset LD_PRELOAD
 export GST_PLUGIN_SYSTEM_PATH_1_0="$LIB_DIR/gstreamer-1.0"
 export GST_PLUGIN_PATH=""
-export GST_GL_PLATFORM=egl
 export GDK_PIXBUF_MODULE_FILE="$LIB_DIR/gdk-pixbuf-2.0/loaders.cache"
 export NO_AT_BRIDGE=1
-
-export GIO_MODULE_DIR="$LIB_DIR/gio/modules"
 
 _rw_musl=0
 find /lib /usr/lib -maxdepth 2 -name 'ld-musl-*.so*' 2>/dev/null | grep -q . && _rw_musl=1
 if [ "$_rw_musl" -eq 1 ]; then
+    export GST_GL_PLATFORM=egl
+    export GIO_MODULE_DIR="$LIB_DIR/gio/modules"
     export GTK_MODULES=""
     export GTK_PATH=""
     export LIBGL_ALWAYS_SOFTWARE=1
@@ -95,7 +94,6 @@ if [ "$_rw_musl" -eq 1 ]; then
     export GBM_BACKENDS_PATH="$LIB_DIR/gbm"
     export __EGL_VENDOR_LIBRARY_DIRS="$LIB_DIR/glvnd/egl_vendor.d"
 fi
-unset _rw_musl
 
 _rw_wl_sock=""
 case "${WAYLAND_DISPLAY:-}" in
@@ -154,5 +152,5 @@ if [ -n "$BUNDLED_LD" ]; then
     unset _rw_ld_hash
 fi
 export RENWEB_EXECUTABLE_PATH="$EXE"
-[ -n "$BUNDLED_LD" ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
+[ -n "$BUNDLED_LD" ] && [ "$_rw_musl" -eq 1 ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
 exec "$EXE" "$@"
