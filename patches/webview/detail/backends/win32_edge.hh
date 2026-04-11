@@ -681,6 +681,18 @@ private:
             w->focus_webview();
           }
           break;
+        case WM_WINDOWPOSCHANGING: {
+          // RENWEB PATCH: Strip SWP_SHOWWINDOW during WebView2 initialization.
+          // ICoreWebView2Controller creation and focus calls internally invoke
+          // SetWindowPos with SWP_SHOWWINDOW on the host HWND, causing a brief
+          // flash. m_allow_show is false only during embed(); it is set true
+          // once init is complete so all subsequent show calls go through.
+          if (!w->m_allow_show) {
+            auto *pos = reinterpret_cast<WINDOWPOS *>(lp);
+            pos->flags &= ~static_cast<UINT>(SWP_SHOWWINDOW);
+          }
+          return DefWindowProcW(hwnd, msg, wp, lp);
+        }
         default:
           return DefWindowProcW(hwnd, msg, wp, lp);
         }
@@ -802,11 +814,20 @@ private:
     auto cb =
         std::bind(&win32_edge_engine::on_message, this, std::placeholders::_1);
     embed(m_widget, debug, cb).ensure_ok();
+    // RENWEB PATCH: Re-apply hidden state after WebView2 initialization
+    // (belt-and-suspenders — WM_WINDOWPOSCHANGING already blocked the flash).
+    if (owns_window()) {
+      ShowWindow(m_window, SW_HIDE);
+    }
+    // Allow user-initiated ShowWindow calls from this point on.
+    // The WM_WINDOWPOSCHANGING handler only suppresses SWP_SHOWWINDOW while
+    // this is false (i.e., during embed() initialization).
+    m_allow_show = true;
   }
 
   noresult window_show() {
     if (owns_window() && !m_is_window_shown) {
-      ShowWindow(m_widget, SW_SHOW);  // Show widget first
+      ShowWindow(m_widget, SW_SHOW);
       ShowWindow(m_window, SW_SHOW);
       UpdateWindow(m_window);
       SetFocus(m_window);
@@ -1005,6 +1026,7 @@ private:
   mswebview2::loader m_webview2_loader;
   int m_dpi{};
   bool m_is_window_shown{};
+  bool m_allow_show{};
   std::function<bool(const std::string&)> m_navigation_callback;
 };
 
