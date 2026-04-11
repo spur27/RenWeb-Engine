@@ -943,7 +943,6 @@ WF* WF::setGetSets() {
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
                 [nsWindow setAlphaValue:opacity_amt];
         #elif defined(__linux__)
-                this->logger->debug("[function] setOpacity has not been tested for Linux");
                 auto window_window = this->app->w->window().value();
                 gtk_widget_set_opacity(GTK_WIDGET(window_window), opacity_amt);
         #endif
