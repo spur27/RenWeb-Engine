@@ -463,6 +463,14 @@ private:
     auto ui_delegate = create_webkit_ui_delegate();
     m_webview =
         objc::retain(WKWebView_withFrame(CGRectMake(0, 0, 0, 0), config));
+
+    // PATCH: Disable white CA backing store to prevent flash before first composited frame.
+    if (objc::msg_send<bool>(m_webview, objc::selector("respondsToSelector:"),
+                             objc::selector("setDrawsBackground:"))) {
+      objc::msg_send<void>(m_webview, objc::selector("setDrawsBackground:"),
+                           false);
+    }
+
     auto autoresizing_mask{static_cast<NSAutoresizingMaskOptions>(
         NSViewWidthSizable | NSViewMaxXMargin | NSViewHeightSizable |
         NSViewMaxYMargin)};
@@ -549,7 +557,7 @@ private:
     
     // PATCH: Explicitly hide the window immediately after creation
     objc::msg_send<void>(m_window, objc::selector("orderOut:"), nullptr);
-    
+
     m_window_delegate = create_window_delegate();
     set_associated_webview(m_window_delegate, this);
     NSWindow_set_delegate(m_window, m_window_delegate);
@@ -562,10 +570,10 @@ private:
     if (m_is_window_shown) {
       return {};
     }
+    m_is_window_shown = true;
     if (owns_window()) {
       NSWindow_makeKeyAndOrderFront(m_window);
     }
-    m_is_window_shown = true;
     return {};
   }
 

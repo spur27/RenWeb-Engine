@@ -42,8 +42,15 @@ import {
  } from './index.js';
 
 window.onload = async () => {
-    await Window.show(true);
     await Log.info("Window has loaded");
+    await Properties.setOpacity(0);
+    await Window.show(true);
+    let step = 0;
+    const interval = setInterval(async () => {
+        step++;
+        await Properties.setOpacity(step / 5);
+        if (step >= 5) clearInterval(interval);
+    }, 3);
 };
 // Web Audio API Setup
 let audioContext;

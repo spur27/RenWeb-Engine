@@ -33,7 +33,6 @@ class Starfield {
         this.stars = [];
         this.numStars = 200;
         this.resizeTimeout = null;
-        
         this.resize();
         this.init();
         this.animate();

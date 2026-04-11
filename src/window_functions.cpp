@@ -3360,12 +3360,6 @@ WF* WF::setInternalCallbacks() {
                     return json::value(nullptr);
                 }
                 
-                // drawsBackground = YES (default) initialises the CA backing store white,
-                // causing a flash if the window appears before the first composited frame.
-                if ([webview respondsToSelector:@selector(setDrawsBackground:)]) {
-                    [webview performSelector:@selector(setDrawsBackground:) withObject:@NO];
-                }
-                
                 id config = [webview configuration];
                 id prefs = [config preferences];
                 

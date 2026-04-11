@@ -157,13 +157,19 @@ window.onload = async () => {
     } catch (e) {
         await Log.error(e.message);
     }
-    await Window.show(true);
-    
     // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
         await Notification.requestPermission();
         await Log.info("Notification permission: " + Notification.permission);
     }
+    await Properties.setOpacity(0);
+    await Window.show(true);
+    let step = 0;
+    const interval = setInterval(async () => {
+        step++;
+        await Properties.setOpacity(step / 5);
+        if (step >= 5) clearInterval(interval);
+    }, 3);
 }
 
 // ============================================================================

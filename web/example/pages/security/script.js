@@ -43,8 +43,15 @@ import {
 
 
 window.onload = async () => {
-    await Window.show(true);
     await Log.info("Hello World!");
+    await Properties.setOpacity(0);
+    await Window.show(true);
+    let step = 0;
+    const interval = setInterval(async () => {
+        step++;
+        await Properties.setOpacity(step / 5);
+        if (step >= 5) clearInterval(interval);
+    }, 3);
 };
 
 function updateTestStatus(testId, status) {
