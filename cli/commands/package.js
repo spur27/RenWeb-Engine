@@ -3079,10 +3079,6 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     const author   = info.author    || '';
     const xbpsArch = XBPS_ARCH_MAP[targetArch] || targetArch;
     const stem     = `${pkgId}-${version}-${targetOs}-${targetArch}`;
-    // xbps-install resolves packages by the canonical <pkgver>.<arch>.xbps filename
-    // derived from the package's internal metadata.  Using any other name causes
-    // xbps-rindex -a to record the wrong filename in the repodata, making the
-    // checksum verification fail at install time.
     const outputFile = path.join(outDir, `${pkgver}.${xbpsArch}.xbps`);
 
     const xbpsRoot   = path.join(tmpDir, 'xbps-staging', `${stem}${isBundle ? '-bundle' : ''}`);
@@ -3151,10 +3147,6 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
         return;
     }
 
-    // Copy the package to outDir, keeping the canonical <pkgver>.<arch>.xbps name.
-    // Do NOT rename: xbps-rindex -a derives the filename stored in repodata from the
-    // package's internal pkgver/arch metadata, so the on-disk filename must match or
-    // xbps-install will fail to locate the file and report an invalid checksum.
     fs.mkdirSync(outDir, { recursive: true });
     const xbpsCreated = path.join(xbpsOutDir, `${pkgver}.${xbpsArch}.xbps`);
     if (fs.existsSync(xbpsCreated)) {
@@ -3170,11 +3162,6 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     xbpsSign(opts, outputFile);
     gpgSign(opts, outputFile);
 
-    // Create / update the <arch>-repodata index in outDir so users can install with:
-    //   xbps-install -R <outDir> <pkgname>
-    // This MUST run after xbps-rindex --sign-pkg because signing modifies the archive,
-    // changing the file's SHA256.  If repodata were created before signing the stored
-    // checksum would be stale and xbps-install would report an invalid checksum.
     if (findBin('xbps-rindex') && fs.existsSync(outputFile)) {
         const ri = spawnSync('xbps-rindex', ['-a', outputFile], { stdio: 'inherit' });
         if (ri.status === 0) ui.ok(`[xbps] repodata updated: ${xbpsArch}-repodata`);
