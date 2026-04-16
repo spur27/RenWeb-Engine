@@ -36,12 +36,15 @@ RUN XBPS_ARCH="$(uname -m)-musl" \
  && rm -rf /tmp/xbps-static /tmp/xbps-static.tar.xz
 
 # ── Flatpak runtime + SDK — needed to build .flatpak bundles offline ──────────
+# buildFlatpakBundle requests org.gnome.Platform//47 + org.gnome.Sdk//47.
+# GNOME 47 depends on org.freedesktop.Platform//23.08 which flatpak pulls in
+# automatically; no need to list the freedesktop runtimes explicitly.
 # --noninteractive skips all prompts; system-level install works in Docker root.
 RUN flatpak remote-add --if-not-exists flathub \
     https://dl.flathub.org/repo/flathub.flatpakrepo \
  && flatpak install --noninteractive flathub \
-    org.freedesktop.Platform//23.08 \
-    org.freedesktop.Sdk//23.08 \
+    org.gnome.Platform//47 \
+    org.gnome.Sdk//47 \
  || true
 
 # ── Wine64 — runs rcedit to patch Windows PE version info + icons ─────────────

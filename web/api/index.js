@@ -153,7 +153,6 @@ export const Utils = {
     encode,
     serialize
 };
-window.onServerMessage = async (msg) => { };
 /**
  * Window property getters and setters.
  */
@@ -364,7 +363,10 @@ export var Window;
      * Terminates the current window/process.
      * @returns Promise that resolves when termination starts
      */
-    async function terminate() { await BIND_terminate(null); }
+    async function terminate() {
+        await window.renweb?.onTerminate?.();
+        await BIND_terminate(null);
+    }
     Window.terminate = terminate;
     /**
      * Starts a window drag operation (allows moving the window).
@@ -592,6 +594,12 @@ export var Config;
      */
     async function getConfig() { return decode(await BIND_get_config(null)); }
     Config.getConfig = getConfig;
+    /**
+ * Gets the info json file.
+ * @returns Promise that resolves to the info object
+ */
+    async function getInfo() { return decode(await BIND_get_info(null)); }
+    Config.getInfo = getInfo;
     /**
      * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object

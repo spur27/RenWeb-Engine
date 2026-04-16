@@ -98,7 +98,6 @@ program
   .command('update')
   .description('Update engine for a given project')
   .option('--plugins-only', 'Only update plugins')
-  .option('--executable-only', 'Only update executable and bundle contents')
   .option('--version <tag>',   'Pin to a specific release tag (default: latest)')
   .action(() => {
     const idx = process.argv.indexOf('update');
@@ -116,7 +115,6 @@ program
 program
   .command('build')
   .description('Build the project: copies manifests, fetches engine + plugins, then delegates to the bundler or mirrors src/')
-  .option('--bundle', 'Use the bundled engine release (includes .so libs)')
   .option('--meta-only', 'Only run the meta steps (manifests, engine, plugins) — skip the JS build; used as a prebuild hook')
   .action(() => {
     const idx = process.argv.indexOf('build');
@@ -133,8 +131,7 @@ program
 program
   .command('package')
   .description('Create packages from build directory (downloads latest release assets and packages them)')
-  .option('--bundle-only',        'Only process bundled engine archives (includes bundled .so libs)')
-  .option('--executable-only',    'Only process bare executables (no bundled libs)')
+  .option('--executable-only',    'Only process bare executables')
   .option('-e, --ext <ext>',      'Output format filter, repeatable: -edeb -erpm -etar.gz -ezip (default: all formats)')
   .option('-o, --os <os>',        'Target OS filter, repeatable: -olinux -owindows (default: all)')
   .option('-a, --arch <arch>',    'Target arch filter, repeatable: -aarm64 -ax86_64 (default: all). Aliases: aarch64, armhf, x64, i686, ppc, …')
@@ -156,9 +153,8 @@ program
 
 program
   .command('fetch')
-  .description('Download the latest RenWeb engine, bundle, plugin header, or JS/TS API files')
+  .description('Download the latest RenWeb engine, plugin header, or JS/TS API files')
   .option('--executable',    'Download the engine executable + template info.json to build/')
-  .option('--bundle',        'Download the engine bundle (with libs) + template info.json to build/')
   .option('--plugin',        'Download plugin.hpp to the current directory')
   .option('--api',           'Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)')
   .option('--version <tag>', 'Pin to a specific release tag (default: latest)')

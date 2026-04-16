@@ -86,6 +86,15 @@ window.addEventListener("touchmove", (e) => {
     }
 }, { passive: false });
 
+window.renweb.onReady = async () => {
+    await Log.critical("RENWEB IS READY!!");
+    await Window.show(true);
+}
+window.renweb.onTerminate = async () => {
+    await Log.critical("RENWEB IS TERMINATING!!");
+}
+
+
 // DISABLED: console.log = (async (msg) => await Log.debug(msg));
 window.onload = async () => {
     await Log.info("Window content has been loaded.");
@@ -151,7 +160,7 @@ window.onload = async () => {
         document.querySelector('.message_pid').value = proc.pid;
         document.querySelector('.refresh_messages').click();
         document.querySelector('.fetch_versions').click();
-        window.onServerMessage = async (message) => {
+        window.renweb.onServerMessage = async (message) => {
             document.querySelector('.refresh_messages').click();
         };
     } catch (e) {
@@ -162,14 +171,6 @@ window.onload = async () => {
         await Notification.requestPermission();
         await Log.info("Notification permission: " + Notification.permission);
     }
-    await Properties.setOpacity(0);
-    await Window.show(true);
-    let step = 0;
-    const interval = setInterval(async () => {
-        step++;
-        await Properties.setOpacity(step / 5);
-        if (step >= 5) clearInterval(interval);
-    }, 3);
 }
 
 // ============================================================================
@@ -876,6 +877,13 @@ document.querySelector(".get_config").onclick = async () => {
     const config = await Config.getConfig();
     document.querySelector(".settings_output").value = JSON.stringify(config, null, 2);
 };
+
+document.querySelector(".get_info").onclick = async () => {
+    await Log.debug(`Getting Info...`);
+    const info = await Config.getInfo();
+    document.querySelector(".settings_output").value = JSON.stringify(info, null, 2);
+};
+
 
 document.querySelector(".get_defaults").onclick = async () => {
     await Log.debug(`Getting Defaults...`);

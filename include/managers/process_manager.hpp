@@ -36,10 +36,12 @@
 #if __has_include(<boost/process/v1/child.hpp>)
     #include <boost/process/v1/child.hpp>
     #include <boost/process/v1/io.hpp>
+    #include <boost/process/v1/env.hpp>
     #define BOOST_PROCESS_V1_NAMESPACE ::boost::process::v1
 #else
     #include <boost/process/child.hpp>
     #include <boost/process/io.hpp>
+    #include <boost/process/env.hpp>
     #define BOOST_PROCESS_V1_NAMESPACE ::boost::process
 #endif
 #include <boost/json.hpp>
@@ -1018,7 +1020,21 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
         File out_file;
 
         if (share_stdio) {
+#if defined(__linux__) || defined(__unix__)
+            {
+                const char* rw_lib = std::getenv("RENWEB_LIB_DIR");
+                const char* ld_cur = std::getenv("LD_LIBRARY_PATH");
+                if (is_renweb && rw_lib && *rw_lib && (!ld_cur || !*ld_cur)) {
+                    proc = Child(resolved_args,
+                                 BOOST_PROCESS_V1_NAMESPACE::env["LD_LIBRARY_PATH"] = rw_lib,
+                                 BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+                } else {
+                    proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+                }
+            }
+#else
             proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+#endif
             pid = static_cast<Pid>(proc.id());
             out_file = File("");
         } else {
@@ -1089,10 +1105,22 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
                 throw std::runtime_error("Failed to create output file: " + temp_path.string());
             test_file.close();
 
-            proc = Child(resolved_args,
-                        BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
-                        BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
-                        BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+            {
+                const char* rw_lib = std::getenv("RENWEB_LIB_DIR");
+                const char* ld_cur = std::getenv("LD_LIBRARY_PATH");
+                if (is_renweb && rw_lib && *rw_lib && (!ld_cur || !*ld_cur)) {
+                    proc = Child(resolved_args,
+                                 BOOST_PROCESS_V1_NAMESPACE::env["LD_LIBRARY_PATH"] = rw_lib,
+                                 BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
+                                 BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
+                                 BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+                } else {
+                    proc = Child(resolved_args,
+                                 BOOST_PROCESS_V1_NAMESPACE::std_out > temp_path.string(),
+                                 BOOST_PROCESS_V1_NAMESPACE::std_err > temp_path.string(),
+                                 BOOST_PROCESS_V1_NAMESPACE::std_in.close());
+                }
+            }
             pid = static_cast<Pid>(proc.id());
 
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");

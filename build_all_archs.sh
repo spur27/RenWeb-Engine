@@ -49,8 +49,6 @@ set -e
 # Configuration
 # =============================================================================
 
-ENABLE_BUNDLE=true
-
 # Color codes for output
 RESET=$(printf '\033[0m')
 RED=$(printf '\033[31m')
@@ -167,13 +165,8 @@ build_for_toolchain() {
     
     print_building "$arch_name" "$toolchain"
     
-    local bundle_flag=""
-    if [ "$ENABLE_BUNDLE" = true ]; then
-        bundle_flag="BUNDLE=true"
-    fi
-    
     if make clear TOOLCHAIN="$toolchain" TARGET=release; then
-        if make TOOLCHAIN="$toolchain" TARGET=release $bundle_flag -j$(nproc 2>/dev/null || echo 4); then
+        if make TOOLCHAIN="$toolchain" TARGET=release -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built for $arch_name successfully"
             return 0
         else
@@ -191,13 +184,8 @@ build_native() {
     
     print_building "$arch_name" "native"
     
-    local bundle_flag=""
-    if [ "$ENABLE_BUNDLE" = true ]; then
-        bundle_flag="BUNDLE=true"
-    fi
-    
     if make clear TARGET=release; then
-        if make TARGET=release $bundle_flag -j$(nproc 2>/dev/null || echo 4); then
+        if make TARGET=release -j$(nproc 2>/dev/null || echo 4); then
             print_success "Built native for $arch_name successfully"
             return 0
         else
@@ -261,11 +249,6 @@ build_linux() {
         print_header "Building for Linux - All Architectures (13 total)"
     fi
     print_info "Host architecture: $HOST_ARCH"
-    if [ "$ENABLE_BUNDLE" = true ]; then
-        print_info "Mode: executables + bundles"
-    else
-        print_info "Mode: executables only"
-    fi
     [ -n "$FILTER_ARCHS" ] && print_info "Arch filter: $FILTER_ARCHS"
     echo ""
 
@@ -349,11 +332,6 @@ build_macos() {
     
     print_header "Building for macOS - Multiple Architectures"
     print_info "Host architecture: $HOST_ARCH"
-    if [ "$ENABLE_BUNDLE" = true ]; then
-        print_info "Mode: executables + bundles"
-    else
-        print_info "Mode: executables only"
-    fi
     echo ""
     
     if ! command_exists "clang++"; then
@@ -393,12 +371,7 @@ build_macos() {
         
         make clear >/dev/null 2>&1
         
-        local bundle_flag=""
-        if [ "$ENABLE_BUNDLE" = true ]; then
-            bundle_flag="BUNDLE=true"
-        fi
-        
-        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release $bundle_flag -j$ncpu 2>&1; then
+        if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release -j$ncpu 2>&1; then
             print_success "Built for $arch successfully"
             success_count=$((success_count + 1))
         else
@@ -551,14 +524,6 @@ EOF
 main() {
     while [ $# -gt 0 ]; do
         case $1 in
-            --bundle-only)
-                ENABLE_BUNDLE=true
-                shift
-                ;;
-            --executable-only)
-                ENABLE_BUNDLE=false
-                shift
-                ;;
             --arch|-a)
                 if [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
                     print_error "--arch requires an architecture name"
@@ -569,16 +534,13 @@ main() {
                 shift 2
                 ;;
             --help|-h)
-                echo "Usage: $0 [--bundle] [--arch <arch>] ..."
+                echo "Usage: $0 [--arch <arch>] ..."
                 echo ""
                 echo "Description:"
                 echo "  Automatically detects your operating system and builds release"
                 echo "  versions for all supported architectures on that platform."
                 echo ""
                 echo "Options:"
-                echo "  --bundle-only        Build bundles (with bundled libraries) only"
-                echo "  --executable-only    Build executables only, without bundled libraries"
-                echo "  (neither)            Build both executables and bundles (default)"
                 echo "  --arch <arch>, -a    Build only the specified architecture (repeatable)."
                 echo "                       Accepts canonical names or common aliases."
                 echo ""
@@ -604,8 +566,6 @@ main() {
                 echo ""
                 echo "Examples:"
                 echo "  $0                            # Build all architectures for current OS"
-                echo "  $0 --bundle-only              # Build bundles only"
-                echo "  $0 --executable-only          # Build executables only"
                 echo "  $0 --arch arm64               # Build only arm64"
                 echo "  $0 --arch arm64 --arch x86_64 # Build arm64 and x86_64"
                 echo "  $0 -a aarch64 -a armhf        # Using aliases"

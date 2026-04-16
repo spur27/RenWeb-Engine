@@ -34,7 +34,7 @@
 
 const INFO_JSON = {
   "title": "RenWeb",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "author": "Spur27",
   "description": "Base RenWeb engine",
   "license": "BSL",

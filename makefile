@@ -112,13 +112,6 @@ ifndef TARGET
 	TARGET := debug
 endif
 # -----------------------------------------------------------------------------
-# Bundle runtime libraries for portable deployment
-# Set BUNDLE=true for portable deployment with bundled libraries
-# -----------------------------------------------------------------------------
-ifndef BUNDLE
-	BUNDLE := false
-endif
-# -----------------------------------------------------------------------------
 # OS info
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
@@ -370,6 +363,7 @@ ifeq ($(OS_NAME), windows)
 	
 	LIBS := \
 		comdlg32.lib \
+		urlmon.lib \
 		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)program_options$(BOOST_LIB_SUFFIX) \
 		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)json$(BOOST_LIB_SUFFIX) \
 		$(BOOST_LIB_PATH)/$(BOOST_LIB_PREFIX)filesystem$(BOOST_LIB_SUFFIX) \
@@ -438,7 +432,7 @@ else ifeq ($(ARCH),arm64)
 VCVARS_BAT    := vcvarsamd64_arm64.bat
 endif
 _VS_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
-_VS_VARS  := $(strip $(foreach v,TARGET BUNDLE ARCH LINKTYPE,\
+_VS_VARS  := $(strip $(foreach v,TARGET ARCH LINKTYPE,\
                $(if $(filter-out undefined default,$(origin $v)),$v=$($v))))
 _vs_bootstrap:
 	@VSWHERE="C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"; \
@@ -655,8 +649,6 @@ help:
 	@echo "Usage:"
 	@echo "  make TARGET=debug      Build the application in debug mode"
 	@echo "  make TARGET=release    Build the application in release mode"
-	@echo "  make BUNDLE=true       Bundle runtime libraries for portable deployment (Linux/macOS)"
-	@echo "  make verify-bundle     Verify bundled libraries are complete (run after BUNDLE=true)"
 	@echo "  make sub_modules       Builds the submodules"
 	@echo "  make clean             Clean up the build directory"
 	@echo "  make run               Build and run the application"
@@ -666,11 +658,11 @@ help:
 # -----------------------------------------------------------------------------
 # Phony targets
 # -----------------------------------------------------------------------------
-.PHONY: all clean run help copy-files bundle-libs verify-bundle
+.PHONY: all clean run help copy-files
 # -----------------------------------------------------------------------------
 # PHONY TARGET: Copy files
 # -----------------------------------------------------------------------------
-copy-files: $(BUILD_PATH)/$(EXE) bundle-libs
+copy-files: $(BUILD_PATH)/$(EXE)
 	$(call step,Copy Files, Copying Files at $@)
 	mkdir -p $(COPY_PATH)
 	cp -R $(LIC_PATH) $(COPY_PATH)
@@ -702,251 +694,6 @@ copy-files: $(BUILD_PATH)/$(EXE) bundle-libs
 		done; \
 	fi
 	$(call step,Copy Files [DONE] Copying Files at $@)
-# -----------------------------------------------------------------------------
-# PHONY TARGET: Bundle runtime libraries for portable deployment
-# -----------------------------------------------------------------------------
-bundle-libs: $(BUILD_PATH)/$(EXE)
-ifeq ($(BUNDLE),true)
-ifeq ($(OS_NAME),linux)
-	$(call step,Bundling Libraries,Copying runtime dependencies for portable deployment)
-	@# Bundle layout: all .so files land in lib-ARCH/.  A webkit2gtk-4.1/
-	@# subdirectory holds the WebKit subprocess helpers.  bundle_exec.sh
-	@# invokes the bundled ld-linux linker with --library-path lib-ARCH/
-	@# so the glibc-linked binary runs correctly on musl hosts (Alpine)
-	@# without touching any host-installed shared libraries.
-	@rm -rf $(BUILD_PATH)/lib-$(ARCH)
-	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)
-	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)/glvnd/egl_vendor.d
-	$(call step,Collecting Dependencies,Gathering shared libraries for $(ARCH))
-ifdef TOOLCHAIN
-	@# ── Phase 1 (cross): BFS walk over ELF NEEDED dependencies ──────────────
-	@# Starting from the main executable, recursively collect every shared
-	@# library listed in DT_NEEDED sections.  Uses the cross-compiler readelf
-	@# to read foreign ELF headers.  ld-linux* and linux-vdso* are excluded
-	@# here — the dynamic linker (PT_INTERP) is extracted and copied below.
-	@SYSROOT_PATH=/usr/$(TOOLCHAIN); \
-	if [ -d "$$SYSROOT_PATH/lib" ]; then \
-		SEARCH_DIRS="$$SYSROOT_PATH/lib $$SYSROOT_PATH/lib64 $$SYSROOT_PATH/usr/lib $$SYSROOT_PATH/usr/lib64 $$SYSROOT_PATH/usr/local/lib $$SYSROOT_PATH/usr/local/lib64 /usr/lib/$(TOOLCHAIN)"; \
-		for _gd in /usr/lib/gcc-cross/$(TOOLCHAIN)/*/; do \
-			[ -d "$$_gd" ] && SEARCH_DIRS="$$SEARCH_DIRS $$_gd"; \
-		done; \
-		TODO_LIBS="$(BUILD_PATH)/$(EXE)"; \
-		QUEUED=" "; \
-		while [ -n "$$TODO_LIBS" ]; do \
-			CURRENT_LIB=$$(echo "$$TODO_LIBS" | head -n1); \
-			TODO_LIBS=$$(echo "$$TODO_LIBS" | tail -n +2); \
-			NEEDED=$$($(TOOLCHAIN)-readelf -d "$$CURRENT_LIB" 2>/dev/null | grep 'NEEDED' | awk '{print $$5}' | tr -d '[]'); \
-			for lib in $$NEEDED; do \
-				case " $$QUEUED " in *" $$lib "*) continue ;; esac; \
-				case "$$lib" in \
-						ld-linux*|linux-vdso*) continue ;; \
-				esac; \
-				for search_dir in $$SEARCH_DIRS; do \
-					if [ -f "$$search_dir/$$lib" ]; then \
-						cp -L "$$search_dir/$$lib" $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
-						$(TOOLCHAIN)-strip --strip-unneeded $(BUILD_PATH)/lib-$(ARCH)/$$lib 2>/dev/null || true; \
-						QUEUED="$$QUEUED$$lib "; \
-						TODO_LIBS="$$(printf '%s\n%s' "$$TODO_LIBS" "$$search_dir/$$lib")"; \
-						break; \
-					fi; \
-				done; \
-			done; \
-		done; \
-		LD_INTERP=$$($(TOOLCHAIN)-readelf -l "$(BUILD_PATH)/$(EXE)" 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*interpreter: //;s/\].*//'); \
-		if [ -n "$$LD_INTERP" ]; then \
-			LD_NAME=$$(basename "$$LD_INTERP"); \
-			for search_dir in $$SEARCH_DIRS; do \
-				if [ -f "$$search_dir/$$LD_NAME" ]; then \
-					cp -L "$$search_dir/$$LD_NAME" $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
-					chmod +x $(BUILD_PATH)/lib-$(ARCH)/$$LD_NAME 2>/dev/null || true; \
-					break; \
-				fi; \
-			done; \
-		fi; \
-		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
-		if [ $$LIB_COUNT -gt 0 ]; then \
-			printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT libraries from $(TOOLCHAIN) sysroot"; \
-		else \
-			printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found for $(TOOLCHAIN)"; \
-		fi; \
-	else \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Sysroot not found at $$SYSROOT_PATH"; \
-	fi
-else
-	@# ── Phase 1 (native): collect deps via ldd ──────────────────────────────
-	@# On the build host, ldd resolves the executable's runtime deps against
-	@# the local dynamic linker, giving the exact set of .so paths to bundle.
-	@LIBS=$$(ldd $(BUILD_PATH)/$(EXE) 2>/dev/null | grep -v 'linux-vdso\|ld-linux' | grep '=>' | awk '{print $$3}' | grep -v '^$$' | sort -u); \
-	if [ -n "$$LIBS" ]; then \
-		echo "$$LIBS" | xargs -I {} cp -L {} $(BUILD_PATH)/lib-$(ARCH)/ 2>/dev/null || true; \
-		LIB_COUNT=$$(ls -1 $(BUILD_PATH)/lib-$(ARCH)/*.so* 2>/dev/null | wc -l); \
-		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Libraries Copied" "$$LIB_COUNT shared libraries bundled"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "No libraries found to bundle"; \
-	fi; \
-	LD_INTERP=$$(readelf -l $(BUILD_PATH)/$(EXE) 2>/dev/null | grep 'Requesting program interpreter' | sed 's/.*interpreter: //;s/\].*//'); \
-	if [ -n "$$LD_INTERP" ] && [ -f "$$LD_INTERP" ]; then \
-		LD_NAME=$$(basename "$$LD_INTERP"); \
-		cp -L "$$LD_INTERP" $(BUILD_PATH)/lib-$(ARCH)/"$$LD_NAME" 2>/dev/null || true; \
-		chmod +x $(BUILD_PATH)/lib-$(ARCH)/"$$LD_NAME" 2>/dev/null || true; \
-	fi
-endif
-	@# ── Phase 2: (removed) ────────────────────────────────────────────────
-	@# libepoxy was rebuilt with -Dglx=no -Dx11=false for all arches so it
-	@# only contacts libEGL.so.1 (already in the bundle via BFS).  It no
-	@# longer dlopen's libGL.so.1, libGLX.so.0, or libOpenGL.so.0, so there
-	@# is nothing extra to copy here.
-	$(call step,Bundling WebKit Helpers,Copying subprocess executables and injected bundle)
-	@# ── Phase 3: WebKit subprocess helpers ──────────────────────────────────
-	@# WebKitGTK forks separate processes for page rendering, networking, and
-	@# GPU compositing.  Their path is compiled into libwebkit2gtk-4.1 as
-	@# PKGLIBEXECDIR (/usr/local/libexec/webkit2gtk-4.1).  We copy the real
-	@# ELF binaries into lib-ARCH/webkit2gtk-4.1/ with a .real suffix, then
-	@# generate thin #!/bin/sh wrapper scripts that invoke the bundled ld-linux
-	@# linker, so every subprocess executes under the bundle's own glibc.
-	@if [ -n "$(TOOLCHAIN)" ]; then \
-		_wk_sysroot="/usr/$(TOOLCHAIN)"; _strip="$(TOOLCHAIN)-strip"; \
-	else \
-		_wk_sysroot=""; _strip="strip"; \
-	fi; \
-	WK_SRC=""; \
-	for _cand in \
-		"$${_wk_sysroot}/usr/local/libexec/webkit2gtk-4.1" \
-		"$${_wk_sysroot}/lib/webkit2gtk-4.1" \
-		"$${_wk_sysroot}/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1" \
-		"$${_wk_sysroot}/usr/lib/i386-linux-gnu/webkit2gtk-4.1" \
-	; do \
-		[ -f "$$_cand/WebKitWebProcess" ] && { WK_SRC="$$_cand"; break; }; \
-	done; \
-	[ -z "$$WK_SRC" ] && WK_SRC="$${_wk_sysroot}/usr/local/libexec/webkit2gtk-4.1"; \
-	WK_INJ_SRC="$$WK_SRC/injected-bundle"; \
-	if [ ! -f "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" ]; then \
-		WK_INJ_SRC="$${_wk_sysroot}/usr/local/lib/webkit2gtk-4.1/injected-bundle"; \
-	fi; \
-	WK_DST="$(BUILD_PATH)/lib-$(ARCH)/webkit2gtk-4.1"; \
-	mkdir -p "$$WK_DST"; \
-	_wk_count=0; \
-	for _helper in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess; do \
-		if [ -f "$$WK_SRC/$$_helper" ]; then \
-			cp -L "$$WK_SRC/$$_helper" "$$WK_DST/$$_helper.real"; \
-			chmod +x "$$WK_DST/$$_helper.real"; \
-			$$_strip --strip-unneeded "$$WK_DST/$$_helper.real" 2>/dev/null || true; \
-			_ld_f=$$(ls "$(BUILD_PATH)/lib-$(ARCH)/"ld-*.so* 2>/dev/null | head -1); \
-			if [ -n "$$_ld_f" ] && command -v patchelf >/dev/null 2>&1; then \
-				_ld_hash=$$(sha256sum "$$_ld_f" 2>/dev/null | cut -c1-16); \
-				if [ -n "$$_ld_hash" ]; then \
-					patchelf --set-interpreter "/tmp/.renweb/.so/$${_ld_hash}.so" "$$WK_DST/$$_helper.real" 2>/dev/null || true; \
-				fi; \
-			fi; \
-			printf '#!/bin/sh\n_D=$$(cd -P "$$(dirname "$$0")" && pwd)\nLIB_DIR="$$_D/.."\nBLD=""\nfor _l in "$$LIB_DIR"/ld-*.so*; do [ -f "$$_l" ] && [ -x "$$_l" ] && { BLD="$$_l"; break; }; done\nif [ -n "$$BLD" ]; then\n    exec "$$BLD" --library-path "$$LIB_DIR" "$$_D/%s.real" "$$@"\nelse\n    exec "$$_D/%s.real" "$$@"\nfi\n' "$$_helper" "$$_helper" > "$$WK_DST/$$_helper"; \
-			chmod +x "$$WK_DST/$$_helper"; \
-			_wk_count=$$((_wk_count + 1)); \
-		fi; \
-	done; \
-	if [ -f "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" ]; then \
-		cp -L "$$WK_INJ_SRC/libwebkit2gtkinjectedbundle.so" "$$WK_DST/"; \
-		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "WebKit Helpers" "$$_wk_count subprocess helpers + injected bundle"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "WebKit Helpers" "$$_wk_count subprocess helpers (injected bundle not found)"; \
-	fi
-	$(call step,Creating Launcher,Generating bundle_exec.sh)
-	@# ── Phase 4: Launcher script ─────────────────────────────────────────────
-	@# Substitute @EXE_NAME@, @EXE_VERSION@, @OS_NAME@ into the template.
-	@# The generated bundle_exec.sh sets all isolation env vars (GDK_BACKEND,
-	@# GST_*, GIO_*, GL_*, enchant, fontconfig, webkit) then execs the binary
-	@# under the bundled ld-linux dynamic linker with --library-path lib-ARCH/.
-	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
-	     -e 's/@EXE_VERSION@/$(EXE_VERSION)/g' \
-	     -e 's/@OS_NAME@/$(OS_NAME)/g' \
-	     script_templates/bundle_exec.template.sh > $(BUILD_PATH)/bundle_exec.sh
-	@chmod +x $(BUILD_PATH)/bundle_exec.sh
-	$(call step,Bundle Complete,Run with: ./$(BUILD_PATH)/bundle_exec.sh)
-	@$(MAKE) verify-bundle --no-print-directory
-else ifeq ($(OS_NAME),windows)
-	$(call step,Bundling Libraries,Preparing WebView2 bootstrap bundle for Windows)
-	@mkdir -p $(BUILD_PATH)/lib-$(ARCH)
-	@case "$(ARCH)" in \
-		x86_64) WEBVIEW2_ARCH="x64" ;; \
-		x86_32) WEBVIEW2_ARCH="x86" ;; \
-		arm64)  WEBVIEW2_ARCH="arm64" ;; \
-		*)      WEBVIEW2_ARCH="x64" ;; \
-	esac; \
-	if [ -f "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" ]; then \
-		printf "$(CYAN)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Copying Loader" "WebView2Loader.dll for $$WEBVIEW2_ARCH"; \
-		cp "external/webview2_sdk/build/native/$$WEBVIEW2_ARCH/WebView2Loader.dll" "$(BUILD_PATH)/lib-$(ARCH)/"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "WebView2Loader.dll not found for $$WEBVIEW2_ARCH"; \
-	fi; \
-	BOOTSTRAP_SRC="external/webview2_bootstraps/MicrosoftEdgeWebview2Setup.exe"; \
-	BOOTSTRAP_DST="$(BUILD_PATH)/lib-$(ARCH)/MicrosoftEdgeWebview2Setup.exe"; \
-	if [ -f "$$BOOTSTRAP_SRC" ]; then \
-		printf "$(CYAN)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Copying Bootstrapper" "MicrosoftEdgeWebview2Setup.exe"; \
-		cp "$$BOOTSTRAP_SRC" "$$BOOTSTRAP_DST"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Bootstrap installer missing at $$BOOTSTRAP_SRC"; \
-		printf "$(YELLOW)$(BOLD)%-20s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "Bundle will require preinstalled WebView2 runtime"; \
-	fi
-	$(call step,Creating Launcher,Generating bundle_exec.bat)
-	@sed -e 's/@EXE_NAME@/$(EXE_NAME)/g' \
-	     -e 's/@EXE_VERSION@/$(EXE_VERSION)/g' \
-	     -e 's/@OS_NAME@/$(OS_NAME)/g' \
-	     script_templates/bundle_exec.template.bat > $(BUILD_PATH)/bundle_exec.bat
-	$(call step,Bundle Complete,Run with: $(BUILD_PATH)/bundle_exec.bat)
-else ifeq ($(OS_NAME),macos)
-	@echo "macOS does not require library bundling - WebKit is a system framework"
-else
-	@echo "Bundling not supported for $(OS_NAME)"
-endif
-endif
-# -----------------------------------------------------------------------------
-# PHONY TARGET: Verify bundle completeness
-# -----------------------------------------------------------------------------
-verify-bundle:
-ifeq ($(OS_NAME),linux)
-	$(call step,Verifying Bundle,Checking $(ARCH) dependencies)
-	@if [ ! -d "$(BUILD_PATH)/lib-$(ARCH)" ]; then \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "lib-$(ARCH) not found - run: make BUNDLE=true"; \
-		exit 1; \
-	fi
-	@cd $(BUILD_PATH) && LD_LIBRARY_PATH=./lib-$(ARCH):$$LD_LIBRARY_PATH ldd ./$(EXE) | grep "not found" && \
-		(printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "Missing dependencies in executable" && exit 1) || true
-	@cd $(BUILD_PATH) && failed=0; \
-	for lib in lib-$(ARCH)/*.so*; do \
-		missing=$$(LD_LIBRARY_PATH=./lib-$(ARCH):$$LD_LIBRARY_PATH ldd "$$lib" 2>/dev/null | grep "not found"); \
-		if [ -n "$$missing" ]; then \
-			echo "Missing in $$lib: $$missing"; \
-			failed=1; \
-		fi; \
-	done; \
-	if [ $$failed -eq 0 ]; then \
-		printf "$(CYAN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Verification Complete" "All dependencies satisfied"; \
-	else \
-		exit 1; \
-	fi
-else ifeq ($(OS_NAME),windows)
-	$(call step,Verifying Bundle,Checking $(ARCH) WebView2 components)
-	@if [ ! -d "$(BUILD_PATH)/lib-$(ARCH)" ]; then \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Error" "lib-$(ARCH) not found - run: make BUNDLE=true"; \
-		exit 1; \
-	fi
-	@if [ -f "$(BUILD_PATH)/lib-$(ARCH)/WebView2Loader.dll" ]; then \
-		SIZE=$$(du -h $(BUILD_PATH)/lib-$(ARCH)/WebView2Loader.dll | cut -f1); \
-		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Loader" "Present" "Size" "$$SIZE"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "WebView2Loader.dll not found"; \
-	fi
-	@if [ -f "$(BUILD_PATH)/lib-$(ARCH)/MicrosoftEdgeWebview2Setup.exe" ]; then \
-		SIZE=$$(du -h $(BUILD_PATH)/lib-$(ARCH)/MicrosoftEdgeWebview2Setup.exe | cut -f1); \
-		printf "$(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET) $(GREEN)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Bootstrapper" "Present" "Size" "$$SIZE"; \
-	else \
-		printf "$(YELLOW)$(BOLD)%s$(RESET) $(MAGENTA)%s$(RESET)\n" "Warning" "MicrosoftEdgeWebview2Setup.exe not found"; \
-	fi
-	$(call step,Verification Complete,Bundle ready for deployment)
-else ifeq ($(OS_NAME),macos)
-	$(call step,No Bundling Needed,macOS uses system WebKit framework)
-else
-	$(call warn,Not Supported,Bundle verification unavailable for $(OS_NAME))
-endif
 # -----------------------------------------------------------------------------
 # Includes
 # -----------------------------------------------------------------------------

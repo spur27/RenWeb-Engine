@@ -164,24 +164,36 @@ export const Utils = {
 declare global {
     interface Window {
         /**
-         * Callback invoked when a message is received from another RenWeb process.
-         * @param msg - The message object received. \
-         * The `msg` param will already be decoded when it's passed. \
-         * Messages should automatically be encoded as an object with `sender` and `message` properties, \
-         * but this is not guaranteed.
-         * @example
-         * window.onServerMessage = async (msg) => {
-         *     if (msg?.sender != null) {
-         *        await Log.info(`Received message from PID ${msg.sender?.pid}:`, msg?.message);
-         *    } else {
-         *        await Log.info(`Received unformatted message:`, msg?.message);
-         *    }
-         * };
+         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
+         * before page content renders to ensure they are invoked at the right time.
          */
-        onServerMessage: (msg: ({sender: Process, message: any}) | any) => Promise<void>;
+        renweb: {
+            /**
+             * Called after the browser's first painted frame on every page navigation.
+             * More reliable than `window.onload` for avoiding the white flash when using
+             * `initially_shown: false`. Use this to show the window once ready.
+             * @example
+             * window.renweb.onReady = async () => { await Window.show(true); };
+             */
+            onReady?: () => void | Promise<void>;
+            /**
+             * Called when the window is about to close. Use for cleanup before exit.
+             * @example
+             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+             */
+            onTerminate?: () => void | Promise<void>;
+            /**
+             * Called when a message is received from another RenWeb process via `proc.send()`.
+             * The `msg` parameter will already be decoded.
+             * @example
+             * window.renweb.onServerMessage = async (msg) => {
+             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+             * };
+             */
+            onServerMessage?: (msg: ({sender: Process, message: any}) | any) => void | Promise<void>;
+        };
     }
 }
-window.onServerMessage = async (msg: any) => { };
 
 /**
  * Window property getters and setters.
@@ -421,8 +433,10 @@ export namespace Window {
      * Terminates the current window/process.
      * @returns Promise that resolves when termination starts
      */
-    export async function terminate(): Promise<void> 
-        { await BIND_terminate(null); }
+    export async function terminate(): Promise<void> {
+        await window.renweb?.onTerminate?.();
+        await BIND_terminate(null);
+    }
     
     /**
      * Starts a window drag operation (allows moving the window).
@@ -677,6 +691,13 @@ export namespace Config {
      */
     export async function getConfig(): Promise<any> 
         {  return decode(await BIND_get_config(null)); }
+    
+        /**
+     * Gets the info json file.
+     * @returns Promise that resolves to the info object
+     */
+    export async function getInfo(): Promise<any> 
+        {  return decode(await BIND_get_info(null)); }
 
     /**
      * Gets the config set for \_\_defaults\_\_.
@@ -1519,6 +1540,7 @@ declare const BIND_get_tmp_dir_path: (...args: any[]) => Promise<any>;
 declare const BIND_download_uri: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_config: (...args: any[]) => Promise<any>;
+declare const BIND_get_info: (...args: any[]) => Promise<any>;
 declare const BIND_get_defaults: (...args: any[]) => Promise<any>;
 declare const BIND_get_state: (...args: any[]) => Promise<any>;
 declare const BIND_load_state: (...args: any[]) => Promise<any>;

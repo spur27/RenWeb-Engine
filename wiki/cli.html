@@ -72,7 +72,7 @@ rw --help</code></pre>
                     <tbody>
                         <tr><td><code>rw create</code></td><td>Scaffold a new RenWeb project from a template</td></tr>
                         <tr><td><code>rw init</code></td><td>Integrate RenWeb into an existing project (Angular, Vite, Deno, or vanilla)</td></tr>
-                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, bundle, plugin header, or JS API files</td></tr>
+                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, plugin header, or JS API files</td></tr>
                         <tr><td><code>rw run</code></td><td>Launch the engine — walks up from cwd to find <code>build/</code> and the host executable</td></tr>
                         <tr><td><code>rw build</code></td><td>Prepare <code>build/</code> for launch — copy pages, fetch engine and plugins, then delegate to Vite or mirror <code>src/</code></td></tr>
                         <tr><td><code>rw update</code></td><td>Update the engine, JS modules, npm/bun packages, and plugins in an existing project</td></tr>
@@ -85,7 +85,7 @@ rw --help</code></pre>
 
                 <div class="info-box">
                     <h3><code>engine_repository</code> — Custom engine source</h3>
-                    <p>All commands that download engine files (executables, bundles, API
+                    <p>All commands that download engine files (executables, API
                     modules, plugin headers) read the <code>engine_repository</code> field from
                     the project's <code>info.json</code>. When set, it overrides the default
                     <code>https://github.com/spur27/RenWeb-Engine</code> source for all
@@ -254,7 +254,6 @@ rw init ./my-project</code></pre>
                     </thead>
                     <tbody>
                         <tr><td><code>--executable</code></td><td>Download the bare engine executable (default when no flag is given)</td></tr>
-                        <tr><td><code>--bundle</code></td><td>Download the bundled release archive (<code>.tar.gz</code>) and extract it</td></tr>
                         <tr><td><code>--plugin</code></td><td>Download plugin assets into the current directory</td></tr>
                         <tr><td><code>--api</code></td><td>Download the JS API type definitions and source files (<code>index.js</code>, <code>index.d.ts</code>, <code>index.ts</code>)</td></tr>
                         <tr><td><code>--version &lt;tag&gt;</code></td><td>Pin to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
@@ -267,9 +266,6 @@ rw init ./my-project</code></pre>
                 <h3>Examples</h3>
                 <pre><code class="language-bash"># Download the engine executable (host platform auto-detected)
 rw fetch
-
-# Download a full bundled release
-rw fetch --bundle
 
 # Download JS API type definitions
 rw fetch --api
@@ -340,27 +336,22 @@ rw build &amp;&amp; rw run</code></pre>
                         <tr><th>Flag</th><th>Description</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--bundle</code></td><td>Fetch a bundle release (executable + <code>lib/</code> + <code>bundle_exec</code> launcher). Archive is cached in <code>.rw/bundles/</code>.</td></tr>
                         <tr><td><code>--meta-only</code></td><td>Run only the meta steps (copy manifests, fetch engine, fetch plugins) and skip the JS build. Designed for use as an npm <code>prebuild</code> hook.</td></tr>
                     </tbody>
                 </table>
 
                 <h3>What vanilla build does</h3>
                 <ol>
-                    <li>Selectively clears <code>build/content/</code>, <code>build/licenses/</code>, <code>build/resource/</code>, <code>build/assets/</code>, <code>build/info.json</code>, and <code>build/config.json</code>. The engine executable, <code>lib/</code>, <code>lib-*/</code>, <code>plugins/</code>, and <code>bundle_exec*</code> are <strong>never</strong> removed.</li>
+                    <li>Selectively clears <code>build/content/</code>, <code>build/licenses/</code>, <code>build/resource/</code>, <code>build/assets/</code>, <code>build/info.json</code>, and <code>build/config.json</code>. The engine executable, <code>lib/</code>, <code>lib-*/</code>, and <code>plugins/</code> are <strong>never</strong> removed.</li>
                     <li>Copies <code>info.json</code> and <code>config.json</code> → <code>build/</code></li>
                     <li>Copies each page directory from <code>src/content/</code> → <code>build/content/</code>, seeding <code>src/modules/</code> into each page's <code>modules/</code> subdirectory</li>
                     <li>Copies <code>src/assets/</code> → <code>build/assets/</code>, <code>licenses/</code> → <code>build/licenses/</code>, <code>resource/</code> → <code>build/resource/</code></li>
                     <li>Ensures the engine executable is present: checks <code>.rw/executables/</code> cache first, downloads from GitHub and caches on first use</li>
-                    <li>With <code>--bundle</code>: fetches the bundle archive to <code>.rw/bundles/</code> cache and extracts <code>lib/</code>, <code>bundle_exec*</code>, and the engine executable into <code>build/</code></li>
                 </ol>
 
                 <h3>Examples</h3>
                 <pre><code class="language-bash"># Vanilla: copy pages + ensure engine
 rw build
-
-# Vanilla: use a bundled release (needed when system libs differ)
-rw build --bundle
 
 # Build then run
 rw build &amp;&amp; rw run</code></pre>
@@ -382,16 +373,14 @@ rw build &amp;&amp; rw run</code></pre>
                     Updates the project to the latest engine release. Also runs the package
                     manager install step (npm/bun/yarn/pnpm), re-downloads vanilla JS API
                     modules from GitHub, and updates all plugins listed in
-                    <code>info.json["plugins"]</code>. Automatically detects whether the
-                    project uses a bare executable or a bundle. On macOS, always behaves as
-                    <code>--executable-only</code> for the engine.
+                    <code>info.json["plugins"]</code>.
                 </p>
 
                 <h3>What it does</h3>
                 <ol>
                     <li>Runs the project's package manager install (<code>npm install</code>, <code>bun install</code>, etc.) if a <code>package.json</code> or <code>deno.json</code> is present</li>
                     <li>Re-downloads <code>src/modules/renweb/index.js</code> and <code>index.d.ts</code> from the engine repository (vanilla projects only)</li>
-                    <li>Downloads the engine executable (bare or bundle) from the specified or latest release, replacing the old version in <code>build/</code></li>
+                    <li>Downloads the engine executable from the specified or latest release, replacing the old version in <code>build/</code></li>
                     <li>Updates plugins from their GitHub release assets: downloads to <code>.rw/plugins/</code> cache and copies the host-arch binary to <code>build/plugins/</code></li>
                     <li>Syncs the <code>version</code> field in <code>info.json</code> to match the downloaded release</li>
                 </ol>
@@ -405,8 +394,7 @@ rw build &amp;&amp; rw run</code></pre>
                         <tr><th>Flag</th><th>Description</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--plugins-only</code></td><td>Only update plugins — skip the engine executable and bundle</td></tr>
-                        <tr><td><code>--executable-only</code></td><td>Update the bare executable only (skip bundle artifacts)</td></tr>
+                        <tr><td><code>--plugins-only</code></td><td>Only update plugins — skip the engine executable</td></tr>
                         <tr><td><code>--version &lt;tag&gt;</code></td><td>Update to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
                     </tbody>
                 </table>
@@ -414,9 +402,6 @@ rw build &amp;&amp; rw run</code></pre>
                 <h3>Examples</h3>
                 <pre><code class="language-bash"># Auto-detect and update everything
 rw update
-
-# Update only the executable, keep current bundle libs
-rw update --executable-only
 
 # Pin to a specific version
 rw update --version 0.0.6</code></pre>
@@ -444,7 +429,6 @@ rw update --version 0.0.6</code></pre>
                         <tr><td><code>--arch &lt;arch&gt;</code></td><td>host arch</td><td>Target architecture: <code>x86_64</code>, <code>arm64</code>, <code>x86_32</code>, …</td></tr>
                         <tr><td><code>--ext &lt;ext&gt;</code></td><td>all</td><td>Limit to a single package format (e.g. <code>deb</code>, <code>nsis</code>, <code>flatpak</code>)</td></tr>
                         <tr><td><code>--cache &lt;dir&gt;</code></td><td>temp dir</td><td>Directory used to cache downloaded engine assets</td></tr>
-                        <tr><td><code>--bundle-only</code></td><td>—</td><td>Stage a bundled engine release (includes shared libs)</td></tr>
                         <tr><td><code>--executable-only</code></td><td>—</td><td>Stage the bare executable only</td></tr>
                         <tr><td><code>--engine-repo &lt;url&gt;</code></td><td>GitHub releases</td><td>Override the source repository URL for engine downloads</td></tr>
                         <tr><td><code>--plugin-repo &lt;url&gt;</code></td><td>—</td><td>Additional plugin repository to bundle with the package</td></tr>
@@ -482,10 +466,7 @@ rw package
 rw package --os linux --ext deb
 
 # Build a Windows NSIS installer (cross-platform where makensis is available)
-rw package --os windows --ext nsis
-
-# Package for Linux arm64 with a bundled engine
-rw package --os linux --arch arm64 --bundle-only</code></pre>
+rw package --os windows --ext nsis</code></pre>
             </section>
 
             <!-- ── docker ────────────────────────────────────────────────── -->

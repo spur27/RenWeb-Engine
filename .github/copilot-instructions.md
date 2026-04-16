@@ -102,11 +102,8 @@ RenWeb-engine/
 │       └── process_manager.hpp         # ProcessManager (multi-window subprocess)
 │
 ├── build/                              # Build output directory (git-tracked defaults)
-│   ├── bundle_exec.sh                  # Bundle runtime launcher (3-tier lib resolution)
 │   ├── config.json                     # Default window configuration for testing
 │   ├── info.json                       # Default project metadata for testing
-│   ├── lib/                            # Generic bundled shared libraries (tier-2)
-│   ├── lib-x86_64/                     # Arch-specific bundled libs (tier-1 example)
 │   ├── content/                        # Web content pages
 │   │   ├── hello/                      # Hello world example page
 │   │   ├── media/                      # Media player demo page
@@ -120,12 +117,6 @@ RenWeb-engine/
 │   ├── cpp-httplib/                    # Single-header HTTP server
 │   ├── spdlog/                         # Logger headers
 │   └── webview/                        # Webview abstraction headers
-│
-├── script_templates/                   # Canonical templates for bundle scripts
-│   ├── bundle_exec.template.sh         # Unix template (license-only comments)
-│   ├── bundle_exec.template.bat        # Windows template (license-only comments)
-│   ├── bundle_exec.explanation.sh.md   # Explanation doc for Unix bundle script
-│   └── bundle_exec.explanation.bat.md  # Explanation doc for Windows bundle script
 │
 ├── docs/                               # PlantUML class diagrams (.puml)
 ├── web/                                # JS API definitions and example web content
@@ -142,8 +133,7 @@ RenWeb-engine/
 ├── info.json                           # Project metadata (name, version, app_id)
 ├── config.json                         # Default window configuration
 ├── compile_commands.json               # clangd / IDE support
-├── package.json                        # Node.js metadata (for CLI tool)
-└── BUNDLE_NOTES.md                     # Bundle system documentation
+└── package.json                        # Node.js metadata (for CLI tool)
 ```
 
 ---
@@ -262,14 +252,13 @@ Each page key (e.g., `"test"`) can override any `__defaults__` property.
 | `TOOLCHAIN` | (empty = native) | Cross-compiler prefix (e.g., `aarch64-linux-gnu`) |
 | `ARCH` | auto-detected | Target architecture label (e.g., `arm64`, `x86_64`) |
 | `TARGET` | `debug` | Build mode: `debug` or `release` |
-| `BUNDLE` | `false` | Produce a bundled build (includes library tier) |
 | `WIN7_COMPAT` | `false` | Windows 7 compatibility mode |
 | `OS_NAME` | auto-detected | `linux`, `macos`, or `windows` |
 | `BUILD_PATH` | `./build` | Output directory |
 | `EXE_NAME` | from `info.json` | Executable base name |
 | `EXE_VERSION` | from `info.json` | Executable version string |
 
-**Critical for AI**: `BUNDLE` and `WIN7_COMPAT` are set with `ifndef` guards.
+**Critical for AI**: `WIN7_COMPAT` is set with a `ifndef` guard.
 The existing environment value takes precedence over the makefile default.
 When modifying makefile defaults, always use the `ifndef VAR` / `VAR := value` pattern.
 
@@ -309,7 +298,6 @@ Windows: `cl.exe`; arch from `VSCMD_ARG_TGT_ARCH` or `PROCESSOR_ARCHITECTURE`.
 ```sh
 make                          # Debug build (native arch)
 make TARGET=release           # Release build
-make BUNDLE=true              # Build with bundled libraries
 make TOOLCHAIN=aarch64-linux-gnu  # Cross-compile for arm64
 make clean                    # Remove build artifacts
 ```
@@ -326,37 +314,9 @@ Builds for all supported architectures on the current OS:
 Options:
 
 ```sh
-./build_all_archs.sh                   # Build both executables and bundles
-./build_all_archs.sh --bundle-only     # Bundles only
-./build_all_archs.sh --executable-only # Executables only
-./build_all_archs.sh --arch arm64      # Filter to one architecture
+./build_all_archs.sh                # Build executables for all architectures
+./build_all_archs.sh --arch arm64   # Filter to one architecture
 ```
-
----
-
-## Bundle System (3-Tier Library Resolution)
-
-The bundle execution script (`build/bundle_exec.sh`) resolves shared libraries
-in three tiers at runtime:
-
-```
-Tier 1: ./lib-<arch>/   → architecture-specific bundled libs  (preferred)
-    ↓ (if not found)
-Tier 2: ./lib/          → generic bundled libs                 (fallback)
-    ↓ (if not found)
-Tier 3: /lib            → system libs (musl or glibc)          (last resort)
-```
-
-**musl/glibc isolation**: The script detects the host ABI by checking whether
-`/lib/ld-musl-*` exists. This allows the bundle to ship libraries for both
-glibc and musl targets in separate tier-1 directories.
-
-**WebKit handling**: `WEBKIT_DISABLE_COMPOSITING_MODE=1` is set before launch.
-WebKit libraries may require special `LD_PRELOAD` ordering on some systems.
-
-The template source is `script_templates/bundle_exec.template.sh`.
-The deployed copy is `build/bundle_exec.sh`. Both must be kept in sync when
-making structural changes to the resolution logic.
 
 ---
 
@@ -490,7 +450,6 @@ Each window is a separate OS process running the same executable with different
 - GTK 3/4 development headers required
 - Cross-compilation uses standard GNU toolchain prefixes
 - `WEBKIT_DISABLE_COMPOSITING_MODE=1` may be needed in some GPU environments
-- Bundle script manages `LD_LIBRARY_PATH` and optional WebKit `LD_PRELOAD`
 - `g++` with `-std=c++20` and system `--sysroot` for cross-compilation
 
 ### macOS (WKWebView)
@@ -595,8 +554,7 @@ Every `.sh` file must begin with:
 ```
 
 Shell scripts should contain **only** the license header as comments.
-Inline code comments (beyond the license block) are placed in `.md` explanation
-files (`script_templates/bundle_exec.explanation.sh.md` pattern).
+Inline explanatory comments belong in separate `.md` documentation files.
 
 ### Namespace
 
@@ -638,13 +596,13 @@ them in mind at all times.
 
 ### makefile Guards
 
-`BUNDLE` and `WIN7_COMPAT` are set with `ifndef`. An environment variable set
+`WIN7_COMPAT` is set with `ifndef`. An environment variable set
 before `make` takes precedence over the makefile default. When modifying these
 defaults, preserve the `ifndef` pattern:
 
 ```makefile
-ifndef BUNDLE
-    BUNDLE := false
+ifndef WIN7_COMPAT
+    WIN7_COMPAT := false
 endif
 ```
 
@@ -669,17 +627,6 @@ registered in `WindowFunctions::setup()`.
 The global default window properties live under the key `"__defaults__"` in
 `config.json`. This key is special-cased in `Config::getProperty()` — it is
 not a real page name.
-
-### Bundle Script LIB_DIR Logic
-
-When editing `build/bundle_exec.sh` or `script_templates/bundle_exec.template.sh`,
-the `LIB_DIR` three-tier resolution selects from:
-- `lib-${ARCH}/` (tier 1, arch-specific)
-- `lib/` (tier 2, generic)
-- `/lib` (tier 3, system)
-
-The musl/glibc detection checks the **host** system's `/lib` for
-`ld-musl-*` patterns — not the bundle's `lib/` directory.
 
 ### Executable Size Goal
 
@@ -733,7 +680,7 @@ are installed or recommended for this project:
 | File | Scope | Benefit |
 |------|-------|---------|
 | `html-css-style-color-guide.instructions.md` | `*.html, *.css, *.js` | Color palette + accessibility for web content |
-| `shell.instructions.md` | `*.sh` | Shell scripting best practices for bundle scripts |
+| `shell.instructions.md` | `*.sh` | Shell scripting best practices |
 | `makefile.instructions.md` | `makefile` | GNU Make conventions and patterns |
 | `security-and-owasp.instructions.md` | all | OWASP Top 10 for the HTTP server and JS bindings |
 | `performance-optimization.instructions.md` | all | Performance guidance for both C++ and JS |

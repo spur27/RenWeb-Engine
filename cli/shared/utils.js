@@ -239,8 +239,6 @@ function rwPluginsDir(root)      { return path.join(root, '.rw', 'plugins'); }
 function rwTrashDir(root)        { return path.join(root, '.rw', 'trash'); }
 /** Absolute path to the .rw/executables/ cache directory. */
 function rwExecutablesDir(root)  { return path.join(root, '.rw', 'executables'); }
-/** Absolute path to the .rw/bundles/ cache directory. */
-function rwBundlesDir(root)      { return path.join(root, '.rw', 'bundles'); }
 
 /**
  * Ensure '.rw/' appears in the project's .gitignore.
@@ -300,7 +298,6 @@ module.exports = {
     rwPluginsDir,
     rwTrashDir,
     rwExecutablesDir,
-    rwBundlesDir,
     ensureRwGitignore,
     parseGitHubUrl,
 };

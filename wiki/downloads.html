@@ -110,84 +110,12 @@ xattr -d com.apple.quarantine renweb-macos-*
                 </div>
             </section>
 
-            <!-- Bundles Section -->
-            <section id="bundles" class="card">
-                <h2>Bundles</h2>
-                <p class="intro-text">
-                    Bundles include the RenWeb executable as well as all runtime libraries and dependencies.
-                    To use them, simply merge the bundle directory with a RenWeb directory to produce a directory with
-                    <a href="../?page=usage#file-structure">this structure</a>.
-                </p>
-
-                <div class="version-selector-container">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <label for="bundle-version-select">Version:</label>
-                        <select id="bundle-version-select" class="version-select-input">
-                            <option value="">Loading versions...</option>
-                        </select>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <label for="archive-ext-select">Archive:</label>
-                        <select id="archive-ext-select" class="version-select-input">
-                            <option value="zip">zip</option>
-                            <option value="tar.gz">tar.gz</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="os-tabs">
-                    <button class="tab-btn active" data-target="bundle-linux"><span
-                            class="os-linux">Linux</span></button>
-                    <button class="tab-btn" data-target="bundle-windows"><span
-                            class="os-windows">Windows</span></button>
-                    <button class="tab-btn" data-target="bundle-macos"><span class="os-macos">macOS</span></button>
-                </div>
-
-                <!-- Linux Bundles -->
-                <div id="bundle-linux" class="tab-content active">
-                    <div class="subsection">
-                        <div id="linux-bundles" class="loading">Loading bundles...</div>
-                    </div>
-                    <div class="highlight-box" style="margin-top: 1.5rem;">
-                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
-                        <code>bundle-exec.sh</code> script:
-                        <pre><code class="language-bash">chmod +x bundle-exec.sh
-./bundle-exec.sh</code></pre>
-                    </div>
-                </div>
-
-                <!-- Windows Bundles -->
-                <div id="bundle-windows" class="tab-content">
-                    <div class="subsection">
-                        <div id="windows-bundles" class="loading">Loading bundles...</div>
-                    </div>
-                    <div class="highlight-box" style="margin-top: 1.5rem;">
-                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
-                        <code>bundle-exec.bat</code> script:
-                        <pre><code class="language-bash">bundle-exec.bat</code></pre>
-                    </div>
-                </div>
-
-                <!-- macOS Bundles -->
-                <div id="bundle-macos" class="tab-content">
-                    <div class="subsection">
-                        <div class="loading">MacOS has no dependencies and doesn't need bundles. You can run it with
-                            just the executable!</div>
-                    </div>
-                </div>
-
-            </section>
-
             <!-- Examples Section -->
             <section id="examples" class="card">
                 <h2>Examples</h2>
                 <p class="intro-text">
                     These examples contain the test pages for RenWeb. All you need to do is download an example, extract
-                    it, download an executable,
-                    place it in the example directory, and run it. You can fill the <code>lib</code> directory with the
-                    libs from a bundle if you
-                    are running dependencyless (run the <code>bundle-exec</code> script instead of the RenWeb executable
-                    when doing this).
+                    it, download an executable, place it in the example directory, and run it.
                 </p>
 
                 <div class="version-selector-container">

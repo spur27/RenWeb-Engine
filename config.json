@@ -19,19 +19,19 @@
     "initially_shown": false
   },
   "hello": {
-    "title": "Hello World",
+    "title": "RenWeb ~ Hello World",
     "merge_defaults": true
   },
   "media": {
-    "title": "Media",
+    "title": "RenWeb ~ Media",
     "merge_defaults": true
   },
   "security": {
-    "title": "Security",
+    "title": "RenWeb ~ Security",
     "merge_defaults": true
   },
   "test": {
-    "title": "Test",
+    "title": "RenWeb ~ Test",
     "merge_defaults": true
   }
 }

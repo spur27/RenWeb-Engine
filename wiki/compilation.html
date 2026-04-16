@@ -186,14 +186,6 @@ make TARGET=release</code></pre>
                             <td>Build in release mode with optimizations</td>
                         </tr>
                         <tr>
-                            <td><code>make BUNDLE=true</code></td>
-                            <td>Bundle runtime libraries for portable deployment (<span class="os-linux">Linux</span>/<span class="os-macos">macOS</span>)</td>
-                        </tr>
-                        <tr>
-                            <td><code>make verify-bundle</code></td>
-                            <td>Verify bundled libraries are complete</td>
-                        </tr>
-                        <tr>
                             <td><code>make sub_modules</code></td>
                             <td>Build the external submodules</td>
                         </tr>
@@ -241,10 +233,7 @@ make ARCH=x86_64 TARGET=release</code></pre>
                 <h3>Multi-Architecture Builds</h3>
                 <p>The <code>build_all_archs.sh</code> script automates building for all supported architectures:</p>
                 <pre><code class="language-bash"># Build all architectures
-./build_all_archs.sh
-
-# Build with bundled libraries (Linux only)
-./build_all_archs.sh --bundle</code></pre>
+./build_all_archs.sh</code></pre>
             </section>
 
             <section id="architectures" class="card">

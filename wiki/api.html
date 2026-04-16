@@ -1630,6 +1630,26 @@ await FS.rm("folder", { recursive: true });</code></pre>
                     </div>
                 </div>
 
+                <div id="config-getinfo" class="api-method">
+                    <h3>
+                        Config.getInfo()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getInfo(): Promise&lt;any&gt;</code></div>
+                    <p class="method-description">Gets the contents of the <code>info.json</code> file — application metadata including name, version, author, license, and permissions.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any&gt;</span> - The parsed info.json object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const info = await Config.getInfo();
+await Log.debug(info.title, info.version);</code></pre>
+                    </div>
+                </div>
+
                 <div id="config-getdefaults" class="api-method">
                     <h3>
                         Config.getDefaults()
@@ -2822,31 +2842,84 @@ Utils.serialize([1, 2, 3]); // Returns: "[1,2,3]"</code></pre>
                     These functions are particularly useful for managing communication between different parts of the application.
                 </p>
 
-                <div id="callbacks-onservermessage" class="api-method">
+                <div id="callbacks-window-renweb-onready" class="api-method">
                     <h3>
-                        window.onServerMessage
+                        window.renweb.onReady
                     </h3>
-                    <div class="method-signature"><code>window.onServerMessage = async (message: any) => { ... }</code></div>
+                    <div class="method-signature"><code>window.renweb.onReady = async () => { ... }</code></div>
                     <p class="method-description">
-                        Handles messages received from the server. This function is called whenever a message is received, and the message is passed as an argument.
+                        Called once the application is fully initialised and the window is ready for interaction.
+                        Assign this callback before or during <code>window.onload</code> — if it is assigned after the
+                        ready signal has already fired (e.g. deep inside an async <code>window.onload</code> after
+                        several awaits), the framework detects this and calls it immediately.
+                    </p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onReady = async () => {
+    await Window.show(true);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onterminate" class="api-method">
+                    <h3>
+                        window.renweb.onTerminate
+                    </h3>
+                    <div class="method-signature"><code>window.renweb.onTerminate = async () => { ... }</code></div>
+                    <p class="method-description">
+                        Called just before the window closes, whether triggered programmatically via
+                        <code>Window.terminate()</code>, by the user clicking the title-bar X button, or by
+                        <code>Ctrl+C</code> in the terminal. Use this to save state, flush logs, or perform
+                        any other cleanup before exit.
+                        <br><br>
+                        <strong>Note:</strong> When triggered by <code>Window.terminate()</code> the callback is
+                        fully <code>await</code>-ed before the window closes. When triggered by the OS close button
+                        or <code>Ctrl+C</code> the callback is best-effort — very long async operations may be
+                        cut short.
+                    </p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onTerminate = async () => {
+    await Config.saveConfig();
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onservermessage" class="api-method">
+                    <h3>
+                        window.renweb.onServerMessage
+                    </h3>
+                    <div class="method-signature"><code>window.renweb.onServerMessage = async (message: any) => { ... }</code></div>
+                    <p class="method-description">
+                        Called whenever another RenWeb process sends a message to this window via
+                        <code>Process.send()</code>. The <code>message</code> argument contains the decoded payload
+                        along with a <code>sender</code> property identifying the originating process.
                     </p>
                     <div class="method-params">
                         <h4>Parameters</h4>
                         <ul>
                             <li>
                                 <span class="param-name">message</span>
-                                <span class="param-type">any</span>
-                                <span class="param-description">- The message received from the server</span>
+                                <span class="param-type">{ sender: Process, message: any } | any</span>
+                                <span class="param-description">- The decoded message payload</span>
                             </li>
                         </ul>
                     </div>
                     <div class="method-returns">
                         <h4>Returns</h4>
-                        <p><span class="param-type">void</span> - This function does not return a value</p>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
                     </div>
                     <div class="method-example">
                         <h4>Example</h4>
-                        <pre><code class="language-javascript">window.onServerMessage = async (message) => {
+                        <pre><code class="language-javascript">window.renweb.onServerMessage = async (message) => {
     await Log.debug("Received message:", message);
 };</code></pre>
                     </div>

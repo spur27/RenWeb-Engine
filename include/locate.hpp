@@ -117,27 +117,13 @@ namespace RenWeb {
         /**
          * Returns the filesystem path to the current RenWeb executable.
          *
-         * First checks the `RENWEB_EXECUTABLE_PATH` environment variable, allowing
-         * the executable location to be overridden at launch (useful in bundle
-         * environments). Falls back to `wai_getExecutablePath` from whereami.
+         * Uses `wai_getExecutablePath` from the embedded whereami library to
+         * resolve the real path of the executable at runtime.
          *
          * @return Absolute path to the current executable.
          * @throws std::runtime_error if the executable path cannot be determined.
          */
         inline std::filesystem::path executable() {
-          #if defined(_WIN32)
-            char* env_path = nullptr;
-            size_t len = 0;
-            if (_dupenv_s(&env_path, &len, "RENWEB_EXECUTABLE_PATH") == 0 && env_path) {
-                std::filesystem::path path(env_path);
-                std::free(env_path);
-                return path;
-            }
-          #else
-            const char* env_path = std::getenv("RENWEB_EXECUTABLE_PATH");
-          #endif
-            if (env_path && *env_path)
-                return std::filesystem::path(env_path);
             const int length = wai_getExecutablePath(nullptr, 0, nullptr);
             if (length < 0) {
                 throw std::runtime_error("Could not get executable path");

@@ -1759,6 +1759,10 @@ WF* WF::setConfigCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             return this->app->config->getJson();
+    }))->add("get_info",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return this->app->info->getJson();
     }))->add("get_defaults",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;

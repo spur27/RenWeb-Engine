@@ -73,7 +73,7 @@
                     
                     <div class="requirement-card">
                         <h4>Required Runtime Libraries</h4>
-                        <ul>n
+                        <ul>
                             <li><strong>libwebkit2gtk-4.1-0</strong> - WebKitGTK 4.1 WebView runtime (JS engine, DOM, networking)</li>
                             <li><strong>libgtk-3-0</strong> - GTK 3 windowing and widget toolkit</li>
                             <li><strong>gstreamer1.0-plugins-base</strong> - Core GStreamer codecs (Ogg, Vorbis, Theora)</li>
@@ -321,13 +321,11 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         <li><span style="color: #ce9178; font-weight: bold;">●</span> Required files/directories</li>
                         <li><span style="color: #dcdcaa; font-weight: bold;">●</span> Auto-generated files</li>
                         <li><span style="color: #569cd6; font-weight: bold;">●</span> Optional directories</li>
-                        <li><span style="color: #c586c0; font-weight: bold;">●</span> Bundle-specific (for dependencyless mode)</li>
                         <li><span style="color: #6a9955; font-weight: bold;">●</span> Comments</li>
                     </ul>
                 <div style="background: #1e1e1e; padding: 1.5rem; border-radius: 8px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 0.9rem; line-height: 1.6; overflow-x: auto; white-space: pre;">
 <span style="color: #dcdcdc;"><strong>build/</strong></span>
 <span style="color: #808080;">├──</span> <span style="color: #4ec9b0; font-weight: bold;">renweb</span>                        <span style="color: #6a9955;"># Executable</span>
-<span style="color: #808080;">├──</span> <span style="color: #c586c0;">bundle_exec</span>                   <span style="color: #6a9955;"># Bundle environment script (.sh or .bat) - for bundled libs</span>
 <span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">info.json</span>                     <span style="color: #6a9955;"># Application metadata - REQUIRED</span>
 <span style="color: #808080;">├──</span> <span style="color: #dcdcaa;">config.json</span>                   <span style="color: #6a9955;"># Window configuration - auto-generated</span>
 <span style="color: #808080;">├──</span> <span style="color: #dcdcaa;">log.txt</span>                       <span style="color: #6a9955;"># Application logs - auto-generated</span>
@@ -344,8 +342,6 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
 <span style="color: #808080;">├──</span> <span style="color: #569cd6;">backup/</span>                       <span style="color: #6a9955;"># Fallback content - optional</span>
 <span style="color: #808080;">│   └──</span> <span style="color: #808080;">(emergency fallback files)</span>
 <span style="color: #808080;">├──</span> <span style="color: #569cd6;">plugins/</span>                      <span style="color: #6a9955;"># Plugin libraries - optional</span>
-<span style="color: #808080;">│   └──</span> <span style="color: #808080;">(.so | .dll | .dylib)</span>
-<span style="color: #808080;">├──</span> <span style="color: #c586c0;">lib/</span>                         <span style="color: #6a9955;"># Bundled dependencies - for bundle mode</span>
 <span style="color: #808080;">│   └──</span> <span style="color: #808080;">(.so | .dll | .dylib)</span>
 <span style="color: #808080;">└──</span> <span style="color: #ce9178; font-weight: bold;">licenses/</span>                     <span style="color: #6a9955;"># License files</span>
 <span style="color: #808080;">    └── ...</span>

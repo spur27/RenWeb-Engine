@@ -126,6 +126,7 @@ window.apiData = {
     ],
     'Config': [
         {name: 'getConfig', signature: 'getConfig()', description: 'Returns: Promise<any>'},
+        {name: 'getInfo', signature: 'getInfo()', description: 'Returns: Promise<any> - Gets the info.json application metadata'},
         {name: 'getDefaults', signature: 'getDefaults()', description: 'Returns: Promise<any>'},
         {name: 'getState', signature: 'getState()', description: 'Returns: Promise<any>'},
         {name: 'loadState', signature: 'loadState(state)', description: 'Returns: Promise<void>'},
@@ -184,7 +185,9 @@ window.apiData = {
         {name: 'serialize', signature: 'serialize(obj)', description: 'Serialize an object to JSON'}
     ],
     'Callbacks': [
-        {name: 'onServerMessage', signature: 'window.onServerMessage = async (message) => {...}', description: 'Handles messages received from the server.'},
+        {name: 'window.renweb.onReady', signature: 'window.renweb.onReady = async () => {...}', description: 'Called once the application is fully initialised and ready for interaction.'},
+        {name: 'window.renweb.onTerminate', signature: 'window.renweb.onTerminate = async () => {...}', description: 'Called just before the window closes. Use for cleanup, saving state, or flushing logs.'},
+        {name: 'window.renweb.onServerMessage', signature: 'window.renweb.onServerMessage = async (message) => {...}', description: 'Called when another process sends a message to this window via Process.send().'},
     ],
     'Plugin': [
         // Constructor

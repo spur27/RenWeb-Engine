@@ -320,9 +320,7 @@ void WebServer::setMethodCallbacks() {
                 "  }"
                 "  const message = JSON.parse('" + escaped_body + "');"
                 "  const decoded = decodeObj(message);"
-                "  if (window.onServerMessage && typeof window.onServerMessage === 'function') {"
-                "    await window.onServerMessage(decoded);"
-                "  }"
+                "  await window.renweb?.onServerMessage?.(decoded);"
                 "})();";
             this->app->w->dispatch([this, callback_js]() {
                 this->app->w->eval(callback_js);

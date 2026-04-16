@@ -2,29 +2,14 @@
 
 const fs            = require('fs');
 const path          = require('path');
-const os            = require('os');
-const { spawnSync } = require('child_process');
 const {
     copyDir, detectTarget, fetchRelease, download,
     findProjectExecutable,
-    rwExecutablesDir, rwBundlesDir, ensureRwGitignore,
+    rwExecutablesDir, ensureRwGitignore,
 } = require('../shared/utils');
 const { fetchPlugins } = require('../shared/fetchers');
 const { ProjectState } = require('../project/project_state');
 const ui = require('../shared/ui');
-
-function removeBundleArtifacts(buildDir) {
-    if (!fs.existsSync(buildDir)) return;
-    for (const name of fs.readdirSync(buildDir)) {
-        if (name !== 'lib' && !name.startsWith('bundle_exec') && !name.startsWith('lib-')) continue;
-        const full = path.join(buildDir, name);
-        try {
-            const s = fs.statSync(full);
-            if (s.isDirectory()) fs.rmSync(full, { recursive: true, force: true });
-            else fs.unlinkSync(full);
-        } catch (_) {}
-    }
-}
 
 function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     if (findProjectExecutable(buildDir, targetOs, targetArch)) return true;
@@ -63,64 +48,6 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     return true;
 }
 
-function ensureBundle(projectRoot, buildDir, targetOs, targetArch) {
-    const bundleDir = rwBundlesDir(projectRoot);
-    fs.mkdirSync(bundleDir, { recursive: true });
-    ensureRwGitignore(projectRoot);
-
-    const assetRE   = /^bundle-([\d][\w.]*)-(\w+)-([\w]+?)\.tar\.gz$/;
-    const matchesTarget = (name) => { const m = assetRE.exec(name); return m && m[2] === targetOs && m[3] === targetArch; };
-
-    let cachedArchive = null;
-    try { cachedArchive = fs.readdirSync(bundleDir).find(matchesTarget) || null; } catch (_) {}
-
-    if (!cachedArchive) {
-        ui.step(`Fetching bundle for ${targetOs}-${targetArch}…`);
-        const release = fetchRelease(null);
-        if (!release) { ui.warn('Could not reach GitHub — bundle not fetched'); return false; }
-        const asset = (release.assets || []).find(a => matchesTarget(a.name));
-        if (!asset)   { ui.warn(`No bundle asset for ${targetOs}-${targetArch}`); return false; }
-        cachedArchive = asset.name;
-        if (!download(asset.browser_download_url, path.join(bundleDir, cachedArchive))) {
-            ui.warn('Bundle download failed'); return false;
-        }
-        ui.ok(`Bundle cached: ${cachedArchive}`);
-    } else {
-        ui.info(`Using cached bundle: ${cachedArchive}`);
-    }
-
-    const archivePath = path.join(bundleDir, cachedArchive);
-    const tmpDir = path.join(os.tmpdir(), `renweb-bundle-${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const r = spawnSync('tar', ['-xzf', archivePath, '-C', tmpDir], { stdio: 'inherit' });
-    if (r.status !== 0) {
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
-        ui.warn('Bundle extraction failed'); return false;
-    }
-
-    const exePattern = new RegExp(`-${targetOs}-${targetArch}(\\.exe)?$`, 'i');
-    for (const name of fs.readdirSync(tmpDir)) {
-        const src  = path.join(tmpDir, name);
-        const dest = path.join(buildDir, name);
-        const stat = fs.statSync(src);
-        if (name === 'lib' && stat.isDirectory()) {
-            if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
-            copyDir(src, dest);
-        } else if (name.startsWith('bundle_exec') && stat.isFile()) {
-            fs.copyFileSync(src, dest);
-            try { fs.chmodSync(dest, 0o755); } catch (_) {}
-        } else if (exePattern.test(name) && stat.isFile()) {
-            const old = findProjectExecutable(buildDir, targetOs, targetArch);
-            if (old && old !== name) { try { fs.unlinkSync(path.join(buildDir, old)); } catch (_) {} }
-            fs.copyFileSync(src, dest);
-            try { fs.chmodSync(dest, 0o755); } catch (_) {}
-            ui.ok(`Engine: ${name}`);
-        }
-    }
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
-    return true;
-}
-
 function hasBuildScript(projectRoot, jsEngine) {
     try {
         if (jsEngine === 'node' || jsEngine === 'bun') {
@@ -136,7 +63,6 @@ function hasBuildScript(projectRoot, jsEngine) {
 }
 
 function run(args) {
-    const wantBundle = args.includes('--bundle');
     const metaOnly   = args.includes('--meta-only');
 
     let startCwd = process.cwd();
@@ -167,12 +93,7 @@ function run(args) {
         copyDir(src, dest);
     }
 
-    if (wantBundle) {
-        ensureBundle(projectRoot, buildDir, targetOs, targetArch);
-    } else {
-        removeBundleArtifacts(buildDir);
-        ensureExecutable(projectRoot, buildDir, targetOs, targetArch);
-    }
+    ensureExecutable(projectRoot, buildDir, targetOs, targetArch);
 
     fetchPlugins(projectRoot, buildDir, targetOs, targetArch);
 

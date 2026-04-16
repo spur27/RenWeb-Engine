@@ -303,6 +303,29 @@ private:
       };
       g_signal_connect(G_OBJECT(m_window), "destroy",
                        G_CALLBACK(on_window_destroy), this);
+      // RENWEB PATCH: Set the window icon from assets/icon.png next to the
+      // executable. Provides an X11 taskbar icon and a Wayland compositor
+      // fallback when the .desktop StartupWMClass match is unavailable (e.g.
+      // during development). GTK4 derives the icon from the application-id
+      // automatically, so this is only needed for GTK3.
+#if GTK_MAJOR_VERSION < 4
+      {
+          const char *renweb_exe_env = g_getenv("RENWEB_EXECUTABLE_PATH");
+          gchar *exe_path = renweb_exe_env
+                                ? g_strdup(renweb_exe_env)
+                                : g_file_read_link("/proc/self/exe", nullptr);
+          if (exe_path) {
+              gchar *dir = g_path_get_dirname(exe_path);
+              gchar *icon_path =
+                  g_build_filename(dir, "resource", "app.png", nullptr);
+              gtk_window_set_icon_from_file(
+                  GTK_WINDOW(m_window), icon_path, nullptr);
+              g_free(icon_path);
+              g_free(dir);
+              g_free(exe_path);
+          }
+      }
+#endif
     }
     webkit_dmabuf::apply_webkit_dmabuf_workaround();
     // Initialize webview widget

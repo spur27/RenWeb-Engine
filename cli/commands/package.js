@@ -11,8 +11,7 @@ const ui = require('../shared/ui');
 
 const DEFAULT_ENGINE_REPO = 'https://github.com/spur27/RenWeb-Engine';
 
-// Runtime dependencies for bare (non-bundle) builds, keyed by fpm/nfpm format.
-// Bundle releases carry their own .so libs and declare no runtime deps.
+// Runtime dependencies for bare executables, keyed by fpm/nfpm format.
 // Package names differ between formats; each entry uses the canonical name for
 // that format's package manager: apt (deb), dnf/zypper (rpm), pacman, apk (nfpm), pkg (freebsd).
 const LINUX_DEPS = {
@@ -21,10 +20,24 @@ const LINUX_DEPS = {
         recommended: ['gstreamer1.0-plugins-bad', 'gstreamer1.0-plugins-ugly'],
     },
     rpm: {
-        // Fedora / RHEL / openSUSE (dnf / zypper) — names differ from apt
-        required:    ['gtk3', 'webkit2gtk4.1', 'mesa-libEGL', 'gstreamer1-plugins-base', 'gstreamer1-plugins-good'],
-            /* FPM doesn't expose the recommended fields flags */
-            //recommended: ['gstreamer1-plugins-bad-free', 'gstreamer1-plugins-ugly-free'],
+        // Fedora/RHEL and openSUSE use different package names; RPM boolean deps
+        // (RPM 4.13+, Fedora 24+, openSUSE Leap 15+) let one .rpm satisfy both.
+        // WebKit2GTK 4.1 API packages by distro:
+        //   webkit2gtk4.1       = Fedora ≤41 / RHEL (dnf name for 4.1 API)
+        //   webkitgtk           = Fedora 42+ (package renamed upstream in F42)
+        //   webkit2gtk4         = openSUSE Tumbleweed (4.x series = 4.1 API)
+        //   webkit2gtk-4_1      = openSUSE (virtual provide by libwebkit2gtk-4_1-0)
+        //   libwebkit2gtk-4_1-0 = openSUSE Leap (actual runtime package name)
+        // NOTE: webkit2gtk3 (RHEL/CentOS) is the 4.0 API — intentionally excluded.
+        //   mesa-libEGL     = Fedora/RHEL    Mesa-libEGL1   = openSUSE
+        //   gstreamer1-*    = Fedora/RHEL    gstreamer-*    = openSUSE (no "1")
+        required: [
+            'gtk3',
+            '(webkit2gtk4.1 or webkitgtk or webkit2gtk4 or webkit2gtk-4_1 or libwebkit2gtk-4_1-0)',
+            '(mesa-libEGL or Mesa-libEGL1)',
+            '(gstreamer1-plugins-base or gstreamer-plugins-base)',
+            '(gstreamer1-plugins-good or gstreamer-plugins-good)',
+        ],
         recommended: [],
     },
     pacman: {
@@ -45,16 +58,17 @@ const LINUX_DEPS = {
     void: {
         // Void Linux (xbps-create) — libwebkit2gtk41 is the Void package for WebKit2GTK 4.1 (GTK3) API.
         // gst-plugins-base1 / gst-plugins-good1 are the correct Void package names.
-        required:    ['gtk+3', 'libwebkit2gtk41', 'mesa', 'gst-plugins-base1', 'gst-plugins-good1'],
+        // Version constraints (>=0_1) are required: without an explicit ><!=
+        // operator, xbps-install cannot reliably extract the pkgname from
+        // strings containing '+', causing "can't guess pkgname" errors.
+        required:    ['gtk+3>=0_1', 'libwebkit2gtk41>=0_1', 'mesa>=0_1', 'gst-plugins-base1>=0_1', 'gst-plugins-good1>=0_1'],
         recommended: [],
     },
 };
 
 // Asset filename patterns produced by the engine's build system:
 //   bare executable : {name}-{version}-{os}-{arch}[.exe]
-//   bundle archive  : bundle[-bootstrap]-{version}-{os}-{arch}.{zip|tar.gz}
 const RE_EXEC   = /^(.+)-(\d+[\w.]*)-(\w+)-([\w]+?)(?:\.exe)?$/;
-const RE_BUNDLE = /^bundle(?:-(bootstrap))?-(\d+[\w.]*)-(\w+)-([\w]+?)\.(zip|tar\.gz)$/;
 
 // Build files that must never be included in the packaged output
 const BUILD_EXCLUDES        = new Set(['log.txt', 'plugins', 'lib']);
@@ -444,17 +458,20 @@ function findAppIcon(stagingDir) {
  * Write post-install and post-remove shell scripts to temporary files.
  * Both scripts are made executable before being returned.
  * Returns { postInstall, postRemove } — paths to the created script files.
+ *
+ * Post-install is a no-op: the seed lives in /usr/share/<pkgId>/ (root-owned,
+ * read-only by design) and the mutable user copy is bootstrapped by the wrapper
+ * script on first launch — no chmod hacks required.
+ *
+ * Post-remove removes the seed but intentionally leaves each user's
+ * ~/.local/share/<pkgId>/ in place (they own that directory).
  */
-function makeLinuxPostScripts(pkgId, isBundle, tmpOutDir, suffix) {
+function makeLinuxPostScripts(pkgId, tmpOutDir, suffix) {
     const postInstall = path.join(tmpOutDir, `_renweb-postinstall-${suffix}.sh`);
     const postRemove  = path.join(tmpOutDir, `_renweb-postremove-${suffix}.sh`);
-    fs.writeFileSync(postInstall, isBundle
-        ? `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\nmkdir -p /usr/local/libexec\n[ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1\nln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1\n`
-        : `#!/bin/sh\nchmod -R a+rwX /opt/${pkgId}/\n`, 'utf8');
+    fs.writeFileSync(postInstall, `#!/bin/sh\n# Seed is installed read-only into /usr/share/${pkgId}/.\n# User data will be bootstrapped to ~/.local/share/${pkgId}/ on first launch.\n`, 'utf8');
     makeExecutable(postInstall);
-    fs.writeFileSync(postRemove, isBundle
-        ? `#!/bin/sh\nrm -f /usr/local/libexec/webkit2gtk-4.1\nrm -rf /opt/${pkgId}/\n`
-        : `#!/bin/sh\nrm -rf /opt/${pkgId}/\n`, 'utf8');
+    fs.writeFileSync(postRemove,  `#!/bin/sh\nrm -rf /usr/share/${pkgId}/\n`, 'utf8');
     makeExecutable(postRemove);
     return { postInstall, postRemove };
 }
@@ -507,8 +524,7 @@ function normalizeArch(raw) {
 
 /**
  * Parse CLI args passed to run().
- *   --bundle-only        Only process bundle archives (skip bare executables)
- *   --executable-only    Only process bare executables (skip bundles)
+ *   --executable-only    Only process bare executables
  *   -e<ext> / --ext <ext>   Output format filter (repeatable); empty = all
  *   -o<os>  / --os  <os>    Target OS filter (repeatable); empty = all
  *   -a<arch>/ --arch <arch> Target arch filter (repeatable); empty = all. Aliases accepted.
@@ -516,8 +532,6 @@ function normalizeArch(raw) {
  */
 function parseArgs(args) {
     const opts = {
-        bundleOnly     : false,
-        executableOnly : false,
         exts           : new Set(),   // empty = all formats
         oses           : new Set(),   // empty = all OS targets
         arches         : new Set(),   // empty = all architectures
@@ -526,8 +540,6 @@ function parseArgs(args) {
     };
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
-        if (a === '--bundle-only')                    { opts.bundleOnly = true;     continue; }
-        if (a === '--executable-only')                { opts.executableOnly = true; continue; }
         if (a === '-c' || a === '--cache')            { opts.cache = true;          continue; }
         if (a === '--no-credentials')                 { opts.noCredentials = true;  continue; }
         if (a.startsWith('-e') && a.length > 2)       { opts.exts.add(normalizeExt(a.slice(2))); continue; }
@@ -553,21 +565,9 @@ function parseExecAsset(filename) {
 }
 
 /**
- * Parse a bundle archive release asset filename.
- * Returns { bootstrap, version, os, arch, ext } or null.
- */
-function parseBundleAsset(filename) {
-    const m = RE_BUNDLE.exec(filename);
-    if (!m) return null;
-    return { bootstrap: !!m[1], version: m[2], os: m[3], arch: m[4], ext: m[5] };
-}
-
-/**
  * Group a release's assets by {os}-{arch}.
- * Each group gets: { bare?, bundle?, bootstrap? }
- *   bare      — plain executable (no bundled libs)
- *   bundle    — tar.gz with bundled libs
- *   bootstrap — bundle-bootstrap variant (self-extracting bootstrapper)
+ * Each group gets: { bare? }
+ *   bare — plain executable
  */
 function groupAssets(assets) {
     const groups = new Map();
@@ -582,18 +582,6 @@ function groupAssets(assets) {
             const g   = groups.get(key) || {};
             g.bare    = { ...exec, filename: name, url };
             groups.set(key, g);
-            continue;
-        }
-        const bundle = parseBundleAsset(name);
-        if (bundle && bundle.ext === 'tar.gz') {
-            const key = `${bundle.os}-${bundle.arch}`;
-            const g   = groups.get(key) || {};
-            if (bundle.bootstrap) {
-                g.bootstrap = { ...bundle, filename: name, url };
-            } else {
-                g.bundle    = { ...bundle, filename: name, url };
-            }
-            groups.set(key, g);
         }
     }
     return groups;
@@ -602,88 +590,225 @@ function groupAssets(assets) {
 // ─── Staging / package builder ────────────────────────────────────────────────
 
 /**
+ * Generate the bootstrap wrapper script content for a Linux system package.
+ *
+ * The wrapper is installed at /usr/bin/<pkgId> (root-owned, read-only).
+ * On first launch it copies the read-only seed from /usr/share/<pkgId>/ into
+ * the user's ~/.local/share/<pkgId>/ (XDG_DATA_HOME), then execs the real
+ * binary from there.  All subsequent launches skip the copy and exec directly.
+ *
+ * Launcher resolution (version-agnostic, rename-safe):
+ *   Any non-.sh executable is picked as the launch target;
+ *   RENWEB_EXECUTABLE_PATH is set so the engine finds its data dir.
+ *
+ * sudo / polkit handling:
+ *   When invoked as root (e.g. via pkexec or sudo), the real user is read from
+ *   $SUDO_USER or $PKEXEC_UID and the copy + exec are dropped to that user's
+ *   identity so the data dir lands in their home, not root's.
+ *
+ * Upgrade handling:
+ *   A .renweb-version stamp file is written into the data dir after each copy.
+ *   If the stamp is absent or contains a different version string the data dir
+ *   is refreshed from the seed (preserving the upgrade path without manual steps).
+ */
+function generateLinuxWrapperScript(pkgId, version) {
+    return [
+        '#!/bin/sh',
+        '# RenWeb bootstrap wrapper — generated by rw package',
+        '# DO NOT EDIT: this file is replaced on every package upgrade.',
+        '',
+        '_RW_SEED="/usr/share/' + pkgId + '"',
+        '_RW_VERSION="' + version + '"',
+        '',
+        '# ── Resolve the real user even when invoked via sudo / pkexec / su ──',
+        'if [ -n "${SUDO_USER:-}" ]; then',
+        '    _RW_USER="$SUDO_USER"',
+        '    _RW_HOME="$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)"',
+        'elif [ -n "${PKEXEC_UID:-}" ]; then',
+        '    _RW_USER="$(id -un "$PKEXEC_UID" 2>/dev/null || echo root)"',
+        '    _RW_HOME="$(getent passwd "$_RW_USER" 2>/dev/null | cut -d: -f6)"',
+        'else',
+        '    _RW_USER="${USER:-$(id -un)}"',
+        '    _RW_HOME="${HOME:-$(getent passwd "$_RW_USER" 2>/dev/null | cut -d: -f6)}"',
+        'fi',
+        '',
+        '# ── Sanity checks ────────────────────────────────────────────────────',
+        'if [ -z "$_RW_HOME" ]; then',
+        '    printf "error: %s: cannot determine home directory for user %s\\n" "' + pkgId + '" "$_RW_USER" >&2',
+        '    exit 1',
+        'fi',
+        'if [ ! -d "$_RW_SEED" ]; then',
+        '    printf "error: %s: seed directory %s is missing (re-install the package)\\n" "' + pkgId + '" "$_RW_SEED" >&2',
+        '    exit 1',
+        'fi',
+        '',
+        '# ── Data directory (mutable, user-owned) ─────────────────────────────',
+        '# Honour XDG_DATA_HOME when set by the *real* user (not by sudo).',
+        '# Under sudo XDG_DATA_HOME may point to the root home, so we recompute it.',
+        'if [ "$(id -u)" -eq 0 ]; then',
+        '    _RW_DATA="$_RW_HOME/.local/share/' + pkgId + '"',
+        'else',
+        '    _RW_DATA="${XDG_DATA_HOME:-$_RW_HOME/.local/share}/' + pkgId + '"',
+        'fi',
+        '_RW_STAMP="$_RW_DATA/.renweb-version"',
+        '',
+        '# ── Bootstrap / upgrade: copy seed to data dir ───────────────────────',
+        '_rw_needs_copy=0',
+        '[ ! -d "$_RW_DATA" ] && _rw_needs_copy=1',
+        '[ "$_rw_needs_copy" -eq 0 ] && { _rw_v=$(cat "$_RW_STAMP" 2>/dev/null); [ "$_rw_v" != "$_RW_VERSION" ] && _rw_needs_copy=1; }',
+        '',
+        'if [ "$_rw_needs_copy" -eq 1 ]; then',
+        '    printf "%s: installing application data to %s\\n" "' + pkgId + '" "$_RW_DATA"',
+        '    _rw_copy() {',
+        '        rm -rf "$_RW_DATA" 2>/dev/null || true',
+        '        mkdir -p "$_RW_DATA" || { printf "error: %s: cannot create %s\\n" "' + pkgId + '" "$_RW_DATA" >&2; exit 1; }',
+        '        cp -a "$_RW_SEED/." "$_RW_DATA/" || { printf "error: %s: copy from %s failed\\n" "' + pkgId + '" "$_RW_SEED" >&2; exit 1; }',
+        '        printf "%s" "$_RW_VERSION" > "$_RW_STAMP"',
+        '    }',
+        '    if [ "$(id -u)" -eq 0 ]; then',
+        '        # Running as root (e.g. sudo/pkexec): drop privileges for the copy so',
+        '        # the data dir ends up owned by the real user, not root.',
+        '        # Export vars so they are visible inside the su child shell.',
+        '        export _RW_DATA _RW_STAMP _RW_SEED _RW_VERSION',
+        '        su -s /bin/sh "$_RW_USER" -c \'',
+        '            rm -rf "$_RW_DATA" 2>/dev/null || true',
+        '            mkdir -p "$_RW_DATA" || { printf "error: cannot create %s\\n" "$_RW_DATA" >&2; exit 1; }',
+        '            cp -a "$_RW_SEED/." "$_RW_DATA/"',
+        '            printf "%s" "$_RW_VERSION" > "$_RW_STAMP"',
+        '        \' || { printf "error: %s: failed to install as user %s\\n" "' + pkgId + '" "$_RW_USER" >&2; exit 1; }',
+        '    else',
+        '        _rw_copy',
+        '    fi',
+        'fi',
+        '',
+        '# ── Resolve the launch target (version-agnostic, rename-safe) ────────',
+        '# We do NOT hardcode the executable name so the wrapper survives engine',
+        '# upgrades and user-renamed executables.',
+        '_RW_TARGET=""',
+        'for _rw_f in "$_RW_DATA"/*; do',
+        '    [ -f "$_rw_f" ] || continue',
+        '    [ -x "$_rw_f" ] || continue',
+        '    case "$_rw_f" in *.sh) continue ;; esac',
+        '    _RW_TARGET="$_rw_f"',
+        '    break',
+        'done',
+        '',
+        'if [ -z "$_RW_TARGET" ]; then',
+        '    printf "error: %s: no executable found in %s (try re-installing the package)\\n" "' + pkgId + '" "$_RW_DATA" >&2',
+        '    exit 1',
+        'fi',
+        '',
+        '# ── Launch ───────────────────────────────────────────────────────────',
+        '# Set RENWEB_EXECUTABLE_PATH so the engine locates its data directory correctly.',
+        'export RENWEB_EXECUTABLE_PATH="$_RW_TARGET"',
+        '',
+        'if [ "$(id -u)" -eq 0 ]; then',
+        '    # Still root after bootstrap: exec as the real user via su.',
+        '    # We write a tiny helper script to a tmpfile to avoid quoting nightmares',
+        '    # when passing arbitrary user arguments through su -c.',
+        '    _rw_tmp="$(mktemp /tmp/.renweb-launch-XXXXXX.sh 2>/dev/null)" || {',
+        '        printf "error: %s: mktemp failed\\n" "' + pkgId + '" >&2; exit 1',
+        '    }',
+        '    chmod 700 "$_rw_tmp"',
+        '    # Bake the display/session env vars into the tmpfile so they reach',
+        '    # the process after su drops privileges (su does not propagate env).',
+        '    printf \'#!/bin/sh\\nexport RENWEB_EXECUTABLE_PATH="%s"\\nexport DISPLAY="%s"\\nexport WAYLAND_DISPLAY="%s"\\nexport XDG_RUNTIME_DIR="%s"\\nexec "%s" "$@"\\n\' \\',
+        '        "$_RW_TARGET" "${DISPLAY:-}" "${WAYLAND_DISPLAY:-}" "${XDG_RUNTIME_DIR:-}" "$_RW_TARGET" > "$_rw_tmp"',
+        '    # su -s <shell> <user> -- <script> [args…]',
+        '    su -s /bin/sh "$_RW_USER" -- "$_rw_tmp" "$@"',
+        '    rm -f "$_rw_tmp"',
+        'else',
+        '    exec "$_RW_TARGET" "$@"',
+        'fi',
+        '',
+    ].join('\n');
+}
+
+/**
  * Build a system-layout staging tree under destRoot for Linux package formats.
  * Populates:
- *   /opt/<pkgId>/                               — app files (copied from stagingDir)
- *   /usr/bin/<pkgId>                            — launcher shim → /opt/<pkgId>/<exe>
+ *   /usr/share/<pkgId>/                         — read-only seed (app files)
+ *   /usr/bin/<pkgId>                            — bootstrap wrapper script
  *   /usr/share/applications/<pkgId>.desktop     — freedesktop .desktop entry
  *   /usr/share/icons/hicolor/256x256/apps/…    — app icon (if found via findAppIcon)
+ *
+ * The wrapper at /usr/bin/<pkgId> bootstraps ~/.local/share/<pkgId>/ from the
+ * seed on first launch, then execs the real binary from the mutable user copy.
+ * This avoids the /opt world-writable anti-pattern and mirrors the approach used
+ * by macOS (.app bundle → ~/Library/Application Support/) and Windows (NSIS →
+ * %LOCALAPPDATA%).
  *
  * Shared by buildFpmPackages and buildXbpsPackage so their system-layout logic
  * stays in one place (SRP / DRY).
  */
-function buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, destRoot) {
-    const appShare = path.join(destRoot, 'opt', pkgId);
+function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, destRoot) {
+    const seedDir  = path.join(destRoot, 'usr', 'share', pkgId);
     const appsDir  = path.join(destRoot, 'usr', 'share', 'applications');
     const iconsDir = path.join(destRoot, 'usr', 'share', 'icons', 'hicolor', '256x256', 'apps');
     const binDir   = path.join(destRoot, 'usr', 'bin');
-    for (const d of [appShare, appsDir, iconsDir, binDir]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [seedDir, appsDir, iconsDir, binDir]) fs.mkdirSync(d, { recursive: true });
 
-    copyDir(stagingDir, appShare);
+    // Seed: read-only copy of all app files (bootstrapped to user's home on first launch).
+    copyDir(stagingDir, seedDir);
 
-    const binTarget   = isBundle ? 'bundle_exec.sh' : exeFilename;
-    const binLauncher = `#!/bin/sh\nexec /opt/${pkgId}/${binTarget} "$@"\n`;
-    const binPath     = path.join(binDir, pkgId);
-    fs.writeFileSync(binPath, binLauncher, 'utf8');
+    // Wrapper script at /usr/bin/<pkgId>
+    const wrapperContent = generateLinuxWrapperScript(pkgId, version);
+    const binPath = path.join(binDir, pkgId);
+    fs.writeFileSync(binPath, wrapperContent, 'utf8');
     makeExecutable(binPath);
-
-    let iconSystemPath = pkgId; // fallback: icon name (freedesktop theme lookup)
-    const icon = findAppIcon(stagingDir);
-    if (icon) {
-        fs.copyFileSync(icon.src, path.join(iconsDir, `${pkgId}.${icon.ext}`));
-        iconSystemPath = `/usr/share/icons/hicolor/256x256/apps/${pkgId}.${icon.ext}`;
-    }
 
     const cats    = parseCats(info.categories || info.category);
     const appId   = info.app_id  || pkgId;
     const desc    = info.description || '';
     const website = info.repository  || '';
+
+    // Icon and .desktop file are named after appId so the Wayland compositor can
+    // match the xdg_toplevel app-id (set via g_set_prgname) to the correct icon.
+    // freedesktop spec: desktop file name == icon name == xdg app-id.
+    let iconSystemPath = appId; // fallback: icon name (freedesktop theme lookup)
+    const icon = findAppIcon(stagingDir);
+    if (icon) {
+        fs.copyFileSync(icon.src, path.join(iconsDir, `${appId}.${icon.ext}`));
+        iconSystemPath = `/usr/share/icons/hicolor/256x256/apps/${appId}.${icon.ext}`;
+    }
+
+    // Exec points to /usr/bin/<pkgId> (the wrapper) — not directly to the seed or
+    // the user data dir, both of which are inaccessible to the .desktop resolver.
     const desktopLines = [
         '[Desktop Entry]',
         'Version=1.0',
         'Type=Application',
         `Name=${info.title || pkgId}`,
         `Comment=${desc}`,
-        `Exec=/opt/${pkgId}/${binTarget}`,
-        `TryExec=/opt/${pkgId}/${binTarget}`,
+        `Exec=/usr/bin/${pkgId} %u`,
+        `TryExec=/usr/bin/${pkgId}`,
         `Icon=${iconSystemPath}`,
         'Terminal=false',
         `Categories=${cats}`,
         `StartupWMClass=${appId}`,
         'StartupNotify=true',
         `X-RenWeb-PackageId=${pkgId}`,
+        `X-RenWeb-Seed=/usr/share/${pkgId}`,
     ];
     if (website) desktopLines.push(`URL=${website}`);
     desktopLines.push('');
-    fs.writeFileSync(path.join(appsDir, `${pkgId}.desktop`), desktopLines.join('\n'), 'utf8');
+    fs.writeFileSync(path.join(appsDir, `${appId}.desktop`), desktopLines.join('\n'), 'utf8');
 }
 
 /**
  * Build one staging tree for (os, arch), package it, and write outputs.
  *
- * Bundles   → ./package/{os}/bundle/{stem}.tar.gz  and  .zip
- * Bare exes → ./package/{os}/{stem}.tar.gz, .zip, plus fpm packages (linux)
+ * All outputs → ./package/{os}/{stem}.tar.gz, .zip, plus native packages
  */
 function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pkgDir, tmpDir, homebrewBottles) {
     const { os: targetOs, arch: targetArch } = engineAsset;
     const pkgId      = toKebab(info.title || 'app');
     const version    = (info.version || '0.0.1').trim();
     const stem       = `${pkgId}-${version}-${targetOs}-${targetArch}`;
-    // Route output to the right subdirectory:
-    //   bootstrap bundles  → package/{os}/bundle_bootstrap/
-    //   regular bundles    → package/{os}/bundle/
-    //   bare executables   → package/{os}/
-    const outDir = engineAsset.isBootstrap
-        ? path.join(pkgDir, targetOs, 'bundle_bootstrap')
-        : engineAsset.isBundle
-            ? path.join(pkgDir, targetOs, 'bundle')
-            : path.join(pkgDir, targetOs);
-    const stagingSuffix = engineAsset.isBootstrap ? '-bundle-bootstrap'
-                        : engineAsset.isBundle     ? '-bundle'
-                        : '';
-    const stagingDir = path.join(tmpDir, stem + stagingSuffix);    
+    const outDir     = path.join(pkgDir, targetOs);
+    const stagingDir = path.join(tmpDir, stem);
 
-    ui.section(`Building ${stem}${engineAsset.isBundle ? ' [bundle]' : ''}`);
+    ui.section(`Building ${stem}`);
 
     // 1. Fresh staging tree
     if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true });
@@ -701,17 +826,10 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
         for (const pDir of pluginDirs) copyDir(pDir, stagingPlugins);
     }
 
-    // 4. Place the engine executable (or extract bundle)
-    if (engineAsset.isBundle) {
-        ui.step('Extracting bundle archive…');
-        if (!extractTar(engineAsset.localPath, stagingDir)) {
-            throw new Error(`Failed to extract bundle archive: ${path.basename(engineAsset.localPath)}`);
-        }
-    } else {
-        const exeDest = path.join(stagingDir, engineAsset.filename);
-        fs.copyFileSync(engineAsset.localPath, exeDest);
-        makeExecutable(exeDest);
-    }
+    // 4. Place the engine executable
+    const exeDest = path.join(stagingDir, engineAsset.filename);
+    fs.copyFileSync(engineAsset.localPath, exeDest);
+    makeExecutable(exeDest);
 
     // 4a. Patch Windows PE version info + icon immediately after the exe lands in
     //     staging so that ALL outputs (tar.gz, zip, NSIS, MSI, MSIX, choco) contain
@@ -742,48 +860,45 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     // 6. OS-specific native packages
     if (targetOs === 'linux') {
         // deb / rpm / pacman / apk / freebsd via fpm
-        buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.isBundle, engineAsset.filename);
+        buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.filename);
         // Void Linux binary package (.xbps via xbps-create)
-        buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.isBundle, engineAsset.filename);
+        buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.filename);
         // AppImage (portable, no install needed)
-        buildAppImage(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
+        buildAppImage(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
         // Snap package (squashfs-based, built inline)
-        buildSnapPackage(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
+        buildSnapPackage(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
         // Flatpak bundle (.flatpak single-file, built via flatpak-builder --disable-sandbox)
-        buildFlatpakBundle(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
+        buildFlatpakBundle(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
     }
 
     if (targetOs === 'windows' || targetOs === 'win') {
-        // Windows native installers/packages are generated only from bare executable staging.
-        // Bootstrap bundles are archive-only outputs.
-        if (!engineAsset.isBundle) {
-            // NSIS installer
-            const nsisOut = path.join(outDir, `${stem}-setup.exe`);
-            buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, false);
-            // MSI installer via wixl
-            buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`), false);
-            // MSIX / Windows Store package via makemsix
-            const msixExeFile = engineAsset.filename;
-            buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), false, msixExeFile);
-            // Chocolatey nupkg (single file, root of windows output dir)
-            buildChocoPackage(opts, info, targetArch, nsisOut, outDir, false);
-            // NuGet nupkg (single file, root of windows output dir)
-            buildNugetPackage(opts, info, targetArch, outDir, nsisOut, false);
-            // winget manifests (for submission to microsoft/winget-pkgs)
-            buildWingetManifest(opts, info, targetArch, nsisOut, outDir, false);
-        }
+        // Windows native installers/packages
+        // NSIS installer
+        const nsisOut = path.join(outDir, `${stem}-setup.exe`);
+        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut);
+        // MSI installer via wixl
+        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`));
+        // MSIX / Windows Store package via makemsix
+        const msixExeFile = engineAsset.filename;
+        buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), msixExeFile);
+        // Chocolatey nupkg (single file, root of windows output dir)
+        buildChocoPackage(opts, info, targetArch, nsisOut, outDir);
+        // NuGet nupkg (single file, root of windows output dir)
+        buildNugetPackage(opts, info, targetArch, outDir, nsisOut);
+        // winget manifests (for submission to microsoft/winget-pkgs)
+        buildWingetManifest(opts, info, targetArch, nsisOut, outDir);
     }
 
     if (targetOs === 'macos' || targetOs === 'darwin') {
         // DMG disk image — proper .app bundle built inside via buildMacAppBundle
         const dmgOut = path.join(outDir, `${stem}.dmg`);
-        buildMacDmg(opts, info, stagingDir, targetArch, dmgOut, engineAsset.isBundle, engineAsset.filename);
+        buildMacDmg(opts, info, stagingDir, targetArch, dmgOut, engineAsset.filename);
         // macOS .pkg installer via pkgbuild (macOS-only binary, always at /usr/bin/pkgbuild)
         if (opts.exts.size === 0 || opts.exts.has('osxpkg') || opts.exts.has('pkg')) {
             if (!findBin('pkgbuild')) {
                 ui.dim('[osxpkg] skipped — pkgbuild not available (macOS only)');
             } else {
-                const exeFor   = engineAsset.isBundle ? 'bundle_exec.sh' : engineAsset.filename;
+                const exeFor   = engineAsset.filename;
                 const pkgOut   = path.join(outDir, `${stem}.pkg`);
                 const pkgTmp   = path.join(tmpDir, `${stem}-osxpkg`);
                 if (fs.existsSync(pkgTmp)) fs.rmSync(pkgTmp, { recursive: true, force: true });
@@ -863,9 +978,9 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
             }
         }
         // Homebrew formula — collect bottle info; formula written once after all archs
-        generateHomebrewFormula(opts, info, targetArch, outDir, stagingDir, engineAsset.isBundle, engineAsset.filename, homebrewBottles);
+        generateHomebrewFormula(opts, info, targetArch, outDir, stagingDir, engineAsset.filename, homebrewBottles);
         // macOS App Store .pkg via productbuild (macOS-only; skipped in Docker/Linux)
-        buildMacAppStorePackage(opts, info, stagingDir, targetArch, outDir, engineAsset.isBundle, engineAsset.filename);
+        buildMacAppStorePackage(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
     }
 
     ui.ok(`${stem} done`);
@@ -911,10 +1026,8 @@ function injectFreebsdDeps(txzPath, depNames) {
  * Build Linux native packages (deb, rpm, pacman, apk, freebsd) using fpm.
  * Creates a system-layout staging tree (/usr/share, /usr/bin, etc.) then
  * invokes fpm for each requested format.
- * @param {boolean} isBundle  When true the package bundles its own libs, so no
- *                            runtime deps are declared.
  */
-function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, isBundle = false, exeFilename = '') {
+function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, exeFilename = '') {
     const pkgId   = toKebab(info.title || 'app');
     const version = (info.version || '0.0.1').trim();
     const desc    = info.description || '';
@@ -933,9 +1046,9 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
     }
 
     // Build system-layout staging tree (shared base; each format gets its own isolated copy).
-    const fpmRoot = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}${isBundle ? '-bundle' : ''}`);
+    const fpmRoot = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}`);
     if (fs.existsSync(fpmRoot)) fs.rmSync(fpmRoot, { recursive: true, force: true });
-    buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, fpmRoot);
+    buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, fpmRoot);
 
     // Run fpm (deb/rpm/pacman/freebsd) or nfpm (apk) for each format.
     // nfpm natively produces correct 3-stream APKv2; fpm 1.17 does not.
@@ -951,13 +1064,12 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
         // APK is handled exclusively by nfpm.
         if (fmt === 'apk') {
-            const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-apk`);
+            const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, os.tmpdir(), `${pkgId}-apk`);
             ui.ok(`[nfpm apk] → ${path.relative(process.cwd(), outputFile)}`);
             try { fs.unlinkSync(outputFile); } catch (_) {}
             const r = runNfpmApk({ pkgId, version, targetArch, desc, website, license,
                                    fmtRoot, outputFile,
-                                   postInstallScript: postInstall, postRemoveScript: postRemove,
-                                   isBundle });
+                                   postInstallScript: postInstall, postRemoveScript: postRemove });
             try { fs.unlinkSync(postInstall); } catch (_) {}
             try { fs.unlinkSync(postRemove); } catch (_) {}
             try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
@@ -978,16 +1090,13 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         if (license) fpmArgs.push('--license', license);
         const fpmArch = FPM_ARCH_MAP[targetArch];
         if (fpmArch) fpmArgs.push('--architecture', fpmArch);
-        // Bundle releases carry their own .so libs — no runtime deps needed.
         // Dep names differ per format; LINUX_DEPS provides the correct name for each.
-        if (!isBundle) {
-            const fmtDeps = LINUX_DEPS[fmt] || { required: [], recommended: [] };
-            for (const dep of fmtDeps.required) fpmArgs.push('--depends', dep);
-            if (fmt === 'deb') {
-                for (const dep of fmtDeps.recommended) fpmArgs.push('--deb-recommends', dep);
-            }
+        const fmtDeps = LINUX_DEPS[fmt] || { required: [], recommended: [] };
+        for (const dep of fmtDeps.required) fpmArgs.push('--depends', dep);
+        if (fmt === 'deb') {
+            for (const dep of fmtDeps.recommended) fpmArgs.push('--deb-recommends', dep);
         }
-        const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, isBundle, os.tmpdir(), `${pkgId}-${fmt}`);
+        const { postInstall, postRemove } = makeLinuxPostScripts(pkgId, os.tmpdir(), `${pkgId}-${fmt}`);
         fpmArgs.push('--after-install', postInstall, '--after-remove', postRemove, '.');
 
         ui.ok(`[fpm ${fmt}] → ${path.relative(process.cwd(), outputFile)}`);
@@ -998,7 +1107,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         try { fs.rmSync(fmtRoot, { recursive: true, force: true }); } catch (_) {}
         if (r.status !== 0) {
             ui.warn(`fpm failed for format: ${fmt}`);
-        } else if (fmt === 'freebsd' && !isBundle) {
+        } else if (fmt === 'freebsd') {
             // fpm's FreeBSD backend never writes deps into +MANIFEST (open bug
             // jordansissel/fpm#1156).  Post-process the archive to inject them.
             injectFreebsdDeps(outputFile, LINUX_DEPS.freebsd.required);
@@ -1036,7 +1145,7 @@ function walkStagingDir(dir, mountAt) {
  * (0 on success) so call-sites can treat it the same as spawnSync's return.
  */
 function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
-                      fmtRoot, outputFile, postInstallScript, postRemoveScript, isBundle = false }) {
+                      fmtRoot, outputFile, postInstallScript, postRemoveScript }) {
     const nfpmArch    = NFPM_APK_ARCH_MAP[targetArch] || targetArch;
     const escapedDesc = (desc || pkgId).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ');
     const cfgLines = [
@@ -1047,8 +1156,8 @@ function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
         `description: "${escapedDesc}"`,
         website ? `homepage: "${website}"` : null,
         license ? `license: "${license}"` : null,
-        // Bare APKs declare runtime deps; bundle APKs carry them in lib/.
-        ...(!isBundle ? [`depends:`, ...LINUX_DEPS.apk.required.map(d => `  - ${d}`)] : []),
+        `depends:`,
+        ...LINUX_DEPS.apk.required.map(d => `  - ${d}`),
         `scripts:`,
         `  postinstall: "${postInstallScript}"`,
         `  postremove: "${postRemoveScript}"`,
@@ -1357,7 +1466,7 @@ function xbpsSign(opts, filePath) {
  * Escaping note: string concatenation is used for NSIS lines to avoid any
  * ambiguity between JS template-literal ${} and NSIS $VAR / registry paths.
  */
-function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = false) {
+function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
 
     if (spawnSync('which', ['makensis'], { encoding: 'utf8' }).status !== 0) {
@@ -1382,7 +1491,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
         path.join(stagingDir, 'lib', bootstrapperName),
     ];
     let bootstrapperPath = bootstrapperCandidates.find(p => fs.existsSync(p));
-    if (!isBundle && !bootstrapperPath) {
+    if (!bootstrapperPath) {
         const cacheBootstrapper = path.join(os.tmpdir(), `_renweb-${bootstrapperName}`);
         if (!fs.existsSync(cacheBootstrapper)) {
             if (!download(WEBVIEW2_BOOTSTRAPPER_URL, cacheBootstrapper)) {
@@ -1479,25 +1588,23 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
     L('  WriteRegDWORD HKCU "' + ukey + '" "EstimatedSize" "$0"');
     if (website) L('  WriteRegStr HKCU "' + ukey + '" "URLInfoAbout"    "' + website + '"');
     if (website) L('  WriteRegStr HKCU "' + ukey + '" "URLUpdateInfo"   "' + website + '"');
-    if (!isBundle) {
-        L();
-        L('  ; Check for WebView2 Runtime and install bundled bootstrapper if missing');
-        L('  ReadRegStr $0 HKLM "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
+    L();
+    L('  ; Check for WebView2 Runtime and install bundled bootstrapper if missing');
+    L('  ReadRegStr $0 HKLM "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
+    L('  ${If} $0 == ""');
+    L('    ReadRegStr $0 HKCU "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
+    L('  ${EndIf}');
+    if (bootstrapperPath) {
+        L('  SetOutPath "$PLUGINSDIR"');
+        L('  File "' + bootstrapperPath + '"');
+        L('  SetOutPath "$INSTDIR"');
         L('  ${If} $0 == ""');
-        L('    ReadRegStr $0 HKCU "SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"');
+        L('    ExecWait "$\\"$PLUGINSDIR\\' + bootstrapperName + '$\\" /silent /install"');
         L('  ${EndIf}');
-        if (bootstrapperPath) {
-            L('  SetOutPath "$PLUGINSDIR"');
-            L('  File "' + bootstrapperPath + '"');
-            L('  SetOutPath "$INSTDIR"');
-            L('  ${If} $0 == ""');
-            L('    ExecWait "$\\"$PLUGINSDIR\\' + bootstrapperName + '$\\" /silent /install"');
-            L('  ${EndIf}');
-        } else {
-            L('  ${If} $0 == ""');
-            L('    MessageBox MB_ICONEXCLAMATION|MB_OK "Microsoft Edge WebView2 Runtime is required. Install ' + bootstrapperName + ' and re-run setup."');
-            L('  ${EndIf}');
-        }
+    } else {
+        L('  ${If} $0 == ""');
+        L('    MessageBox MB_ICONEXCLAMATION|MB_OK "Microsoft Edge WebView2 Runtime is required. Install ' + bootstrapperName + ' and re-run setup."');
+        L('  ${EndIf}');
     }
     L('SectionEnd');
     L();
@@ -1527,7 +1634,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath, isBundle = fa
  * Build a Windows .msi installer via wixl (msitools) — native Linux binary, no Wine.
  * Uses wixl-heat to harvest staging dir files automatically.
  */
-function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = false) {
+function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     if (opts.exts.size > 0 && !opts.exts.has('msi')) return;
     if (!findBin('wixl')) {
         ui.warn('wixl not found \u2014 skipping MSI'); return;
@@ -1682,20 +1789,18 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
         '    <Feature Id="Main" Level="1">',
         '      <ComponentGroupRef Id="AppFiles"/>',
         '    </Feature>',
-        // WebView2 prerequisite: require runtime for bare installers.
-        ...(isBundle ? [] : [
-            '    <Property Id="WV2_VERSION">',
-            '      <RegistrySearch Id="WV2SearchHklm" Root="HKLM"',
-            '        Key="SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
-            '        Name="pv" Type="raw"/>',
-            '    </Property>',
-            '    <Property Id="WV2_VERSION_USER">',
-            '      <RegistrySearch Id="WV2SearchHkcu" Root="HKCU"',
-            '        Key="Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
-            '        Name="pv" Type="raw"/>',
-            '    </Property>',
-            '    <Condition Message="Microsoft Edge WebView2 Runtime is required. Install MicrosoftEdgeWebview2Setup.exe and run setup again.">Installed OR REMOVE=&quot;ALL&quot; OR WV2_VERSION OR WV2_VERSION_USER</Condition>',
-        ]),
+        // WebView2 prerequisite: require runtime on install.
+        '    <Property Id="WV2_VERSION">',
+        '      <RegistrySearch Id="WV2SearchHklm" Root="HKLM"',
+        '        Key="SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
+        '        Name="pv" Type="raw"/>',
+        '    </Property>',
+        '    <Property Id="WV2_VERSION_USER">',
+        '      <RegistrySearch Id="WV2SearchHkcu" Root="HKCU"',
+        '        Key="Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"',
+        '        Name="pv" Type="raw"/>',
+        '    </Property>',
+        '    <Condition Message="Microsoft Edge WebView2 Runtime is required. Install MicrosoftEdgeWebview2Setup.exe and run setup again.">Installed OR REMOVE=&quot;ALL&quot; OR WV2_VERSION OR WV2_VERSION_USER</Condition>',
         '  </Product>',
         '</Wix>',
         '',
@@ -1716,7 +1821,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath, isBundle = fal
  * The resulting .msix is UNSIGNED — sign with signtool or osslsigncode
  * before Store submission, or install via Add-AppxPackage -AllowUnsigned.
  */
-function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = false, exeFilename = '') {
+function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('msix')) return;
 
     const makemsix = fs.existsSync('/opt/makemsix') ? '/opt/makemsix'
@@ -1769,8 +1874,8 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
     // For bundles, the caller already provides the correct .exe filename (renweb-*.exe).
     const msixExe = exeFilename;
 
-    const msixIgnorableNamespaces = isBundle ? 'rescap' : 'rescap win32dependencies';
-    const msixExternalDeps = isBundle ? [] : [
+    const msixIgnorableNamespaces = 'rescap win32dependencies';
+    const msixExternalDeps = [
         '    <win32dependencies:ExternalDependency',
         '      Name="Microsoft.WebView2"',
         '      Publisher="CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"',
@@ -1838,7 +1943,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, isBundle = fals
  * Non-bundle: declares microsoft-edge-webview2-runtime dependency.
  * Publish to: https://community.chocolatey.org
  */
-function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = false) {
+function buildChocoPackage(opts, info, arch, nsisExePath, outDir) {
     if (opts.exts.size > 0 && !opts.exts.has('choco')) return;
 
     const title   = info.title    || 'App';
@@ -1918,7 +2023,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir, isBundle = fal
  * Includes metadata and, when available, the NSIS setup executable under tools/.
  * WebView2 is handled by the bundled setup.exe at install time.
  */
-function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '', isBundle = false) {
+function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '') {
     if (opts.exts.size > 0 && !opts.exts.has('nuget')) return;
 
     const title   = info.title    || 'App';
@@ -1973,9 +2078,8 @@ function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '', isBundle 
  * Generate winget YAML manifests for microsoft/winget-pkgs submission.
  * This creates metadata only; publishing still requires pushing those manifests.
  */
-function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = false) {
+function buildWingetManifest(opts, info, arch, nsisExePath, outDir) {
     if (opts.exts.size > 0 && !opts.exts.has('winget')) return;
-    if (isBundle) return;
     if (!nsisExePath || !fs.existsSync(nsisExePath)) {
         ui.warn('winget manifest skipped — NSIS setup exe is missing.');
         return;
@@ -2073,7 +2177,6 @@ function buildWingetManifest(opts, info, arch, nsisExePath, outDir, isBundle = f
  *
  * @param {string} stagingDir  Populated staging tree.
  * @param {string} exeFilename Binary filename inside stagingDir (CFBundleExecutable).
- *                             Pass 'bundle_exec.sh' for bundle builds.
  * @param {object} info        Parsed info.json.
  * @param {string} destDir     Directory in which <Title>.app is created.
  * @returns {string}           Absolute path to the created .app bundle.
@@ -2199,11 +2302,11 @@ function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
  *
  * In both cases the DMG contains a proper .app bundle built via buildMacAppBundle().
  */
-function buildMacDmg(opts, info, stagingDir, arch, outPath, isBundle = false, exeFilename = '') {
+function buildMacDmg(opts, info, stagingDir, arch, outPath, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('dmg')) return;
 
     const title  = info.title || 'App';
-    const exeFor = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const exeFor = exeFilename;
 
     // tmpBase holds only <Title>.app/ so hdiutil/-srcfolder sees a clean folder
     const tmpBase = path.join(path.dirname(outPath), `_dmg-${arch}`);
@@ -2364,7 +2467,7 @@ const HOMEBREW_BOTTLE_TAG = {
  * metadata into `homebrewBottles` for later unified formula generation.
  * Call writeHomebrewFormula() once after all arches to write the combined .rb.
  */
-function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle = false, exeFilename = '', homebrewBottles = null) {
+function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, exeFilename = '', homebrewBottles = null) {
     if (opts.exts.size > 0 && !opts.exts.has('homebrew')) return;
 
     const title   = info.title    || 'App';
@@ -2389,7 +2492,7 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, isBundle 
     copyDir(stagingDir, cellarRoot);
 
     // bin/<pkgId> wrapper script — execs the real binary from the Cellar
-    const binTarget = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const binTarget = exeFilename;
     const wrapperSh = [
         '#!/bin/sh',
         '# Resolve symlinks to find the real Cellar directory (POSIX-compatible).',
@@ -2490,7 +2593,7 @@ function writeHomebrewFormula(bottles) {
  * ⚠ Actual App Store submission requires codesigning with a
  *   Mac App Distribution certificate before calling productsign.
  */
-function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
+function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('mas')) return;
 
     if (!findBin('productbuild')) {
@@ -2501,8 +2604,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, isBundle 
     const pkgId  = toKebab(info.title || 'app');
     const version = (info.version || '0.0.1').trim();
     const stem   = pkgId + '-' + version + '-macos-' + arch + '-mas';
-    // For bundle builds the entry point is bundle_exec.sh, not the archive filename
-    const exeFor = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const exeFor = exeFilename;
 
     const tmpBase = path.join(os.tmpdir(), '_renweb-mas-' + pkgId + '-' + arch);
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
@@ -2596,7 +2698,7 @@ const APPIMAGE_ARCH_MAP = {
  * during the build.  At runtime, AppRun prefers the extract-and-run path
  * (writable tmpdir) over the old copy-on-first-run approach.
  */
-function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
+function buildAppImage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('AppImage') && !opts.exts.has('appimage')) return;
 
     const archFlag = APPIMAGE_ARCH_MAP[arch];
@@ -2631,7 +2733,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
     //   2. Otherwise re-exec $APPIMAGE with APPIMAGE_EXTRACT_AND_RUN=1 so the
     //      runtime extracts to a writable tmpdir before calling us again.
     //   3. Fallback (extract-and-run unavailable): copy to ~/.local/share once.
-    const appTarget  = isBundle ? 'bundle_exec.sh' : exeFilename;
+    const appTarget  = exeFilename;
     const appRunPath = path.join(appDir, 'AppRun');
     fs.writeFileSync(appRunPath, [
         '#!/bin/sh',
@@ -2651,7 +2753,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
         '',
         '# Last-resort fallback: copy app to ~/.local/share once and exec from there.',
         'DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/' + pkgId + '"',
-        'STAMP="$DATA_DIR/.version"',
+        'STAMP="$DATA_DIR/.renweb-version"',
         'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
         '    rm -rf "$DATA_DIR" && mkdir -p "$DATA_DIR"',
         '    cp -a "$APPDIR/opt/' + pkgId + '/." "$DATA_DIR/" || { echo "AppImage: copy failed" >&2; exit 1; }',
@@ -2760,7 +2862,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, isBundle = false, e
  * A snap file is a squashfs archive containing meta/snap.yaml and the app files.
  * Output naming follows the Snap Store convention: <name>_<version>_<arch>.snap
  */
-function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
+function buildSnapPackage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('snap')) return;
     if (spawnSync('which', ['mksquashfs'], { encoding: 'utf8' }).status !== 0) {
         ui.warn('mksquashfs not found \u2014 skipping snap'); return;
@@ -2784,21 +2886,12 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
     fs.mkdirSync(metaDir,  { recursive: true });
     copyDir(stagingDir, appShare);
 
-    // ── Confinement strategy ────────────────────────────────────────────────
-    // Bare exe: dynamically linked against the host GTK/WebKit stack.
-    //   → classic confinement (full host library access).
-    // Bundle: ships its own .so libs in lib/.
-    //   → strict confinement + LD_LIBRARY_PATH wrapper.
-    //
-    // Both cases share the same root problem: $SNAP is a read-only squashfs
-    // mount, and the engine writes log.txt next to its own executable
-    // (Locate::currentDirectory() = exe.parent_path()).  The launcher wrapper
-    // copies the app tree to $SNAP_USER_DATA once per version and then execs
-    // from that writable directory, so all runtime writes land there instead
-    // of the read-only snap mount.
-    // ────────────────────────────────────────────────────────────────────────
-    const confinement = isBundle ? 'strict' : 'classic';
-    const appTarget   = isBundle ? 'bundle_exec.sh' : exeFilename;
+    // $SNAP is a read-only squashfs mount, and the engine writes log.txt next
+    // to its own executable (Locate::currentDirectory() = exe.parent_path()).
+    // The launcher wrapper copies the app tree to $SNAP_USER_DATA once per
+    // version and then execs from that writable directory.
+    const confinement = 'classic';
+    const appTarget   = exeFilename;
     const wrapperName = 'snap-launch.sh';
     const wrapperPath = path.join(appShare, wrapperName);
 
@@ -2809,7 +2902,7 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         '# $SNAP_USER_DATA — writable, per-user, per-version ($HOME/snap/<name>/current)',
         'SRC="$SNAP/opt/' + pkgId + '"',
         'DEST="${SNAP_USER_DATA:-$HOME/.local/share/' + pkgId + '}"',
-        'STAMP="$DEST/.version"',
+        'STAMP="$DEST/.renweb-version"',
         '',
         '# Suppress WebKit\'s portal-based proxy detection (causes "not available inside',
         '# the sandbox" noise on classic snaps; actual network access is unaffected).',
@@ -2823,13 +2916,6 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         'fi',
         '',
     ];
-
-    if (isBundle) {
-        wrapperLines.push(
-            '# Bundle: prepend bundled libs so the engine finds its own .so files.',
-            'export LD_LIBRARY_PATH="$DEST/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"',
-        );
-    }
 
     wrapperLines.push(
         '# Suppress WebKit network-subprocess pxbackend proxy-portal warnings.',
@@ -2845,15 +2931,11 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         'export BAMF_DESKTOP_FILE_HINT="/var/lib/snapd/desktop/applications/' + pkgId + '_' + pkgId + '.desktop"',
         '',
     );
-    // Bundle: bundle_exec.sh already sets GDK_BACKEND=wayland (strict, overridable).
-    // Bare: prefer Wayland but allow X11 fallback since system libs support both.
-    if (!isBundle) {
-        wrapperLines.push(
-            '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
-            '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
-            '',
-        );
-    }
+    wrapperLines.push(
+        '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
+        '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
+        '',
+    );
     wrapperLines.push(
         'exec "$DEST/' + appTarget + '" "$@"',
         '',
@@ -2881,20 +2963,7 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         '    command: ' + snapCommand,
     ];
 
-    // Plugs only apply to strict confinement (bundle); classic has full host access.
-    if (confinement === 'strict') {
-        yamlLines.push(
-            '    plugs:',
-            '      - desktop',
-            '      - desktop-legacy',
-            '      - wayland',
-            '      - x11',
-            '      - network',
-            '      - audio-playback',
-            '      - opengl',
-            '      - home',
-        );
-    }
+    // Plugs only apply to strict confinement; classic has full host access.
     yamlLines.push('');
 
     fs.writeFileSync(path.join(metaDir, 'snap.yaml'),
@@ -2941,18 +3010,17 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, isBundle = false
         '-noappend', '-comp', 'xz', '-no-progress',
     ], { stdio: 'inherit' });
     if (r.status !== 0) ui.warn('snap build failed');
-    else ui.info('To install: sudo snap install --dangerous' +
-        (confinement === 'classic' ? ' --classic' : '') +
-        ' ' + path.relative(process.cwd(), outFile));
+    else ui.info('To install: sudo snap install --dangerous --classic ' + path.relative(process.cwd(), outFile));
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
 /**
  * Build a real .flatpak single-file bundle using flatpak-builder.
- * Requires flatpak + flatpak-builder + org.freedesktop.Platform/Sdk pre-installed
- * in the Docker image. Uses --disable-sandbox so bwrap is not needed inside Docker.
+ * Uses org.gnome.Platform//47 which ships WebKitGTK 2.44+, GTK3, Mesa,
+ * and GStreamer — all required by the RenWeb engine.
+ * Does not need bwrap inside Docker (build-init / build-finish path).
  */
-function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = false, exeFilename = '') {
+function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('flatpak')) return;
     if (spawnSync('which', ['flatpak'], { encoding: 'utf8' }).status !== 0) {
         ui.warn('flatpak not found \u2014 skipping flatpak'); return;
@@ -2961,7 +3029,6 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     const pkgId   = toKebab(info.title || 'app');
     const appId   = info.app_id  || pkgId;
     const version = (info.version || '0.0.1').trim();
-    const binTarget = isBundle ? 'bundle_exec.sh' : exeFilename;
 
     const tmpBase  = path.join(os.tmpdir(), '_renweb-flatpak-' + pkgId + '-' + arch);
     const buildDir = path.join(tmpBase, 'build');
@@ -2969,10 +3036,11 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(tmpBase, { recursive: true });
 
-    // Step 1: initialise the build directory (creates files/, var/, metadata — no bwrap)
+    // Step 1: initialise the build directory — org.gnome.Platform//47 ships
+    // WebKitGTK 2.44+, GTK3, Mesa, and GStreamer required by the engine.
     const initR = spawnSync('flatpak', [
         'build-init', buildDir, appId,
-        'org.freedesktop.Sdk', 'org.freedesktop.Platform', '23.08',
+        'org.gnome.Sdk//47', 'org.gnome.Platform//47',
     ], { stdio: 'inherit' });
     if (initR.status !== 0) {
         ui.warn('flatpak build-init failed');
@@ -2986,8 +3054,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
     fs.mkdirSync(appFiles, { recursive: true });
     fs.mkdirSync(binDir,   { recursive: true });
     copyDir(stagingDir, appFiles);
-    // Make the target executable
-    try { fs.chmodSync(path.join(appFiles, binTarget), 0o755); } catch (_) {}
+    try { fs.chmodSync(path.join(appFiles, exeFilename), 0o755); } catch (_) {}
     // bin/<pkgId> wrapper: copy app to $XDG_DATA_HOME once per version so the
     // engine can write log.txt and other runtime files next to its executable.
     // Inside the Flatpak sandbox $XDG_DATA_HOME resolves to
@@ -2997,7 +3064,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         '#!/bin/sh',
         'SRC="/app/opt/' + pkgId + '"',
         'DEST="${XDG_DATA_HOME:-$HOME/.local/share}/' + pkgId + '"',
-        'STAMP="$DEST/.version"',
+        'STAMP="$DEST/.renweb-version"',
         '# Copy app tree once per version into writable XDG_DATA_HOME.',
         'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
         '    rm -rf "$DEST" && mkdir -p "$DEST"',
@@ -3006,7 +3073,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
         'fi',
         '# Prefer Wayland; fall back to X11 if Wayland is unavailable.',
         '[ -z "$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11',
-        'exec "$DEST/' + binTarget + '" "$@"',
+        'exec "$DEST/' + exeFilename + '" "$@"',
         '',
     ].join('\n');
     const binWrapper = path.join(binDir, pkgId);
@@ -3062,7 +3129,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, isBundle = fal
  * Output: <stem>.xbps — renamed from xbps-create's <pkgver>.<arch>.xbps naming convention.
  * Optionally signed with the XBPS private key and GPG if credentials are present.
  */
-function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, isBundle = false, exeFilename = '') {
+function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('xbps')) return;
     if (!findBin('xbps-create')) {
         ui.warn('xbps-create not found \u2014 skipping Void Linux package');
@@ -3081,42 +3148,40 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     const stem     = `${pkgId}-${version}-${targetOs}-${targetArch}`;
     const outputFile = path.join(outDir, `${pkgver}.${xbpsArch}.xbps`);
 
-    const xbpsRoot   = path.join(tmpDir, 'xbps-staging', `${stem}${isBundle ? '-bundle' : ''}`);
+    const xbpsRoot   = path.join(tmpDir, 'xbps-staging', stem);
     const xbpsOutDir = path.join(tmpDir, 'xbps-out', stem);
     if (fs.existsSync(xbpsRoot)) fs.rmSync(xbpsRoot, { recursive: true, force: true });
     fs.mkdirSync(xbpsRoot,   { recursive: true });
     fs.mkdirSync(xbpsOutDir, { recursive: true });
 
     // Populate system-layout staging tree (/opt, /usr/bin, /usr/share/…)
-    buildSystemLayoutStaging(stagingDir, pkgId, version, isBundle, exeFilename, info, xbpsRoot);
+    buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, xbpsRoot);
 
-    // XBPS INSTALL trigger script — called by xbps post-install and pre-remove.
-    // Convention: INSTALL <pkgname> run {install|remove|update}
+    // XBPS INSTALL script — called by xbps-install as:
+    //   INSTALL post-install <pkgver>   (after files are unpacked)
+    //   INSTALL post-update  <pkgver>   (after an upgrade)
+    //   INSTALL pre-remove   <pkgver>   (before files are removed)
+    // $1 = action, $2 = pkgver  (no pkgname argument — verified from xbps source).
+    //
+    // The seed at /usr/share/<pkgId>/ is installed read-only by xbps-install.
+    // No chmod hacks are needed: the user's mutable copy is bootstrapped to
+    // ~/.local/share/<pkgId>/ by the wrapper script on first launch.
+    // pre-remove cleans the seed; user data in ~/.local/share/ is left in place
+    // (the user owns that directory — removal is their choice).
     const installLines = [
         '#!/bin/sh',
-        '# XBPS trigger script: $1=pkgname $2=run|targets $3=install|remove|update',
-        'if [ "$2" = "targets" ]; then',
-        '    echo "post-install:Set file permissions"',
-        isBundle ? '    echo "post-install:Link WebKit subprocess helpers"' : null,
-        '    echo "pre-remove:Remove /opt install directory"',
-        '    exit 0',
-        'fi',
-        'case "$3" in',
-        '    install|update)',
-        `        chmod -R a+rwX /opt/${pkgId}/`,
-        ...(isBundle ? [
-            '        mkdir -p /usr/local/libexec',
-            `        [ -d /usr/local/libexec/webkit2gtk-4.1 ] && [ ! -L /usr/local/libexec/webkit2gtk-4.1 ] && rm -rf /usr/local/libexec/webkit2gtk-4.1`,
-            `        ln -sf /opt/${pkgId}/lib/webkit2gtk-4.1 /usr/local/libexec/webkit2gtk-4.1`,
-        ] : []),
+        '# $1=post-install|post-update|pre-remove  $2=pkgver',
+        'case "$1" in',
+        '    post-install|post-update)',
+        `        # Seed installed read-only into /usr/share/${pkgId}/.`,
+        `        # User data bootstrapped to ~/.local/share/${pkgId}/ on first launch.`,
         '        ;;',
-        '    remove)',
-        ...(isBundle ? [`        rm -f /usr/local/libexec/webkit2gtk-4.1`] : []),
-        `        rm -rf /opt/${pkgId}/`,
+        '    pre-remove)',
+        `        rm -rf /usr/share/${pkgId}/`,
         '        ;;',
         'esac',
         '',
-    ].filter(l => l !== null).join('\n');
+    ].join('\n');
     const installPath = path.join(xbpsRoot, 'INSTALL');
     fs.writeFileSync(installPath, installLines, 'utf8');
     makeExecutable(installPath);
@@ -3130,8 +3195,7 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     if (website) xbpsArgs.push('-H', website);
     if (license) xbpsArgs.push('-l', license);
     if (author)  xbpsArgs.push('-m', author);
-    // Bare packages declare runtime dependencies; bundle packages carry their own .so libs.
-    if (!isBundle && LINUX_DEPS.void.required.length > 0)
+    if (LINUX_DEPS.void.required.length > 0)
         xbpsArgs.push('-D', LINUX_DEPS.void.required.join(' '));
     xbpsArgs.push(xbpsRoot);
 
@@ -3169,43 +3233,6 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     }
 }
 
-
-// ─── Script generation ────────────────────────────────────────────────────────
-
-/** Launcher for bare (no bundled libs) releases. */
-function generateBareLauncher(exeFilename, info, targetOs, targetArch) {
-    const pkgId = toKebab(info.title || 'app');
-    return `#!/usr/bin/env bash
-# launch.sh — ${info.title || 'app'} ${targetOs}/${targetArch}
-set -e
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-# Run from a user-writable data dir so the engine can write log.txt, saves, etc.
-DATA_DIR="\${XDG_DATA_HOME:-\$HOME/.local/share}/${pkgId}"
-mkdir -p "\${DATA_DIR}"
-cd "\${DATA_DIR}"
-# Prefer Wayland; fall back to X11 if Wayland is unavailable.
-[ -z "\$GDK_BACKEND" ] && export GDK_BACKEND=wayland,x11
-exec "\${SCRIPT_DIR}/${exeFilename}" "$@"
-`;
-}
-
-/**
- * Launcher for bundle releases.
- * Delegates to bundle_exec.sh which sets LD_LIBRARY_PATH then calls the exe.
- */
-function generateBundleLauncher(info, targetOs, targetArch) {
-    const pkgId = toKebab(info.title || 'app');
-    return `#!/usr/bin/env bash
-# launch.sh — ${info.title || 'app'} ${targetOs}/${targetArch} [bundled]
-set -e
-SCRIPT_DIR="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-# Run from a user-writable data dir so the engine can write log.txt, saves, etc.
-DATA_DIR="\${XDG_DATA_HOME:-\$HOME/.local/share}/${pkgId}"
-mkdir -p "\${DATA_DIR}"
-cd "\${DATA_DIR}"
-exec "\${SCRIPT_DIR}/bundle_exec.sh" "$@"
-`;
-}
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
@@ -3246,7 +3273,13 @@ function run(args) {
     const opts = parseArgs(args);
 
     // ── 1. Locate and validate build/info.json ────────────────────────────────
-    const buildDir = findBuildDir();
+    // RENWEB_PROJECT_ROOT is set by dispatch() when running inside Docker and
+    // the user invoked rw from a subdirectory (e.g. package/). The upward walk
+    // can't escape the /project mount point in that case, so dispatch mounts the
+    // host project root at /renweb-project and passes it here.
+    const buildDir = process.env.RENWEB_PROJECT_ROOT
+        ? path.join(process.env.RENWEB_PROJECT_ROOT, 'build')
+        : findBuildDir();
     if (!buildDir) { ui.error('Could not find a build/ directory.'); process.exit(1); }
     const infoPath = path.join(buildDir, 'info.json');
     if (!fs.existsSync(infoPath)) { ui.error(`${infoPath} not found.`); process.exit(1); }
@@ -3263,8 +3296,6 @@ function run(args) {
     ui.info(`build dir : ${buildDir}`);
     ui.info(`engine    : ${engineRepo}`);
     ui.info(`plugins   : ${pluginRepos.length} repo(s)`);
-    if (opts.bundleOnly)      ui.info('mode      : bundle-only');
-    if (opts.executableOnly)  ui.info('mode      : executable-only');
     if (opts.exts.size > 0)   ui.info(`formats   : ${[...opts.exts].join(', ')}`);
     if (opts.oses.size > 0)   ui.info(`os filter : ${[...opts.oses].join(', ')}`);
     if (opts.arches.size > 0) ui.info(`arch filter: ${[...opts.arches].join(', ')}`);
@@ -3279,9 +3310,15 @@ function run(args) {
 
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
-    const cacheDir    = path.join(projectRoot, '.rw', 'package');    // all working files
-    const tmpDir      = path.join(cacheDir, 'staging');             // staging (always wiped)
-    const pkgDir  = path.join(projectRoot, 'package');
+    // When running inside Docker with RENWEB_PROJECT_ROOT set, the project root is
+    // a read-only mount. Output and cache must go into the writable /project mount
+    // (the user's actual CWD), not into the read-only project root.
+    const writableRoot = process.env.RENWEB_PROJECT_ROOT
+        ? (process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd())
+        : projectRoot;
+    const cacheDir    = path.join(writableRoot, '.rw', 'package');   // all working files
+    const tmpDir      = path.join(cacheDir, 'staging');              // staging (always wiped)
+    const pkgDir      = path.join(writableRoot, 'package');
     const enginesDir  = path.join(cacheDir, 'engines');
     const pluginsDir  = path.join(cacheDir, 'plugins');
     const buildSrcDir = path.join(tmpDir, 'build-src');
@@ -3319,7 +3356,6 @@ function run(args) {
     for (const [key, group] of engineGroups) {
         const targetOs   = key.split('-')[0];
         const targetArch = key.slice(targetOs.length + 1);
-        const isWindowsTarget = targetOs === 'windows' || targetOs === 'win';
         // OS filter
         if (opts.oses.size > 0 && !opts.oses.has(targetOs)) {
             ui.dim(`skip (os filter): ${key}`); continue;
@@ -3329,38 +3365,12 @@ function run(args) {
             ui.dim(`skip (arch filter): ${key}`); continue;
         }
 
-        // Decide which asset type(s) to produce for this key
+        // Only bare executables are produced (bundle support has been removed)
         const picks = [];
-        if (!opts.bundleOnly && group.bare)
-            picks.push({ ...group.bare,      isBundle: false, isBootstrap: false });
-        if (!opts.executableOnly && group.bundle && !isWindowsTarget)
-            picks.push({ ...group.bundle,    isBundle: true,  isBootstrap: false });
-        if (!opts.executableOnly && group.bootstrap)
-            picks.push({ ...group.bootstrap, isBundle: true,  isBootstrap: true  });
-        if (!opts.executableOnly && group.bundle && isWindowsTarget) {
-            ui.info(`${key}: skipping fixed-runtime bundle asset (bootstrap bundles only)`);
-        }
-        // Graceful fallback: if the requested type doesn't exist in this release
+        if (group.bare)
+            picks.push({ ...group.bare, isBootstrap: false });
         if (picks.length === 0) {
-            const fallback = (!opts.executableOnly && group.bootstrap)
-                ? group.bootstrap
-                : (!opts.bundleOnly && group.bare)
-                    ? group.bare
-                    : (!isWindowsTarget ? group.bundle : null);
-            if (fallback) {
-                const fb = {
-                    ...fallback,
-                    isBundle: !!fallback.bootstrap || fallback === group.bundle || fallback === group.bootstrap,
-                    isBootstrap: fallback === group.bootstrap,
-                };
-                picks.push(fb);
-                const kind = fallback === group.bootstrap ? 'bundle-bootstrap'
-                    : fallback === group.bundle ? 'bundle'
-                    : 'bare';
-                ui.info(`${key}: requested type unavailable, using ${kind}`);
-            } else if (isWindowsTarget && group.bundle && !group.bootstrap && !opts.executableOnly) {
-                ui.info(`${key}: only fixed-runtime bundle available; skipped by policy`);
-            }
+            ui.info(`${key}: no bare executable found in release`);
         }
 
         for (const pick of picks) {
@@ -3373,10 +3383,9 @@ function run(args) {
                     ui.warn(`Failed to download ${pick.filename}`); continue;
                 }
             }
-            if (!pick.isBundle) makeExecutable(destPath);
+            makeExecutable(destPath);
             toProcess.push({ filename: pick.filename, localPath: destPath,
-                             os: pick.os, arch: pick.arch,
-                             isBundle: pick.isBundle, isBootstrap: pick.isBootstrap });
+                             os: pick.os, arch: pick.arch });
         }
     }
 
@@ -3393,7 +3402,7 @@ function run(args) {
             { ui.dim(`skip: ${name}`); continue; }
         // Skip any file that parses as an engine binary (any name/os/arch combination).
         // This prevents host-arch binaries from leaking into cross-platform packages.
-        if (parseExecAsset(name) || parseBundleAsset(name))
+        if (parseExecAsset(name))
             { ui.dim(`skip (exe): ${name}`); continue; }
         const src  = path.join(buildDir, name);
         const dest = path.join(buildSrcDir, name);
@@ -3552,6 +3561,12 @@ function dispatch(args) {
         const hostCwd = normalizePathForDocker(path.resolve(process.cwd()));
         const image   = process.env.RENWEB_IMAGE || 'renweb-cli';
 
+        // Resolve the project root on the host (full filesystem available here).
+        // Inside Docker the upward walk is bounded by the /project mount point, so
+        // we pass the project root as a second read-only volume at /renweb-project.
+        const hostBuildDir   = findBuildDir();
+        const hostProjectDir = hostBuildDir ? normalizePathForDocker(path.resolve(hostBuildDir, '..')) : null;
+
         let imageExists = false;
         try {
             const inspect = spawnSync('docker', ['images', '-q', image], { encoding: 'utf8' });
@@ -3586,6 +3601,9 @@ function dispatch(args) {
             ? ['--user', `${process.getuid()}:${process.getgid()}`]
             : [];
         const containerName = `renweb-pkg-${Date.now()}`;
+        const projectVolumeArgs = hostProjectDir && hostProjectDir !== hostCwd
+            ? ['-v', `${hostProjectDir}:/renweb-project:ro`, '-e', 'RENWEB_PROJECT_ROOT=/renweb-project']
+            : [];
         const dockerRunArgs = [
             'run', '--rm',
             '--name', containerName,
@@ -3596,6 +3614,7 @@ function dispatch(args) {
             ...userFlag,
             '-v', `${hostCwd}:/project`,
             '-v', `${hostDir}:/work`,
+            ...projectVolumeArgs,
             '-w', '/project',
             image,
             'package', ...dockerArgs,

@@ -49,7 +49,10 @@ window.onload = async () => {
     let step = 0;
     const interval = setInterval(async () => {
         step++;
-        await Properties.setOpacity(step / 5);
+        let opacity = step / 5;
+        if (opacity > 1) opacity = 1;
+        else if (opacity < 0) opacity = 0;
+        await Properties.setOpacity(opacity);
         if (step >= 5) clearInterval(interval);
     }, 3);
 };

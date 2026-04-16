@@ -62,24 +62,37 @@ export declare const Utils: {
 declare global {
     interface Window {
         /**
-         * Callback invoked when a message is received from another RenWeb process.
-         * @param msg - The message object received. \
-         * The `msg` param will already be decoded when it's passed. \
-         * Messages should automatically be encoded as an object with `sender` and `message` properties, \
-         * but this is not guaranteed.
-         * @example
-         * window.onServerMessage = async (msg) => {
-         *     if (msg?.sender != null) {
-         *        await Log.info(`Received message from PID ${msg.sender?.pid}:`, msg?.message);
-         *    } else {
-         *        await Log.info(`Received unformatted message:`, msg?.message);
-         *    }
-         * };
+         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
+         * before page content renders to ensure they are invoked at the right time.
          */
-        onServerMessage: (msg: ({
-            sender: Process;
-            message: any;
-        }) | any) => Promise<void>;
+        renweb: {
+            /**
+             * Called after the browser's first painted frame on every page navigation.
+             * More reliable than `window.onload` for avoiding the white flash when using
+             * `initially_shown: false`. Use this to show the window once ready.
+             * @example
+             * window.renweb.onReady = async () => { await Window.show(true); };
+             */
+            onReady?: () => void | Promise<void>;
+            /**
+             * Called when the window is about to close. Use for cleanup before exit.
+             * @example
+             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+             */
+            onTerminate?: () => void | Promise<void>;
+            /**
+             * Called when a message is received from another RenWeb process via `proc.send()`.
+             * The `msg` parameter will already be decoded.
+             * @example
+             * window.renweb.onServerMessage = async (msg) => {
+             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+             * };
+             */
+            onServerMessage?: (msg: ({
+                sender: Process;
+                message: any;
+            }) | any) => void | Promise<void>;
+        };
     }
 }
 /**
@@ -470,6 +483,11 @@ export declare namespace Config {
      * @returns Promise that resolves to the configuration object
      */
     function getConfig(): Promise<any>;
+    /**
+ * Gets the info json file.
+ * @returns Promise that resolves to the info object
+ */
+    function getInfo(): Promise<any>;
     /**
      * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object

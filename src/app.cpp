@@ -166,7 +166,18 @@ std::unique_ptr<App> AppBuilder::build() {
     app->config = std::move(this->config);
     
     if (this->w == nullptr) {
-        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
+        std::string app_id;
+        if (app->info) {
+            try {
+                const auto& jv = app->info->getJson();
+                if (jv.is_object()) {
+                    const auto& obj = jv.as_object();
+                    if (obj.contains("app_id") && obj.at("app_id").is_string())
+                        app_id = std::string(obj.at("app_id").as_string());
+                }
+            } catch (...) {}
+        }
+        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr, app_id, this->logger));
     }
     app->w = std::move(this->w);
 

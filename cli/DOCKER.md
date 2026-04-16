@@ -52,7 +52,7 @@ npm start -- -olinux  # -> node index.js package -c -olinux
 
 | Flag | Description |
 |------|-------------|
-| `--bundle-only` | Only process bundled engine archives (includes `.so` libs) |
+
 | `--executable-only` | Only process bare executables |
 | `-e<ext>` | Filter output formats, e.g. `-edeb -erpm -ezip -ensis -edmg` |
 | `-o<os>` | Filter by OS, e.g. `-olinux -owindows -omacos` |
@@ -69,8 +69,6 @@ release/
     {name}-{version}-linux-{arch}.rpm
     {name}-{version}-linux-{arch}.pkg.tar.zst
     {name}-{version}-linux-{arch}.txz
-    bundle/
-      {name}-{version}-linux-{arch}.tar.gz   <- bundled libs variant
   windows/
     {name}-{version}-windows-{arch}.tar.gz
     {name}-{version}-windows-{arch}.zip
