@@ -2675,6 +2675,8 @@ body.iframe-page .footer {
     justify-content: center;
     z-index: 2;
     padding: 0;
+    padding-bottom: 6px;
+    padding-left: 2px;
 }
 
 .carousel-arrow:hover {
