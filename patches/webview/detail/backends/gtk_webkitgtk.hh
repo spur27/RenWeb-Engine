@@ -192,11 +192,8 @@ protected:
         if (!gtk_widget_get_parent(GTK_WIDGET(m_webview))) {
           gtk_compat::window_set_child(GTK_WINDOW(m_window), GTK_WIDGET(m_webview));
         }
-        // Pre-size the webview widget so it does not map at 1x1 first.
-        gtk_widget_set_size_request(GTK_WIDGET(m_webview), width, height);
         gtk_window_set_default_size(GTK_WINDOW(m_window), width, height);
       } else {
-        gtk_widget_set_size_request(GTK_WIDGET(m_webview), width, height);
         gtk_compat::window_set_size(GTK_WINDOW(m_window), width, height);
       }
 #else

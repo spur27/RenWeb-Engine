@@ -83,7 +83,9 @@ namespace RenWeb {
                     }
 
                     const std::uintmax_t keep_size =
-                        std::min(current_size, Logger::trimmed_log_size_bytes);
+                        (current_size < Logger::trimmed_log_size_bytes)
+                            ? current_size
+                            : Logger::trimmed_log_size_bytes;
                     if (keep_size == 0) {
                         this->file->clear();
                         return;

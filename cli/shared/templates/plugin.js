@@ -59,12 +59,6 @@ function makePluginCpp(info, pluginName, pluginClass) {
 #else
     #define PLUGIN_EXPORT
 #endif
-        ifeq ($(ARCH),x86_32)
-            ifeq ($(strip $(TOOLCHAIN)),)
-                CXXFLAGS += -m32
-                LDFLAGS  += -m32
-            endif
-        endif
 
 // ─── Constructor ─────────────────────────────────────────────────────────────
 

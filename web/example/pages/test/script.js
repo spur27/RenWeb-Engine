@@ -93,11 +93,6 @@ async function logWebviewCallback(name, payload) {
         console.error("[callback]", e);
     }
 
-    const output = document.querySelector(".application_output");
-    if (output) {
-        output.textContent = `${message}\n${output.textContent || ""}`.slice(0, 4000);
-    }
-
     console.info(message);
 }
 

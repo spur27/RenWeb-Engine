@@ -684,29 +684,7 @@ WF* WF::setGetSets() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            
-            int current_width, current_height;
-            gtk_window_get_size(GTK_WINDOW(window_widget), &current_width, &current_height);
-            
             gtk_window_set_resizable(GTK_WINDOW(window_widget), resizable);
-            
-            GdkGeometry hints;
-            if (resizable) {
-                hints.min_width = 1;
-                hints.min_height = 1;
-                hints.max_width = G_MAXINT;
-                hints.max_height = G_MAXINT;
-            } else {
-                hints.min_width = current_width;
-                hints.min_height = current_height;
-                hints.max_width = current_width;
-                hints.max_height = current_height;
-            }
-            gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), NULL, &hints, 
-                (GdkWindowHints)(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
-            if (gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
-                gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
-            }
         #endif
         })
     ))

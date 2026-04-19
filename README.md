@@ -36,7 +36,7 @@ A cross-platform desktop application framework that lets you build native GUI ap
 - 90+ JavaScript ↔ C++ bindings for window, filesystem, system, process, and more
 - Per-page configurable window properties via `config.json`
 - Multi-window process management
-- Portable executables under 2MB
+- Portable executables around 2MB
 - Compiles for 18 architectures across Linux, macOS, and Windows
 
 ## Platform Support

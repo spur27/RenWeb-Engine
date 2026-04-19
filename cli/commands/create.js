@@ -22,6 +22,32 @@ const {
 const ui = require('../shared/ui');
 const { prompt } = ui;
 
+function isDirectoryNonEmpty(dirPath) {
+    return fs.existsSync(dirPath) && fs.readdirSync(dirPath).length > 0;
+}
+
+function moveDirectoryContents(srcDir, destDir) {
+    fs.mkdirSync(destDir, { recursive: true });
+    for (const entry of fs.readdirSync(srcDir)) {
+        fs.renameSync(path.join(srcDir, entry), path.join(destDir, entry));
+    }
+    fs.rmdirSync(srcDir);
+}
+
+function getCwdSafe() {
+    try {
+        return process.cwd();
+    } catch (_) {
+        return null;
+    }
+}
+
+function relativeFromCwdOrAbsolute(targetPath) {
+    const cwd = getCwdSafe();
+    if (!cwd) return targetPath;
+    return path.relative(cwd, targetPath) || '.';
+}
+
 function setupPluginBoostSubmodule(projectDir) {
     const BOOST_TAG = 'boost-1.90.0';
     const BOOST_REPO = 'https://github.com/boostorg/boost.git';
@@ -293,7 +319,7 @@ async function promptInfo(rl, extra = [], yes = false, type = '', defaultTitle =
 async function createFrontend(projectDir, info) {
     const pageName = 'main';
 
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
+    if (isDirectoryNonEmpty(projectDir)) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -389,7 +415,7 @@ async function createFramework(projectDir, info, type) {
         process.exit(1);
     }
 
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
+    if (isDirectoryNonEmpty(projectDir)) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -397,19 +423,32 @@ async function createFramework(projectDir, info, type) {
 
     const parent = path.dirname(projectDir);
     const name   = path.basename(projectDir);
+    const safeBaseName = toKebab(name) || 'renweb-app';
+    const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
+    const scaffoldName = (safeBaseName !== name) ? tempScaffoldName : name;
+    const scaffoldProjectDir = path.join(parent, scaffoldName);
     fs.mkdirSync(parent, { recursive: true });
 
     ui.step(`Scaffolding ${type} project via Vite…`);
     const npxCmd  = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     const scaffold = spawnSync(
         npxCmd,
-        ['--yes', 'create-vite@5', name, '--template', template],
+        ['--yes', 'create-vite@5', scaffoldName, '--template', template],
         { cwd: parent, stdio: 'pipe' },
     );
+
+    const scaffoldPkgPath = path.join(scaffoldProjectDir, 'package.json');
+    if (scaffoldProjectDir !== projectDir && fs.existsSync(scaffoldPkgPath)) {
+        moveDirectoryContents(scaffoldProjectDir, projectDir);
+    }
 
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
         ui.error('Vite scaffolding failed — package.json not found.');
+        const stderr = (scaffold.stderr || '').toString().trim();
+        const stdout = (scaffold.stdout || '').toString().trim();
+        if (stderr) ui.dim(stderr.split('\n').slice(-8).join('\n'));
+        else if (stdout) ui.dim(stdout.split('\n').slice(-8).join('\n'));
         process.exit(scaffold.status ?? 1);
     }
     const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -483,7 +522,7 @@ async function createAngular(projectDir, info) {
         process.exit(1);
     }
 
-    if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
+    if (isDirectoryNonEmpty(projectDir)) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
         ui.dim('To integrate RenWeb into an existing project, run: rw init');
         process.exit(1);
@@ -491,24 +530,38 @@ async function createAngular(projectDir, info) {
 
     const parent = path.dirname(projectDir);
     const name   = path.basename(projectDir);
+    const safeBaseName = toKebab(name) || 'renweb-app';
+    const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
+    const scaffoldName = (safeBaseName !== name) ? tempScaffoldName : name;
+    const scaffoldProjectDir = path.join(parent, scaffoldName);
     fs.mkdirSync(parent, { recursive: true });
 
     ui.step('Scaffolding Angular project…');
     const scaffold = spawnSync(
         npxCmd,
-        ['--yes', '@angular/cli@latest', 'new', name,
+        ['--yes', '@angular/cli@latest', 'new', scaffoldName,
          '--routing=false', '--style=css', '--ssr=false', '--defaults', '--skip-install'],
         { cwd: parent, stdio: 'pipe' },
     );
+    const scaffoldAngJsonPath = path.join(scaffoldProjectDir, 'angular.json');
+    if (scaffoldProjectDir !== projectDir && fs.existsSync(scaffoldAngJsonPath)) {
+        moveDirectoryContents(scaffoldProjectDir, projectDir);
+    }
+
     const angJsonPath = path.join(projectDir, 'angular.json');
     if (!fs.existsSync(angJsonPath)) {
         ui.error('Angular scaffolding failed — angular.json not found.');
+        const stderr = (scaffold.stderr || '').toString().trim();
+        const stdout = (scaffold.stdout || '').toString().trim();
+        if (stderr) ui.dim(stderr.split('\n').slice(-8).join('\n'));
+        else if (stdout) ui.dim(stdout.split('\n').slice(-8).join('\n'));
         process.exit(scaffold.status ?? 1);
     }
 
     ui.step('Augmenting angular.json…');
     const angJson   = JSON.parse(fs.readFileSync(angJsonPath, 'utf8'));
-    const buildOpts = angJson.projects?.[name]?.architect?.build?.options;
+    const angularProjectKey = Object.keys(angJson.projects || {})[0] || name;
+    const buildOpts = angJson.projects?.[angularProjectKey]?.architect?.build?.options;
     if (buildOpts) {
         // Angular 17+: must use object form; browser:'' places assets directly in base.
         buildOpts.outputPath = { base: `build/content/${pageName}`, browser: '' };
@@ -685,7 +738,7 @@ async function run(args) {
         type = await promptType(rl);
     }
 
-    const projectDir = path.resolve(dir || process.cwd());
+    const projectDir = path.resolve(dir || getCwdSafe() || '.');
 
     // ── Engine clone: no further prompts needed ───────────────────────────────
     if (type === 'engine') {
@@ -703,7 +756,7 @@ async function run(args) {
         if (rl) rl.close();
 
         ui.step(`Scaffolding plugin project at: ${projectDir}`);
-        if (fs.existsSync(projectDir) && fs.readdirSync(projectDir).filter(f => !f.startsWith('.')).length > 0) {
+        if (isDirectoryNonEmpty(projectDir)) {
             ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
             ui.dim('To integrate RenWeb into an existing project, run: rw init');
             process.exit(1);
@@ -730,7 +783,7 @@ async function run(args) {
         await createAngular(projectDir, info);
 
         ui.ok('Project scaffolded.');
-        const relA = path.relative(process.cwd(), projectDir) || '.';
+        const relA = relativeFromCwdOrAbsolute(projectDir);
         ui.nextSteps([
             ['cd ' + relA, null],
             ['ng build', 'build → build/content/main/'],
@@ -750,7 +803,7 @@ async function run(args) {
         await createFramework(projectDir, info, type);
 
         ui.ok('Project scaffolded.');
-        const relF = path.relative(process.cwd(), projectDir) || '.';
+        const relF = relativeFromCwdOrAbsolute(projectDir);
         ui.nextSteps([
             ['cd ' + relF, null],
             ['rw build', 'run Vite build → build/content/main/'],
@@ -768,7 +821,7 @@ async function run(args) {
     await createFrontend(projectDir, info);
 
     ui.ok('Project scaffolded.');
-    const rel = path.relative(process.cwd(), projectDir) || '.';
+    const rel = relativeFromCwdOrAbsolute(projectDir);
     ui.nextSteps([
         ['cd ' + rel, null],
         ['rw build', 'copy src → build'],
