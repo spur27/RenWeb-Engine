@@ -188,6 +188,11 @@ static Class getOrCreateRenWebNavigationDelegateClass() {
             webview::webview* wv = wvValue ? (webview::webview*)[wvValue pointerValue] : nullptr;
             if (!wv) return;
 
+            NSWindow* nsWindow = [webView window];
+            if (nsWindow) {
+                [nsWindow orderOut:nil];
+            }
+
             try {
                 wv->eval(makeOnRenderProcessTerminatedScript("web-content-process-terminated"));
             } catch (...) { }
@@ -496,6 +501,12 @@ void Webview::addWindowCallbacks() {
                             case WEBKIT_WEB_PROCESS_TERMINATED_BY_API: reason_str = "web-process-terminated-by-api"; break;
                             default: break;
                         }
+
+                        auto win = wv->window();
+                        if (win.has_value() && win.value()) {
+                            gtk_widget_hide(GTK_WIDGET(win.value()));
+                        }
+
                         try {
                             wv->eval(makeOnRenderProcessTerminatedScript(reason_str));
                         } catch (...) { }
@@ -664,6 +675,12 @@ void Webview::addWindowCallbacks() {
                             case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE: reason = "render-process-unresponsive"; break;
                             case COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED: reason = "frame-render-process-exited"; break;
                             default: break;
+                        }
+
+                        auto win = wv->window();
+                        if (win.has_value() && win.value()) {
+                            HWND hwnd = static_cast<HWND>(win.value());
+                            ShowWindow(hwnd, SW_HIDE);
                         }
 
                         try {

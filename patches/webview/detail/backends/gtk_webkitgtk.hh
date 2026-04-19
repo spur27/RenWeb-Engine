@@ -186,17 +186,21 @@ protected:
     if (hints == WEBVIEW_HINT_NONE || hints == WEBVIEW_HINT_FIXED) {
 #if GTK_MAJOR_VERSION < 4
       if (!gtk_widget_get_realized(GTK_WIDGET(m_window))) {
-        // RENWEB PATCH: Realize at configured size before page load so WebKit's
-        // web process receives the correct initial viewport via size-allocate.
+        // RENWEB PATCH: Apply default size before first map, but avoid forcing
+        // realize here. Early realize can happen before monitor scale is known,
+        // causing a transient zoom mismatch on first paint.
         if (!gtk_widget_get_parent(GTK_WIDGET(m_webview))) {
           gtk_compat::window_set_child(GTK_WINDOW(m_window), GTK_WIDGET(m_webview));
         }
+        // Pre-size the webview widget so it does not map at 1x1 first.
+        gtk_widget_set_size_request(GTK_WIDGET(m_webview), width, height);
         gtk_window_set_default_size(GTK_WINDOW(m_window), width, height);
-        gtk_widget_realize(GTK_WIDGET(m_window));
       } else {
+        gtk_widget_set_size_request(GTK_WIDGET(m_webview), width, height);
         gtk_compat::window_set_size(GTK_WINDOW(m_window), width, height);
       }
 #else
+      gtk_widget_set_size_request(GTK_WIDGET(m_webview), width, height);
       gtk_compat::window_set_size(GTK_WINDOW(m_window), width, height);
 #endif
     } else if (hints == WEBVIEW_HINT_MIN) {
@@ -343,6 +347,7 @@ private:
     add_init_script("function(message) {\n\
   return window.webkit.messageHandlers.__webview__.postMessage(message);\n\
 }");
+
   }
 
   void window_settings(bool debug) {

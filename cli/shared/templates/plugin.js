@@ -59,6 +59,12 @@ function makePluginCpp(info, pluginName, pluginClass) {
 #else
     #define PLUGIN_EXPORT
 #endif
+        ifeq ($(ARCH),x86_32)
+            ifeq ($(strip $(TOOLCHAIN)),)
+                CXXFLAGS += -m32
+                LDFLAGS  += -m32
+            endif
+        endif
 
 // ─── Constructor ─────────────────────────────────────────────────────────────
 
@@ -162,6 +168,7 @@ function makePluginMakefile(info, pluginName) {
 #   make TARGET=release           Build in release mode
 #   make TOOLCHAIN=<triplet>      Cross-compile (Linux only, same triplets as
 #                                 the engine makefile)
+#   make ARCH=x86_32              Linux x86_32 via native multilib (-m32)
 #   make ARCH=<arch>              Override the arch label in the output filename
 #   make clear                    Remove only object files (between arch passes)
 #   make clean                    Remove object files and build/plugins/ output
@@ -184,6 +191,10 @@ function makePluginMakefile(info, pluginName) {
 # -----------------------------------------------------------------------------
 TOOLCHAIN :=
 REQUIRED_BOOST_VERSION := 109000
+
+ifneq ($(strip $(TOOLCHAIN)),)
+    CROSS_COMPILE := $(TOOLCHAIN)-
+endif
 
 # -----------------------------------------------------------------------------
 # OS / compiler / architecture detection
@@ -293,12 +304,41 @@ else
 \t\tCXX          := $(CROSS_COMPILE)g++
 \t\tCXXFLAGS     := -std=c++20 -MMD -MP -fPIC -D_GNU_SOURCE
 		CXXFLAGS += $(SYSROOT) -O3 -flto -DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
-\t\tifdef TOOLCHAIN
+		ifneq ($(strip $(TOOLCHAIN)),)
 \t\t\tCXXFLAGS += -isystem /usr/$(TOOLCHAIN)/usr/local/include
 \t\t\tLDFLAGS  := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
 \t\telse
 \t\t\tLDFLAGS  :=
 \t\tendif
+		ifndef ARCH
+			ifeq ($(TOOLCHAIN),arm-linux-gnueabihf)
+				ARCH := arm32
+			else ifeq ($(TOOLCHAIN),aarch64-linux-gnu)
+				ARCH := arm64
+			else ifeq ($(TOOLCHAIN),i686-linux-gnu)
+				ARCH := x86_32
+			else ifeq ($(TOOLCHAIN),mips-linux-gnu)
+				ARCH := mips32
+			else ifeq ($(TOOLCHAIN),mipsel-linux-gnu)
+				ARCH := mips32el
+			else ifeq ($(TOOLCHAIN),mips64-linux-gnuabi64)
+				ARCH := mips64
+			else ifeq ($(TOOLCHAIN),mips64el-linux-gnuabi64)
+				ARCH := mips64el
+			else ifeq ($(TOOLCHAIN),powerpc-linux-gnu)
+				ARCH := powerpc32
+			else ifeq ($(TOOLCHAIN),powerpc64-linux-gnu)
+				ARCH := powerpc64
+			else ifeq ($(TOOLCHAIN),riscv64-linux-gnu)
+				ARCH := riscv64
+			else ifeq ($(TOOLCHAIN),s390x-linux-gnu)
+				ARCH := s390x
+			else ifeq ($(TOOLCHAIN),sparc64-linux-gnu)
+				ARCH := sparc64
+			else ifeq ($(TOOLCHAIN),x86_64-linux-gnu)
+				ARCH := x86_64
+			endif
+		endif
 \t\tifndef ARCH
 \t\t\tUNAME_M := $(shell uname -m)
 \t\t\tifeq ($(UNAME_M),x86_64)
@@ -501,7 +541,8 @@ function makePluginBuildAllArchs(pluginName) {
 # Usage:
 #   ./build_all_archs.sh [--arch <arch>] ...
 #
-# On Linux:   builds all 13 toolchain architectures (requires cross-compilers)
+# On Linux:   builds all architectures; x86_32 uses native multilib (-m32)
+#             by default and falls back to i686 toolchain if needed
 # On macOS:   builds arm64 + x86_64, then creates a universal .dylib via lipo
 # On Windows: builds x64 + x86 + arm64 via MSVC (requires VS 2022)
 
@@ -589,6 +630,19 @@ build_for_toolchain() {
     fi
 }
 
+build_linux_x86_32_multilib() {
+    print_building "x86_32" "native gcc/clang -m32"
+    if make clear TARGET=release ARCH=x86_32; then
+        if make TARGET=release ARCH=x86_32 -j\$(nproc 2>/dev/null || echo 4); then
+            print_success "Built x86_32 via native -m32 multilib"; return 0
+        else
+            print_error "Failed x86_32 multilib build (install gcc-multilib/libc6-dev-i386 or equivalent)"; return 1
+        fi
+    else
+        print_error "Failed to clear for x86_32 multilib build"; return 1
+    fi
+}
+
 build_native() {
     local arch_name=$1
     print_building "$arch_name" "native"
@@ -663,6 +717,26 @@ build_linux() {
             continue
         fi
         total_count=\$((total_count + 1))
+        if [ "$tc_arch" = "x86_32" ]; then
+            if build_linux_x86_32_multilib; then
+                success_count=\$((success_count + 1))
+            else
+                if toolchain_exists "$toolchain"; then
+                    print_warning "native -m32 build failed, trying i686 toolchain fallback"
+                    if build_for_toolchain "$toolchain" "$toolchain"; then
+                        success_count=\$((success_count + 1))
+                    else
+                        fail_count=\$((fail_count + 1))
+                    fi
+                else
+                    print_warning "native -m32 build failed and $toolchain is unavailable"
+                    fail_count=\$((fail_count + 1))
+                fi
+            fi
+            echo ""
+            continue
+        fi
+
         if toolchain_exists "$toolchain"; then
             if build_for_toolchain "$toolchain" "$toolchain"; then
                 success_count=\$((success_count + 1))
@@ -802,7 +876,7 @@ main() {
                 echo "Usage: $0 [--arch <arch>]..."
                 echo "Builds the \${PLUGIN_NAME_DISPLAY} plugin for all architectures on the current OS."
                 echo "  --arch <arch>  Only build for the specified architecture (repeatable)"
-                echo "  Linux:   13 cross-compiled .so files (requires toolchains)"
+                echo "  Linux:   all supported .so targets; x86_32 uses native -m32 by default, then i686 toolchain as fallback"
                 echo "  macOS:   arm64 + x86_64 .dylib files + universal binary"
                 echo "  Windows: x86_64 + x86_32 + arm64 .dll files (requires VS 2022)"
                 exit 0 ;;
@@ -1011,6 +1085,9 @@ make TARGET=debug
 
 # Cross-compile for ARM64 on Linux
 make TOOLCHAIN=aarch64-linux-gnu
+
+# Linux x86_32 via native multilib (-m32)
+make ARCH=x86_32
 
 # Windows (MinGW or MSVC Developer Prompt)
 make

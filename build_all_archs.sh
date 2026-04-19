@@ -33,6 +33,8 @@
 # =============================================================================
 # This script builds the RenWeb executable for all supported architectures
 # based on the detected operating system and available cross-compilers.
+# On Linux, x86_32 uses i686-linux-gnu when available and falls back to
+# native multilib compilation (-m32) when the cross-toolchain is missing.
 #
 # Usage:
 #   ./build_all_archs.sh [--bundle-only | --executable-only]
@@ -179,6 +181,23 @@ build_for_toolchain() {
     fi
 }
 
+build_linux_x86_32_multilib() {
+    print_building "x86_32" "native gcc/clang -m32"
+
+    if make clear TARGET=release ARCH=x86_32; then
+        if make TARGET=release ARCH=x86_32 -j$(nproc 2>/dev/null || echo 4); then
+            print_success "Built x86_32 via native -m32 multilib"
+            return 0
+        else
+            print_error "Failed x86_32 multilib build (install gcc-multilib/libc6-dev-i386 or equivalent)"
+            return 1
+        fi
+    else
+        print_error "Failed to clear for x86_32 multilib build"
+        return 1
+    fi
+}
+
 build_native() {
     local arch_name=$1
     
@@ -308,8 +327,17 @@ build_linux() {
                 fail_count=$((fail_count + 1))
             fi
         else
-            print_warning "Toolchain $toolchain not found, skipping"
-            fail_count=$((fail_count + 1))
+            if [ "$tc_arch" = "x86_32" ]; then
+                print_warning "Toolchain $toolchain not found, trying native -m32 multilib fallback"
+                if build_linux_x86_32_multilib; then
+                    success_count=$((success_count + 1))
+                else
+                    fail_count=$((fail_count + 1))
+                fi
+            else
+                print_warning "Toolchain $toolchain not found, skipping"
+                fail_count=$((fail_count + 1))
+            fi
         fi
         echo ""
     done

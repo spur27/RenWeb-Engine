@@ -40,7 +40,7 @@
 # -		S390x (Linux):               TOOLCHAIN := s390x-linux-gnu
 # -		SPARC 64-bit (Linux):        TOOLCHAIN := sparc64-linux-gnu
 # -		x86_64 (Linux):              TOOLCHAIN := x86_64-linux-gnu (or native)
-# -		x86 32-bit (Linux):          TOOLCHAIN := i686-linux-gnu
+# -		x86 32-bit (Linux):          TOOLCHAIN := i686-linux-gnu (or ARCH := x86_32 for native -m32)
 # -		x86 32-bit (macOS):          Use clang with -m32 flag (no TOOLCHAIN)
 # -		Windows (cl.exe):            No TOOLCHAIN - use native cl.exe compiler
 # -		macOS (clang):               No TOOLCHAIN - use native clang compiler
