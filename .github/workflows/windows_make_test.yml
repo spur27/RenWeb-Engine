@@ -78,6 +78,6 @@ jobs:
         git --version
         ls
         $boostLibs = (Get-ChildItem lib -Filter "*.lib").FullName -join " "
-        make LIBS="$boostLibs"
+        make TARGET=release LIBS="$boostLibs"
       working-directory: .
       shell: pwsh
