@@ -1,6 +1,6 @@
 {
   "name": "renweb-api",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "RenWeb Engine JavaScript/TypeScript API.",
   "type": "module",
   "main": "./index.js",
@@ -8,7 +8,7 @@
   "exports": {
     ".": {
       "import": "./index.js",
-      "types":  "./index.d.ts"
+      "types": "./index.d.ts"
     }
   },
   "files": [
@@ -19,7 +19,12 @@
     "jsr.json",
     "deno.json"
   ],
-  "keywords": ["renweb", "webview", "desktop", "api"],
+  "keywords": [
+    "renweb",
+    "webview",
+    "desktop",
+    "api"
+  ],
   "author": "spur27",
   "license": "BSL-1.0",
   "repository": {

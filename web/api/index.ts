@@ -161,74 +161,90 @@ export const Utils = {
 * -----------------------------------------------
 */ 
 
-declare global {
-    interface Window {
-        /**
-         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
-         * before page content renders to ensure they are invoked at the right time.
-         */
-        renweb: {
-            /**
-             * Called after the browser's first painted frame on every page navigation.
-             * More reliable than `window.onload` for avoiding the white flash when using
-             * `initially_shown: false`. Use this to show the window once ready.
-             * @example
-             * window.renweb.onReady = async () => { await Window.show(true); };
-             */
-            onReady?: () => void | Promise<void>;
-            /**
-             * Called when the window is about to close. Use for cleanup before exit.
-             * @example
-             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
-             */
-            onTerminate?: () => void | Promise<void>;
-            /**
-             * Called when the native window position changes.
-             * @example
-             * window.renweb.onMove = ({ x, y }) => {
-             *     console.log(`Window moved to (${x}, ${y})`);
-             * };
-             */
-            onMove?: (position: { x: number, y: number }) => void | Promise<void>;
-            /**
-             * Called when the native window state changes.
-             * @example
-             * window.renweb.onWindowStateChanged = ({ state }) => {
-             *     console.log(`Window state: ${state}`);
-             * };
-             */
-            onWindowStateChanged?: (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => void | Promise<void>;
-            /**
-             * Called when the web engine asks for protected permissions.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onPermissionRequested?: (event: { kind: string, origin: string }) => void | Promise<void>;
-            /**
-             * Called when the engine requests opening a new browser window.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onNewWindowRequested?: (event: { url: string }) => void | Promise<void>;
-            /**
-             * Called when the web render process crashes/exits/unresponds.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onRenderProcessTerminated?: (event: { reason: string }) => void | Promise<void>;
-            /**
-             * Called when TLS/certificate validation errors occur during load.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onCertificateError?: (event: { url: string, error: string }) => void | Promise<void>;
-            /**
-             * Called when a message is received from another RenWeb process via `proc.send()`.
-             * The `msg` parameter will already be decoded.
-             * @example
-             * window.renweb.onServerMessage = async (msg) => {
-             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
-             * };
-             */
-            onServerMessage?: (msg: ({sender: Process, message: any}) | any) => void | Promise<void>;
-        };
-    }
+/**
+ * Lifecycle callback shape for the runtime `window.renweb` object.
+ */
+export interface RenWebCallbacks {
+    /**
+     * Called after the browser's first painted frame on every page navigation.
+     * More reliable than `window.onload` for avoiding the white flash when using
+     * `initially_shown: false`. Use this to show the window once ready.
+     * @example
+     * window.renweb.onReady = async () => { await Window.show(true); };
+     */
+    onReady?: () => void | Promise<void>;
+
+    /**
+     * Called when the window is about to close. Use for cleanup before exit.
+     * @example
+     * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+     */
+    onTerminate?: () => void | Promise<void>;
+
+    /**
+     * Called when the native window position changes.
+     * @example
+     * window.renweb.onMove = ({ x, y }) => {
+     *     console.log(`Window moved to (${x}, ${y})`);
+     * };
+     */
+    onMove?: (position: { x: number, y: number }) => void | Promise<void>;
+
+    /**
+     * Called when the native window state changes.
+     * @example
+     * window.renweb.onWindowStateChanged = ({ state }) => {
+     *     console.log(`Window state: ${state}`);
+     * };
+     */
+    onWindowStateChanged?: (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => void | Promise<void>;
+
+    /**
+     * Called when the web engine asks for protected permissions.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onPermissionRequested?: (event: { kind: string, origin: string }) => void | Promise<void>;
+
+    /**
+     * Called when the engine requests opening a new browser window.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onNewWindowRequested?: (event: { url: string }) => void | Promise<void>;
+
+    /**
+     * Called when the web render process crashes/exits/unresponds.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onRenderProcessTerminated?: (event: { reason: string }) => void | Promise<void>;
+
+    /**
+     * Called when TLS/certificate validation errors occur during load.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onCertificateError?: (event: { url: string, error: string }) => void | Promise<void>;
+
+    /**
+     * Called when a message is received from another RenWeb process via `proc.send()`.
+     * The `msg` parameter will already be decoded.
+     * @example
+     * window.renweb.onServerMessage = async (msg) => {
+     *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+     * };
+     */
+    onServerMessage?: (msg: ({ sender: Process, message: any }) | any) => void | Promise<void>;
+}
+
+/**
+ * Helper type for consumers who want explicit typing for `window.renweb`.
+ */
+export interface RenWebWindow extends Window {
+    renweb?: RenWebCallbacks;
+}
+
+// Ensure runtime callback bag is present in browser/webview contexts.
+if (typeof window !== "undefined") {
+    const rwWindow = window as RenWebWindow;
+    rwWindow.renweb = rwWindow.renweb ?? {};
 }
 
 /**
@@ -470,7 +486,7 @@ export namespace Window {
      * @returns Promise that resolves when termination starts
      */
     export async function terminate(): Promise<void> {
-        await window.renweb?.onTerminate?.();
+        await (window as RenWebWindow).renweb?.onTerminate?.();
         await BIND_terminate(null);
     }
     
@@ -881,7 +897,23 @@ export class Process {
      * Gets all process information as an object.
      * @returns Object containing all process properties
      */
-    public get info() {
+    public get info(): {
+        pid: number;
+        ppid: number;
+        name: string;
+        path: string;
+        args: string[];
+        is_background_process: boolean;
+        is_running: boolean;
+        is_child: boolean;
+        exit_code: number;
+        started_at: Date;
+        memory_kb: number;
+        threads: number;
+        url: string;
+        page: string;
+        renweb: boolean;
+    } {
         return {
             pid: this._pid,
             ppid: this._ppid,
@@ -902,49 +934,49 @@ export class Process {
     }
     
     /** Gets the process ID */
-    public get pid() { return this._pid; }
+    public get pid(): number { return this._pid; }
     
     /** Gets the parent process ID */
-    public get ppid() { return this._ppid; }
+    public get ppid(): number { return this._ppid; }
     
     /** Gets the process name */
-    public get name() { return this._name; }
+    public get name(): string { return this._name; }
     
     /** Gets the process executable path */
-    public get path() { return this._path; }
+    public get path(): string { return this._path; }
     
     /** Gets the process command-line arguments */
-    public get args() { return this._args; }
+    public get args(): string[] { return this._args; }
     
     /** Gets whether this is a background process */
-    public get is_background_process() { return this._is_background_process; }
+    public get is_background_process(): boolean { return this._is_background_process; }
     
     /** Gets whether the process is currently running */
-    public get is_running() { return this._is_running; }
+    public get is_running(): boolean { return this._is_running; }
     
     /** Gets whether this is a child process of the current process */
-    public get is_child() { return this._is_child; }
+    public get is_child(): boolean { return this._is_child; }
     
     /** Gets the process exit code (0 if still running) */
-    public get exit_code() { return this._exit_code; }
+    public get exit_code(): number { return this._exit_code; }
     
     /** Gets the process start time */
-    public get started_at() { return this._started_at; }
+    public get started_at(): Date { return this._started_at; }
     
     /** Gets the process memory usage in kilobytes */
-    public get memory_kb() { return this._memory_kb; }
+    public get memory_kb(): number { return this._memory_kb; }
     
     /** Gets the number of threads in the process */
-    public get threads() { return this._threads; }
+    public get threads(): number { return this._threads; }
     
     /** Gets the URL (for RenWeb processes) */
-    public get url() { return this._url; }
+    public get url(): string { return this._url; }
     
     /** Gets the page name (for RenWeb processes) */
-    public get page() { return this._page; }
+    public get page(): string { return this._page; }
     
     /** Gets whether this is a RenWeb process */
-    public get renweb() { return this._renweb; }
+    public get renweb(): boolean { return this._renweb; }
     
     /**
      * Refreshes the process information from the system.

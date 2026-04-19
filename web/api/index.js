@@ -153,6 +153,11 @@ export const Utils = {
     encode,
     serialize
 };
+// Ensure runtime callback bag is present in browser/webview contexts.
+if (typeof window !== "undefined") {
+    const rwWindow = window;
+    rwWindow.renweb = rwWindow.renweb ?? {};
+}
 /**
  * Window property getters and setters.
  */

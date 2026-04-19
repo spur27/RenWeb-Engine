@@ -59,92 +59,93 @@ export declare const Utils: {
     encode: typeof encode;
     serialize: typeof serialize;
 };
-declare global {
-    interface Window {
-        /**
-         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
-         * before page content renders to ensure they are invoked at the right time.
-         */
-        renweb: {
-            /**
-             * Called after the browser's first painted frame on every page navigation.
-             * More reliable than `window.onload` for avoiding the white flash when using
-             * `initially_shown: false`. Use this to show the window once ready.
-             * @example
-             * window.renweb.onReady = async () => { await Window.show(true); };
-             */
-            onReady?: () => void | Promise<void>;
-            /**
-             * Called when the window is about to close. Use for cleanup before exit.
-             * @example
-             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
-             */
-            onTerminate?: () => void | Promise<void>;
-            /**
-             * Called when the native window position changes.
-             * @example
-             * window.renweb.onMove = ({ x, y }) => {
-             *     console.log(`Window moved to (${x}, ${y})`);
-             * };
-             */
-            onMove?: (position: {
-                x: number;
-                y: number;
-            }) => void | Promise<void>;
-            /**
-             * Called when the native window state changes.
-             * @example
-             * window.renweb.onWindowStateChanged = ({ state }) => {
-             *     console.log(`Window state: ${state}`);
-             * };
-             */
-            onWindowStateChanged?: (state: {
-                state: "normal" | "minimized" | "maximized" | "fullscreen";
-            }) => void | Promise<void>;
-            /**
-             * Called when the web engine asks for protected permissions.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onPermissionRequested?: (event: {
-                kind: string;
-                origin: string;
-            }) => void | Promise<void>;
-            /**
-             * Called when the engine requests opening a new browser window.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onNewWindowRequested?: (event: {
-                url: string;
-            }) => void | Promise<void>;
-            /**
-             * Called when the web render process crashes/exits/unresponds.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onRenderProcessTerminated?: (event: {
-                reason: string;
-            }) => void | Promise<void>;
-            /**
-             * Called when TLS/certificate validation errors occur during load.
-             * This is emitted from native engine callbacks where supported.
-             */
-            onCertificateError?: (event: {
-                url: string;
-                error: string;
-            }) => void | Promise<void>;
-            /**
-             * Called when a message is received from another RenWeb process via `proc.send()`.
-             * The `msg` parameter will already be decoded.
-             * @example
-             * window.renweb.onServerMessage = async (msg) => {
-             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
-             * };
-             */
-            onServerMessage?: (msg: ({
-                sender: Process;
-                message: any;
-            }) | any) => void | Promise<void>;
-        };
-    }
+/**
+ * Lifecycle callback shape for the runtime `window.renweb` object.
+ */
+export interface RenWebCallbacks {
+    /**
+     * Called after the browser's first painted frame on every page navigation.
+     * More reliable than `window.onload` for avoiding the white flash when using
+     * `initially_shown: false`. Use this to show the window once ready.
+     * @example
+     * window.renweb.onReady = async () => { await Window.show(true); };
+     */
+    onReady?: () => void | Promise<void>;
+    /**
+     * Called when the window is about to close. Use for cleanup before exit.
+     * @example
+     * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+     */
+    onTerminate?: () => void | Promise<void>;
+    /**
+     * Called when the native window position changes.
+     * @example
+     * window.renweb.onMove = ({ x, y }) => {
+     *     console.log(`Window moved to (${x}, ${y})`);
+     * };
+     */
+    onMove?: (position: {
+        x: number;
+        y: number;
+    }) => void | Promise<void>;
+    /**
+     * Called when the native window state changes.
+     * @example
+     * window.renweb.onWindowStateChanged = ({ state }) => {
+     *     console.log(`Window state: ${state}`);
+     * };
+     */
+    onWindowStateChanged?: (state: {
+        state: "normal" | "minimized" | "maximized" | "fullscreen";
+    }) => void | Promise<void>;
+    /**
+     * Called when the web engine asks for protected permissions.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onPermissionRequested?: (event: {
+        kind: string;
+        origin: string;
+    }) => void | Promise<void>;
+    /**
+     * Called when the engine requests opening a new browser window.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onNewWindowRequested?: (event: {
+        url: string;
+    }) => void | Promise<void>;
+    /**
+     * Called when the web render process crashes/exits/unresponds.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onRenderProcessTerminated?: (event: {
+        reason: string;
+    }) => void | Promise<void>;
+    /**
+     * Called when TLS/certificate validation errors occur during load.
+     * This is emitted from native engine callbacks where supported.
+     */
+    onCertificateError?: (event: {
+        url: string;
+        error: string;
+    }) => void | Promise<void>;
+    /**
+     * Called when a message is received from another RenWeb process via `proc.send()`.
+     * The `msg` parameter will already be decoded.
+     * @example
+     * window.renweb.onServerMessage = async (msg) => {
+     *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+     * };
+     */
+    onServerMessage?: (msg: ({
+        sender: Process;
+        message: any;
+    }) | any) => void | Promise<void>;
+}
+/**
+ * Helper type for consumers who want explicit typing for `window.renweb`.
+ */
+export interface RenWebWindow extends Window {
+    renweb?: RenWebCallbacks;
 }
 /**
  * Window property getters and setters.
