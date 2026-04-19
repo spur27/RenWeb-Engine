@@ -183,6 +183,42 @@ declare global {
              */
             onTerminate?: () => void | Promise<void>;
             /**
+             * Called when the native window position changes.
+             * @example
+             * window.renweb.onMove = ({ x, y }) => {
+             *     console.log(`Window moved to (${x}, ${y})`);
+             * };
+             */
+            onMove?: (position: { x: number, y: number }) => void | Promise<void>;
+            /**
+             * Called when the native window state changes.
+             * @example
+             * window.renweb.onWindowStateChanged = ({ state }) => {
+             *     console.log(`Window state: ${state}`);
+             * };
+             */
+            onWindowStateChanged?: (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => void | Promise<void>;
+            /**
+             * Called when the web engine asks for protected permissions.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onPermissionRequested?: (event: { kind: string, origin: string }) => void | Promise<void>;
+            /**
+             * Called when the engine requests opening a new browser window.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onNewWindowRequested?: (event: { url: string }) => void | Promise<void>;
+            /**
+             * Called when the web render process crashes/exits/unresponds.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onRenderProcessTerminated?: (event: { reason: string }) => void | Promise<void>;
+            /**
+             * Called when TLS/certificate validation errors occur during load.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onCertificateError?: (event: { url: string, error: string }) => void | Promise<void>;
+            /**
              * Called when a message is received from another RenWeb process via `proc.send()`.
              * The `msg` parameter will already be decoded.
              * @example
@@ -1407,6 +1443,13 @@ export namespace Application {
 
         return { app: app_version, engine: engine_version, plugins: plugin_versions };
     }
+    
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    export async function getPluginsList(): Promise<any[]> 
+        { return decode(await BIND_get_plugins_list(null)); }
 }
 
 /**
@@ -1455,18 +1498,6 @@ export namespace Navigate {
      */
     export async function openURI(uri: string): Promise<void> 
         { await BIND_open_uri(encode(uri)); }
-}
-
-/**
- * Plugins
- */
-export namespace Plugins {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    export async function getPluginsList(): Promise<any[]> 
-        { return decode(await BIND_get_plugins_list(null)); }
 }
 
 /* 

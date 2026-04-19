@@ -1,7 +1,4 @@
 'use strict';
-// renweb update
-// Updates the engine executable in an existing RenWeb project.
-// Also updates npm/deno packages, vanilla JS API modules, and all registered plugins.
 
 const fs   = require('fs');
 const path = require('path');
@@ -47,7 +44,6 @@ function updateExeOnly(projectRoot, buildDir, tOs, tArch, release) {
         ui.ok(`Engine updated to ${asset.name}`);
     }
 
-    // Sync version in info.json
     const verMatch = asset.name.match(/-(\d+\.\d+\.\d+(?:[.-][^-]+)?)-(\w+)-(\w+)/);
     if (verMatch) {
         const info = loadInfo(projectRoot);
@@ -57,7 +53,6 @@ function updateExeOnly(projectRoot, buildDir, tOs, tArch, release) {
 
 // ─── Vanilla module update ────────────────────────────────────────────────────
 
-/** Re-download JS API files to src/modules/renweb/. No-ops if directory doesn't exist. */
 function updateVanillaModules(projectRoot) {
     const renwebDir = path.join(projectRoot, 'src', 'modules', 'renweb');
     if (!fs.existsSync(renwebDir)) return;
@@ -79,7 +74,6 @@ function updateVanillaModules(projectRoot) {
 
 // ─── Plugin update ────────────────────────────────────────────────────────────
 
-/** Download the host-arch binary for each plugin in info.json["plugin_repositories"] to build/plugins/. */
 function updatePlugins(projectRoot, buildDir) {
     const info    = loadInfo(projectRoot);
     const plugins = (info && Array.isArray(info.plugin_repositories)) ? info.plugin_repositories : [];
@@ -105,7 +99,6 @@ function updatePlugins(projectRoot, buildDir) {
         const rel = fetchLatestRelease(repoUrl);
         if (!rel) { ui.warn('Could not fetch release metadata'); continue; }
 
-        // Download only the asset matching the host OS+arch
         const hostPattern = new RegExp(`[_.-]${tOs}[_.-]${tArch}`, 'i');
         for (const asset of (rel.assets || [])) {
             const name = (asset.name || '').trim();
@@ -120,7 +113,6 @@ function updatePlugins(projectRoot, buildDir) {
             }
         }
 
-        // Copy the host-arch binary to build/plugins/
         let entries;
         try { entries = fs.readdirSync(cacheDir); } catch (_) { entries = []; }
         const hostBinary = entries.find(f => hostPattern.test(f) && /\.(so|dll|dylib)$/.test(f));

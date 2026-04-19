@@ -1126,6 +1126,12 @@ export var Application;
         return { app: app_version, engine: engine_version, plugins: plugin_versions };
     }
     Application.fetchVersions = fetchVersions;
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
+    Application.getPluginsList = getPluginsList;
 })(Application || (Application = {}));
 /**
  * Page navigation functions.
@@ -1170,16 +1176,4 @@ export var Navigate;
     async function openURI(uri) { await BIND_open_uri(encode(uri)); }
     Navigate.openURI = openURI;
 })(Navigate || (Navigate = {}));
-/**
- * Plugins
- */
-export var Plugins;
-(function (Plugins) {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
-    Plugins.getPluginsList = getPluginsList;
-})(Plugins || (Plugins = {}));
 //# sourceMappingURL=index.js.map

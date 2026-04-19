@@ -81,6 +81,57 @@ declare global {
              */
             onTerminate?: () => void | Promise<void>;
             /**
+             * Called when the native window position changes.
+             * @example
+             * window.renweb.onMove = ({ x, y }) => {
+             *     console.log(`Window moved to (${x}, ${y})`);
+             * };
+             */
+            onMove?: (position: {
+                x: number;
+                y: number;
+            }) => void | Promise<void>;
+            /**
+             * Called when the native window state changes.
+             * @example
+             * window.renweb.onWindowStateChanged = ({ state }) => {
+             *     console.log(`Window state: ${state}`);
+             * };
+             */
+            onWindowStateChanged?: (state: {
+                state: "normal" | "minimized" | "maximized" | "fullscreen";
+            }) => void | Promise<void>;
+            /**
+             * Called when the web engine asks for protected permissions.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onPermissionRequested?: (event: {
+                kind: string;
+                origin: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when the engine requests opening a new browser window.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onNewWindowRequested?: (event: {
+                url: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when the web render process crashes/exits/unresponds.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onRenderProcessTerminated?: (event: {
+                reason: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when TLS/certificate validation errors occur during load.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onCertificateError?: (event: {
+                url: string;
+                error: string;
+            }) => void | Promise<void>;
+            /**
              * Called when a message is received from another RenWeb process via `proc.send()`.
              * The `msg` parameter will already be decoded.
              * @example
@@ -875,6 +926,11 @@ export declare namespace Application {
         engine: string;
         plugins: Record<string, string>;
     }>;
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    function getPluginsList(): Promise<any[]>;
 }
 /**
  * Page navigation functions.
@@ -911,15 +967,5 @@ export declare namespace Navigate {
      * @returns Promise that resolves when the URI is opened
      */
     function openURI(uri: string): Promise<void>;
-}
-/**
- * Plugins
- */
-export declare namespace Plugins {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    function getPluginsList(): Promise<any[]>;
 }
 export {};

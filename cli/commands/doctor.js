@@ -15,7 +15,6 @@ const WARN = '\u26a0'; // ⚠
 function run() {
     let exitCode = 0;
 
-    // Reporters close over the local exitCode so each run() call is independent
     const ok   = (msg) => ui.ok(msg);
     const fail = (msg) => { ui.error(msg); exitCode = 1; };
     const warn = (msg) => ui.warn(msg);
@@ -65,7 +64,6 @@ function run() {
             catch (_) { fail('config.json — invalid JSON'); }
         }
 
-        // Report detected project dimensions
         const dim_parts = [state.framework];
         if (state.build_tool !== 'none') dim_parts.push(state.build_tool);
         if (state.js_engine  !== 'none') dim_parts.push(`[${state.js_engine}]`);

@@ -1,7 +1,4 @@
 'use strict';
-// rw fetch [--executable | --plugin | --api]
-// No flag → --executable (backward compat).
-// Flags are combinable: e.g. `rw fetch --api --plugin`
 
 const fs   = require('fs');
 const path = require('path');

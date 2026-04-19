@@ -39,8 +39,15 @@ namespace RenWeb {
     class Webview : public IWebview {
         private:
             std::unique_ptr<webview::webview> webview_impl;
+            void addWindowCallbacks();
 #if defined(__APPLE__)
             void* _close_observer = nullptr;
+            void* _move_observer = nullptr;
+            void* _miniaturize_observer = nullptr;
+            void* _deminiaturize_observer = nullptr;
+            void* _enter_fullscreen_observer = nullptr;
+            void* _exit_fullscreen_observer = nullptr;
+            void* _navigation_delegate = nullptr;
 #endif
 
         public:

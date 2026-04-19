@@ -125,15 +125,6 @@ class ProjectState {
         return new ProjectState({ root, framework, js_engine, build_tool, has_renweb, info, config, config_path });
     }
 
-    /**
-     * Multi-signal heuristic: is the RenWeb engine already integrated here?
-     * Checks, in order:
-     *   1. Engine binary present in build/
-     *   2. src/modules/renweb/ directory (vanilla src-first layout)
-     *   3. build/content/<page>/modules/renweb/ (Vite layout)
-     *   4. 'renweb' listed as a package.json dependency
-     *   5. renweb JSR import in deno.json
-     */
     static _detect_renweb(root, pkg) {
         // 1. Engine binary in build/
         const build_dir = path.join(root, 'build');

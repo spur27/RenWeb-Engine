@@ -39,8 +39,7 @@ import {
     Network,
     Navigate,
     Application,
-    Utils,
-    Plugins
+    Utils
  } from './index.js';
 
 
@@ -86,13 +85,54 @@ window.addEventListener("touchmove", (e) => {
     }
 }, { passive: false });
 
+async function logWebviewCallback(name, payload) {
+    const message = `[callback] ${name}: ${JSON.stringify(payload)}`;
+    try {
+        await Log.info(message);
+    } catch (e) {
+        console.error("[callback]", e);
+    }
+
+    const output = document.querySelector(".application_output");
+    if (output) {
+        output.textContent = `${message}\n${output.textContent || ""}`.slice(0, 4000);
+    }
+
+    console.info(message);
+}
+
 window.renweb.onReady = async () => {
-    await Log.critical("RENWEB IS READY!!");
+    await logWebviewCallback("onReady", "Window is ready!");
     await Window.show(true);
 }
+
 window.renweb.onTerminate = async () => {
-    await Log.critical("RENWEB IS TERMINATING!!");
+    await logWebviewCallback("onTerminate", "Window is terminating!");
 }
+
+window.renweb.onMove = async (position) => {
+    await logWebviewCallback("onMove", position);
+};
+
+window.renweb.onWindowStateChanged = async (state) => {
+    await logWebviewCallback("onWindowStateChanged", state);
+};
+
+window.renweb.onPermissionRequested = async (event) => {
+    await logWebviewCallback("onPermissionRequested", event);
+};
+
+window.renweb.onNewWindowRequested = async (event) => {
+    await logWebviewCallback("onNewWindowRequested", event);
+};
+
+window.renweb.onRenderProcessTerminated = async (event) => {
+    await logWebviewCallback("onRenderProcessTerminated", event);
+};
+
+window.renweb.onCertificateError = async (event) => {
+    await logWebviewCallback("onCertificateError", event);
+};
 
 
 // DISABLED: console.log = (async (msg) => await Log.debug(msg));
@@ -142,7 +182,7 @@ window.onload = async () => {
         document.querySelector(".opacity_input").value = opacity.toFixed(2);
         document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
         document.querySelector(".systems_os").textContent = `${await System.getOS()}`;
-        const plugins = await Plugins.getPluginsList();
+        const plugins = await Application.getPluginsList();
         document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
         document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);
         document.querySelector(".settings_output").style.borderColor = "green";
@@ -166,7 +206,6 @@ window.onload = async () => {
     } catch (e) {
         await Log.error(e.message);
     }
-    // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
         await Notification.requestPermission();
         await Log.info("Notification permission: " + Notification.permission);
@@ -838,7 +877,7 @@ document.querySelector(".send_notif_2").onclick = async () => {
 
 document.querySelector(".get_plugin_list").onclick = async () => {
     await Log.debug(`Getting plugin list...`);
-    const plugins = await Plugins.getPluginsList();
+    const plugins = await Application.getPluginsList();
     document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
 };
 

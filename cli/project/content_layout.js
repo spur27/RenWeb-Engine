@@ -80,7 +80,6 @@ class ContentLayout {
             });
         }
 
-        // Vanilla: prefer src/content/ if it exists; fall back to build/content/
         const src_content = path.join(root, 'src', 'content');
         if (fs.existsSync(src_content)) {
             return new ContentLayout({

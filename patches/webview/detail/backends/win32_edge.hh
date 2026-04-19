@@ -678,18 +678,32 @@ private:
         }
         case WM_ACTIVATE:
           if (LOWORD(wp) != WA_INACTIVE) {
+            if (w->m_skip_next_activate_focus) {
+              w->m_skip_next_activate_focus = false;
+              break;
+            }
             w->focus_webview();
           }
           break;
+        case WM_SHOWWINDOW:
+          // RENWEB PATCH: Some initialization paths may issue ShowWindow
+          // without SWP_SHOWWINDOW, so block premature reveals here too.
+          if (!w->m_allow_show && wp == TRUE) {
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+          }
+          return DefWindowProcW(hwnd, msg, wp, lp);
         case WM_WINDOWPOSCHANGING: {
           // RENWEB PATCH: Strip SWP_SHOWWINDOW during WebView2 initialization.
           // ICoreWebView2Controller creation and focus calls internally invoke
           // SetWindowPos with SWP_SHOWWINDOW on the host HWND, causing a brief
           // flash. m_allow_show is false only during embed(); it is set true
           // once init is complete so all subsequent show calls go through.
+          auto *pos = reinterpret_cast<WINDOWPOS *>(lp);
           if (!w->m_allow_show) {
-            auto *pos = reinterpret_cast<WINDOWPOS *>(lp);
-            pos->flags &= ~static_cast<UINT>(SWP_SHOWWINDOW);
+            if (pos) {
+              pos->flags &= ~static_cast<UINT>(SWP_SHOWWINDOW);
+            }
           }
           return DefWindowProcW(hwnd, msg, wp, lp);
         }
@@ -813,6 +827,7 @@ private:
   void window_settings(bool debug) {
     auto cb =
         std::bind(&win32_edge_engine::on_message, this, std::placeholders::_1);
+    m_allow_show = false;
     embed(m_widget, debug, cb).ensure_ok();
     // RENWEB PATCH: Re-apply hidden state after WebView2 initialization
     // (belt-and-suspenders — WM_WINDOWPOSCHANGING already blocked the flash).
@@ -929,9 +944,7 @@ private:
     // so content renders when the host window is shown externally.
     ShowWindow(m_widget, SW_SHOW);
     UpdateWindow(m_widget);
-    if (owns_window()) {
-      focus_webview();
-    }
+    // Do not force focus during hidden startup; focus is handled on activation.
     return {};
   }
 
@@ -1027,6 +1040,7 @@ private:
   int m_dpi{};
   bool m_is_window_shown{};
   bool m_allow_show{};
+  bool m_skip_next_activate_focus{true};
   std::function<bool(const std::string&)> m_navigation_callback;
 };
 

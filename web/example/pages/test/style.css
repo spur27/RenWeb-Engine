@@ -37,18 +37,18 @@
     --text-secondary: #b0b0b0;
     --text-dim: #888;
     
-    --color-logging: #f59e0b;
-    --color-filesystem: #10b981;
-    --color-window: #3b82f6;
-    --color-properties: #8b5cf6;
-    --color-navigation: #06b6d4;
-    --color-debug: #ef4444;
-    --color-system: #ec4899;
-    --color-config: #6366f1;
-    --color-processes: #14b8a6;
-    --color-messaging: #f97316;
-    --color-other-tests: #a855f7;
-    --color-application: #c084fc;
+    --color-logging: #ff0000;
+    --color-filesystem: #ff8000;
+    --color-window: #ffff00;
+    --color-properties: #80ff00;
+    --color-navigation: #00ff00;
+    --color-debug: #00ff80;
+    --color-system: #00ffff;
+    --color-config: #0080ff;
+    --color-application: #0000ff;
+    --color-processes: #8000ff;
+    --color-messaging: #ff00ff;
+    --color-other-tests: #ff0080;
     
     --spacing-xs: 0.5rem;
     --spacing-sm: 0.75rem;
@@ -300,54 +300,54 @@ body {
 }
 
 /* Rainbow spectrum color-coding for navigation items */
-.nav-item:nth-child(1) { border-left-color: #ff0000; } /* Logging - Red */
-.nav-item:nth-child(2) { border-left-color: #ff7700; } /* File System - Orange */
-.nav-item:nth-child(3) { border-left-color: #ffdd00; } /* Window - Yellow */
-.nav-item:nth-child(4) { border-left-color: #00ff00; } /* Properties - Green */
-.nav-item:nth-child(5) { border-left-color: #00ffff; } /* Navigation - Cyan */
-.nav-item:nth-child(6) { border-left-color: #0088ff; } /* Debug - Blue */
-.nav-item:nth-child(7) { border-left-color: #0000ff; } /* System - Indigo */
-.nav-item:nth-child(8) { border-left-color: #8800ff; } /* Config - Violet */
-.nav-item:nth-child(9) { border-left-color: #c084fc; } /* Application - Light Violet */
-.nav-item:nth-child(10) { border-left-color: #ff00ff; } /* Processes - Magenta */
-.nav-item:nth-child(11) { border-left-color: #ff0088; } /* Messaging - Pink */
-.nav-item:nth-child(12) { border-left-color: #ff0044; } /* Other Tests - Rose */
+.nav-item:nth-child(1) { border-left-color: var(--color-logging); }
+.nav-item:nth-child(2) { border-left-color: var(--color-filesystem); }
+.nav-item:nth-child(3) { border-left-color: var(--color-window); }
+.nav-item:nth-child(4) { border-left-color: var(--color-properties); }
+.nav-item:nth-child(5) { border-left-color: var(--color-navigation); }
+.nav-item:nth-child(6) { border-left-color: var(--color-debug); }
+.nav-item:nth-child(7) { border-left-color: var(--color-system); }
+.nav-item:nth-child(8) { border-left-color: var(--color-config); }
+.nav-item:nth-child(9) { border-left-color: var(--color-application); }
+.nav-item:nth-child(10) { border-left-color: var(--color-processes); }
+.nav-item:nth-child(11) { border-left-color: var(--color-messaging); }
+.nav-item:nth-child(12) { border-left-color: var(--color-other-tests); }
 
 .nav-item:nth-child(1):hover,
-.nav-item:nth-child(1).active { background: rgba(255, 0, 0, 0.1); color: #ff0000; }
+.nav-item:nth-child(1).active { background: rgba(255, 0, 0, 0.1); color: var(--color-logging); }
 
 .nav-item:nth-child(2):hover,
-.nav-item:nth-child(2).active { background: rgba(255, 119, 0, 0.1); color: #ff7700; }
+.nav-item:nth-child(2).active { background: rgba(255, 128, 0, 0.1); color: var(--color-filesystem); }
 
 .nav-item:nth-child(3):hover,
-.nav-item:nth-child(3).active { background: rgba(255, 221, 0, 0.1); color: #ffdd00; }
+.nav-item:nth-child(3).active { background: rgba(255, 255, 0, 0.1); color: var(--color-window); }
 
 .nav-item:nth-child(4):hover,
-.nav-item:nth-child(4).active { background: rgba(0, 255, 0, 0.1); color: #00ff00; }
+.nav-item:nth-child(4).active { background: rgba(128, 255, 0, 0.1); color: var(--color-properties); }
 
 .nav-item:nth-child(5):hover,
-.nav-item:nth-child(5).active { background: rgba(0, 255, 255, 0.1); color: #00ffff; }
+.nav-item:nth-child(5).active { background: rgba(0, 255, 0, 0.1); color: var(--color-navigation); }
 
 .nav-item:nth-child(6):hover,
-.nav-item:nth-child(6).active { background: rgba(0, 136, 255, 0.1); color: #0088ff; }
+.nav-item:nth-child(6).active { background: rgba(0, 255, 128, 0.1); color: var(--color-debug); }
 
 .nav-item:nth-child(7):hover,
-.nav-item:nth-child(7).active { background: rgba(0, 0, 255, 0.1); color: #0000ff; }
+.nav-item:nth-child(7).active { background: rgba(0, 255, 255, 0.1); color: var(--color-system); }
 
 .nav-item:nth-child(8):hover,
-.nav-item:nth-child(8).active { background: rgba(136, 0, 255, 0.1); color: #8800ff; }
+.nav-item:nth-child(8).active { background: rgba(0, 128, 255, 0.1); color: var(--color-config); }
 
 .nav-item:nth-child(9):hover,
-.nav-item:nth-child(9).active { background: rgba(192, 132, 252, 0.1); color: #c084fc; }
+.nav-item:nth-child(9).active { background: rgba(0, 0, 255, 0.1); color: var(--color-application); }
 
 .nav-item:nth-child(10):hover,
-.nav-item:nth-child(10).active { background: rgba(255, 0, 255, 0.1); color: #ff00ff; }
+.nav-item:nth-child(10).active { background: rgba(128, 0, 255, 0.1); color: var(--color-processes); }
 
 .nav-item:nth-child(11):hover,
-.nav-item:nth-child(11).active { background: rgba(255, 0, 136, 0.1); color: #ff0088; }
+.nav-item:nth-child(11).active { background: rgba(255, 0, 255, 0.1); color: var(--color-messaging); }
 
 .nav-item:nth-child(12):hover,
-.nav-item:nth-child(12).active { background: rgba(255, 0, 68, 0.1); color: #ff0044; }
+.nav-item:nth-child(12).active { background: rgba(255, 0, 128, 0.1); color: var(--color-other-tests); }
 
 /* ===== MAIN CONTENT ===== */
 .main-content {
@@ -378,18 +378,18 @@ body {
 }
 
 /* Color-code section headings */
-#logging h2 { color: #ff0000; } /* Red */
-#filesystem h2 { color: #ff7700; } /* Orange */
-#window h2 { color: #ffdd00; } /* Yellow */
-#properties h2 { color: #00ff00; } /* Green */
-#navigation h2 { color: #00ffff; } /* Cyan */
-#debug h2 { color: #0088ff; } /* Blue */
-#system h2 { color: #0000ff; } /* Indigo */
-#config h2 { color: #8800ff; } /* Violet */
-#application h2 { color: #c084fc; } /* Light Violet-Magenta */
-#processes h2 { color: #ff00ff; } /* Magenta */
-#messaging h2 { color: #ff0088; } /* Pink */
-#other-tests h2 { color: #ff0044; } /* Rose */
+#logging h2 { color: var(--color-logging); }
+#filesystem h2 { color: var(--color-filesystem); }
+#window h2 { color: var(--color-window); }
+#properties h2 { color: var(--color-properties); }
+#navigation h2 { color: var(--color-navigation); }
+#debug h2 { color: var(--color-debug); }
+#system h2 { color: var(--color-system); }
+#config h2 { color: var(--color-config); }
+#application h2 { color: var(--color-application); }
+#processes h2 { color: var(--color-processes); }
+#messaging h2 { color: var(--color-messaging); }
+#other-tests h2 { color: var(--color-other-tests); }
 
 .subsection {
     background: var(--bg-tertiary);
@@ -408,18 +408,18 @@ body {
 }
 
 /* Subsection heading colors inherit from parent section */
-#logging .subsection h3 { color: #ff0000; } /* Red */
-#filesystem .subsection h3 { color: #ff7700; } /* Orange */
-#window .subsection h3 { color: #ffdd00; } /* Yellow */
-#properties .subsection h3 { color: #00ff00; } /* Green */
-#navigation .subsection h3 { color: #00ffff; } /* Cyan */
-#debug .subsection h3 { color: #0088ff; } /* Blue */
-#system .subsection h3 { color: #0000ff; } /* Indigo */
-#config .subsection h3 { color: #8800ff; } /* Violet */
-#application .subsection h3 { color: #c084fc; } /* Light Violet-Magenta */
-#processes .subsection h3 { color: #ff00ff; } /* Magenta */
-#messaging .subsection h3 { color: #ff0088; } /* Pink */
-#other-tests .subsection h3 { color: #ff0044; } /* Rose */
+#logging .subsection h3 { color: var(--color-logging); }
+#filesystem .subsection h3 { color: var(--color-filesystem); }
+#window .subsection h3 { color: var(--color-window); }
+#properties .subsection h3 { color: var(--color-properties); }
+#navigation .subsection h3 { color: var(--color-navigation); }
+#debug .subsection h3 { color: var(--color-debug); }
+#system .subsection h3 { color: var(--color-system); }
+#config .subsection h3 { color: var(--color-config); }
+#application .subsection h3 { color: var(--color-application); }
+#processes .subsection h3 { color: var(--color-processes); }
+#messaging .subsection h3 { color: var(--color-messaging); }
+#other-tests .subsection h3 { color: var(--color-other-tests); }
 
 .subsection + .subsection {
     margin-top: var(--spacing-lg);

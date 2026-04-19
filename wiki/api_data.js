@@ -174,9 +174,7 @@ window.apiData = {
     ],
     'Application': [
         {name: 'fetchRepositories', signature: 'fetchRepositories()', description: 'Returns: Promise<{app: string, engine: string, plugins: string[]}>'},
-        {name: 'fetchVersions', signature: 'fetchVersions()', description: 'Returns: Promise<{app: string, engine: string, plugins: Record<string, string>}>'}
-    ],
-    'Plugins': [
+        {name: 'fetchVersions', signature: 'fetchVersions()', description: 'Returns: Promise<{app: string, engine: string, plugins: Record<string, string>}>'},
         {name: 'getPluginsList', signature: 'getPluginsList()', description: 'Returns: Promise<any[]>'}
     ],
     'Utils': [
@@ -187,6 +185,12 @@ window.apiData = {
     'Callbacks': [
         {name: 'window.renweb.onReady', signature: 'window.renweb.onReady = async () => {...}', description: 'Called once the application is fully initialised and ready for interaction.'},
         {name: 'window.renweb.onTerminate', signature: 'window.renweb.onTerminate = async () => {...}', description: 'Called just before the window closes. Use for cleanup, saving state, or flushing logs.'},
+        {name: 'window.renweb.onMove', signature: 'window.renweb.onMove = async (position) => {...}', description: 'Called when the native window position changes.'},
+        {name: 'window.renweb.onWindowStateChanged', signature: 'window.renweb.onWindowStateChanged = async (state) => {...}', description: 'Called when native window state changes (normal, minimized, maximized, fullscreen).'},
+        {name: 'window.renweb.onPermissionRequested', signature: 'window.renweb.onPermissionRequested = async (event) => {...}', description: 'Called when native webview permission/authentication requests are raised.'},
+        {name: 'window.renweb.onNewWindowRequested', signature: 'window.renweb.onNewWindowRequested = async (event) => {...}', description: 'Called when native webview requests opening a new window.'},
+        {name: 'window.renweb.onRenderProcessTerminated', signature: 'window.renweb.onRenderProcessTerminated = async (event) => {...}', description: 'Called when the web render process crashes/exits/unresponds.'},
+        {name: 'window.renweb.onCertificateError', signature: 'window.renweb.onCertificateError = async (event) => {...}', description: 'Called on TLS/certificate validation failures exposed by the native webview.'},
         {name: 'window.renweb.onServerMessage', signature: 'window.renweb.onServerMessage = async (message) => {...}', description: 'Called when another process sends a message to this window via Process.send().'},
     ],
     'Plugin': [

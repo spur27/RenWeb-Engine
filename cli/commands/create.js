@@ -22,6 +22,203 @@ const {
 const ui = require('../shared/ui');
 const { prompt } = ui;
 
+function setupPluginBoostSubmodule(projectDir) {
+    const BOOST_TAG = 'boost-1.90.0';
+    const BOOST_REPO = 'https://github.com/boostorg/boost.git';
+    const BOOST_REQUIRED_MODULES = [
+        'json',
+        'assert', 'config', 'container', 'container_hash', 'core',
+        'describe', 'endian', 'mp11', 'predef', 'preprocessor',
+        'static_assert', 'system', 'throw_exception', 'type_traits',
+        'variant2', 'winapi', 'move', 'intrusive', 'compat',
+    ];
+
+    const gitOk = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
+    if (!gitOk) {
+        ui.warn('git not found; skipping Boost submodule setup.');
+        return;
+    }
+
+    if (!fs.existsSync(path.join(projectDir, '.git'))) {
+        const init = spawnSync('git', ['init'], { cwd: projectDir, stdio: 'pipe' });
+        if (init.status !== 0) {
+            ui.warn('Failed to initialize git repository; skipping Boost submodule setup.');
+            return;
+        }
+    }
+
+    fs.mkdirSync(path.join(projectDir, 'external'), { recursive: true });
+    const boostSubmodulePath = 'external/boost';
+    const boostSubmoduleDir = path.join(projectDir, boostSubmodulePath);
+
+    const runGit = (args) => spawnSync('git', args, { cwd: projectDir, stdio: 'pipe' });
+    const runGitText = (args) => {
+        const r = runGit(args);
+        return {
+            status: r.status,
+            stdout: (r.stdout || '').toString().trim(),
+            stderr: (r.stderr || '').toString().trim(),
+        };
+    };
+    const pinBoostTag = (submodulePath) => {
+        const fetchTag = runGit(['-C', submodulePath, 'fetch', '--depth', '1', 'origin', `refs/tags/${BOOST_TAG}:refs/tags/${BOOST_TAG}`]);
+        if (fetchTag.status !== 0) {
+            const err = (fetchTag.stderr || fetchTag.stdout || '').toString().trim();
+            ui.warn(`Failed to fetch Boost tag ${BOOST_TAG}.`);
+            if (err) ui.warn(`git fetch tag error: ${err}`);
+            return false;
+        }
+
+        const checkoutTag = runGit(['-C', submodulePath, 'checkout', '--detach', BOOST_TAG]);
+        if (checkoutTag.status !== 0) {
+            const err = (checkoutTag.stderr || checkoutTag.stdout || '').toString().trim();
+            ui.warn(`Failed to checkout Boost tag ${BOOST_TAG}.`);
+            if (err) ui.warn(`git checkout tag error: ${err}`);
+            return false;
+        }
+
+        return true;
+    };
+
+    if (fs.existsSync(boostSubmoduleDir) && !fs.existsSync(path.join(projectDir, '.gitmodules'))) {
+        ui.warn('Detected partial Boost submodule state; retrying with --force.');
+    }
+
+    let gitmodulesHasBoost = (() => {
+        const cfg = runGitText(['config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$']);
+        if (cfg.status !== 0 || !cfg.stdout) return false;
+        return cfg.stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim().split(/\s+/)[1])
+            .includes(boostSubmodulePath);
+    })();
+
+    const indexHasBoostGitlink = (() => {
+        const ls = runGitText(['ls-files', '--stage', '--', boostSubmodulePath]);
+        if (ls.status !== 0 || !ls.stdout) return false;
+        return ls.stdout
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .some((line) => line.startsWith('160000 '));
+    })();
+
+    const ensureGitmodulesBoostEntry = () => {
+        if (gitmodulesHasBoost) return true;
+
+        const setPath = runGit(['config', '--file', '.gitmodules', 'submodule.external/boost.path', boostSubmodulePath]);
+        const setUrl = runGit(['config', '--file', '.gitmodules', 'submodule.external/boost.url', BOOST_REPO]);
+        const setBranch = runGit(['config', '--file', '.gitmodules', 'submodule.external/boost.branch', BOOST_TAG]);
+        if (setPath.status !== 0 || setUrl.status !== 0 || setBranch.status !== 0) {
+            ui.warn('Failed to write Boost entry to .gitmodules.');
+            return false;
+        }
+
+        gitmodulesHasBoost = true;
+        return true;
+    };
+
+    if (gitmodulesHasBoost || indexHasBoostGitlink) {
+        if (!ensureGitmodulesBoostEntry()) return;
+        ui.step(`Reusing existing Boost submodule registration (${BOOST_TAG})…`);
+        const initExisting = runGit(['submodule', 'update', '--init', '--depth', '1', boostSubmodulePath]);
+        if (initExisting.status !== 0) {
+            const err = (initExisting.stderr || initExisting.stdout || '').toString().trim();
+            ui.warn('Failed to initialize existing Boost submodule registration.');
+            if (err) ui.warn(`git submodule update error: ${err}`);
+            return;
+        }
+    } else if (!fs.existsSync(path.join(projectDir, '.gitmodules')) || !fs.existsSync(boostSubmoduleDir)) {
+        ui.step(`Adding Boost submodule (${BOOST_TAG}, shallow)…`);
+        const add = runGit([
+            'submodule', 'add', '--force', '--depth', '1',
+            BOOST_REPO, boostSubmodulePath,
+        ]);
+        if (add.status !== 0) {
+            const err = (add.stderr || add.stdout || '').toString().trim();
+            ui.warn('Failed to add Boost submodule; create plugin may not build until external/boost is available.');
+            if (err) ui.warn(`git submodule add error: ${err}`);
+            return;
+        }
+        if (!ensureGitmodulesBoostEntry()) return;
+    }
+
+    if (!pinBoostTag(boostSubmodulePath)) return;
+
+    const tagCommit = runGitText(['-C', boostSubmodulePath, 'rev-list', '-n', '1', BOOST_TAG]);
+    const headCommit = runGitText(['-C', boostSubmodulePath, 'rev-parse', 'HEAD']);
+    if (tagCommit.status !== 0 || headCommit.status !== 0 || !tagCommit.stdout || !headCommit.stdout || tagCommit.stdout !== headCommit.stdout) {
+        ui.warn(`Boost submodule is not pinned to ${BOOST_TAG}; refusing to continue.`);
+        if (tagCommit.stderr) ui.warn(`git rev-list error: ${tagCommit.stderr}`);
+        if (headCommit.stderr) ui.warn(`git rev-parse error: ${headCommit.stderr}`);
+        return;
+    }
+
+    ui.step('Initializing required Boost module submodules…');
+    const headerModulePaths = BOOST_REQUIRED_MODULES.map((name) => `libs/${name}`);
+    const parseSubmodulePrefixes = (statusText) => {
+        const prefixes = new Map();
+        if (!statusText) return prefixes;
+        statusText.split(/\r?\n/).filter(Boolean).forEach((line) => {
+            const prefix = line[0];
+            const pathToken = line.trim().split(/\s+/)[1];
+            if (pathToken) prefixes.set(pathToken, prefix);
+        });
+        return prefixes;
+    };
+    const beforeModuleStatus = runGitText(['-C', boostSubmodulePath, 'submodule', 'status', ...headerModulePaths]);
+    const beforePrefixes = beforeModuleStatus.status === 0
+        ? parseSubmodulePrefixes(beforeModuleStatus.stdout)
+        : new Map();
+
+    const updateHeaders = runGit(['-C', boostSubmodulePath, 'submodule', 'update', '--init', '--depth', '1', ...headerModulePaths]);
+    if (updateHeaders.status !== 0) {
+        ui.warn(`Failed to initialize required Boost modules (${BOOST_REQUIRED_MODULES.join(', ')}).`);
+        ui.warn('Run `git -C external/boost submodule update --init --depth 1 libs/json libs/assert libs/config libs/container libs/container_hash libs/core libs/describe libs/endian libs/mp11 libs/predef libs/preprocessor libs/static_assert libs/system libs/throw_exception libs/type_traits libs/variant2 libs/winapi libs/move libs/intrusive libs/compat`.');
+        const err = (updateHeaders.stderr || updateHeaders.stdout || '').toString().trim();
+        if (err) ui.warn(`git submodule update error: ${err}`);
+        return;
+    }
+
+    const afterModuleStatus = runGitText(['-C', boostSubmodulePath, 'submodule', 'status', ...headerModulePaths]);
+    const afterPrefixes = afterModuleStatus.status === 0
+        ? parseSubmodulePrefixes(afterModuleStatus.stdout)
+        : new Map();
+    for (const modulePath of headerModulePaths) {
+        const beforePrefix = beforePrefixes.get(modulePath);
+        const afterPrefix = afterPrefixes.get(modulePath);
+        if (beforePrefix === '-' && afterPrefix && afterPrefix !== '-') {
+            ui.step(`Installed Boost module submodule: ${modulePath}`);
+        }
+    }
+
+    for (const name of BOOST_REQUIRED_MODULES) {
+        const materialize = runGit(['-C', `${boostSubmodulePath}/libs/${name}`, 'checkout', '-f']);
+        if (materialize.status !== 0) {
+            const err = (materialize.stderr || materialize.stdout || '').toString().trim();
+            ui.warn(`Failed to materialize Boost module libs/${name}.`);
+            if (err) ui.warn(`git checkout error: ${err}`);
+            return;
+        }
+    }
+
+    const modulePaths = BOOST_REQUIRED_MODULES.map((name) => `libs/${name}`);
+    const submoduleStatus = runGitText(['-C', boostSubmodulePath, 'submodule', 'status', ...modulePaths]);
+    if (submoduleStatus.status !== 0) {
+        ui.warn('Failed to verify Boost module submodule status.');
+        if (submoduleStatus.stderr) ui.warn(`git submodule status error: ${submoduleStatus.stderr}`);
+        return;
+    }
+    const badLines = submoduleStatus.stdout
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .filter((line) => ['-', '+', 'U'].includes(line[0]));
+    if (badLines.length > 0) {
+        ui.warn(`Some required Boost modules are not cleanly pinned to ${BOOST_TAG}:`);
+        badLines.forEach((line) => ui.warn(line));
+        return;
+    }
+}
+
 // ─── Interactive type / engine prompts ───────────────────────────────────────
 
 async function promptType(rl) {
@@ -209,7 +406,7 @@ async function createFramework(projectDir, info, type) {
         ['--yes', 'create-vite@5', name, '--template', template],
         { cwd: parent, stdio: 'pipe' },
     );
-    // Check package.json rather than exit code — some npm/npx versions return non-zero on success.
+
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
         ui.error('Vite scaffolding failed — package.json not found.');
@@ -218,7 +415,7 @@ async function createFramework(projectDir, info, type) {
     const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
     pkg.name   = toKebab(info.title);
     pkg.version = info.version || '0.0.1';
-    // Don't override the Vite version — create-vite pins one matching framework plugin peer deps.
+
     pkg.dependencies = { ...pkg.dependencies, 'renweb-api': 'latest' };
     pkg.scripts = {
         ...pkg.scripts,
@@ -362,7 +559,7 @@ async function createAngular(projectDir, info) {
     else ui.ok('packages installed');
 }
 
-async function createPlugin(projectDir, info) {
+async function createPlugin(projectDir, info, skipSubmodules = false) {
     const pluginName  = info.internalName || toSnake(info.title);
     const pluginClass = info.title.replace(/[^A-Za-z0-9]/g, '');
     const includeDir  = path.join(projectDir, 'include');
@@ -371,6 +568,12 @@ async function createPlugin(projectDir, info) {
     fs.mkdirSync(srcDir,     { recursive: true });
     fs.mkdirSync(includeDir, { recursive: true });
     fs.mkdirSync(path.join(projectDir, '.github', 'workflows'), { recursive: true });
+
+    if (skipSubmodules) {
+        ui.step('Skipping Boost submodule setup (--skip-submodules).');
+    } else {
+        setupPluginBoostSubmodule(projectDir);
+    }
 
     fetchPluginHpp(includeDir);
 
@@ -449,7 +652,7 @@ function createEngine(projectDir, skipSubmodules) {
 
 function parseArgs(args) {
     const [first, ...rest] = args;
-    // First positional is the type only if it doesn't look like a flag
+
     const rawType  = (first && !first.startsWith('-')) ? first.toLowerCase() : null;
     const allFlags = rawType ? rest : (first ? [first, ...rest] : []);
 
@@ -506,7 +709,7 @@ async function run(args) {
             process.exit(1);
         }
         fs.mkdirSync(projectDir, { recursive: true });
-        await createPlugin(projectDir, info);
+        await createPlugin(projectDir, info, skipSubmodules);
         ui.ok('Plugin project ready.');
         ui.nextSteps([
             ['cd ' + path.basename(projectDir), null],

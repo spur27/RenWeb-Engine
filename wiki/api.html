@@ -2676,18 +2676,9 @@ console.log(versions.engine); // "0.0.7"
 console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
                     </div>
                 </div>
-            </section>
-
-            <!-- Plugins Namespace -->
-            <section id="plugins" class="api-namespace-section">
-                <h2>Plugins</h2>
-                <p class="namespace-description">
-                    The Plugins namespace provides access to information about loaded plugins and their metadata.
-                </p>
-
-                <div id="plugins-getpluginslist" class="api-method">
+                <div id="application-getpluginslist" class="api-method">
                     <h3>
-                        Plugins.getPluginsList()
+                        Application.getPluginsList()
                         <span class="method-tags">
                             <span class="method-tag async">async</span>
                         </span>
@@ -2700,12 +2691,21 @@ console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
                     </div>
                     <div class="method-example">
                         <h4>Example</h4>
-                        <pre><code class="language-javascript">const plugins = await Plugins.getPluginsList();
+                        <pre><code class="language-javascript">const plugins = await Application.getPluginsList();
 for (const p of plugins) {
     await Log.debug(p.name, p.version);
 }</code></pre>
                     </div>
                 </div>
+            </section>
+
+            <!-- Plugins Namespace -->
+            <section id="plugins" class="api-namespace-section">
+                <h2>Plugins</h2>
+                <p class="namespace-description">
+                    The Plugins namespace provides access to information about loaded plugins and their metadata.
+                </p>
+
             </section>
 
             <!-- Utils Namespace -->
@@ -2889,6 +2889,80 @@ Utils.serialize([1, 2, 3]); // Returns: "[1,2,3]"</code></pre>
                         <h4>Example</h4>
                         <pre><code class="language-javascript">window.renweb.onTerminate = async () => {
     await Config.saveConfig();
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onmove" class="api-method">
+                    <h3>window.renweb.onMove</h3>
+                    <div class="method-signature"><code>window.renweb.onMove = async (position: { x: number, y: number }) => { ... }</code></div>
+                    <p class="method-description">Called when the native window position changes.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onMove = async (position) => {
+    await Log.debug(`Moved to (${position.x}, ${position.y})`);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onwindowstatechanged" class="api-method">
+                    <h3>window.renweb.onWindowStateChanged</h3>
+                    <div class="method-signature"><code>window.renweb.onWindowStateChanged = async (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => { ... }</code></div>
+                    <p class="method-description">Called when native window state changes.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onWindowStateChanged = async ({ state }) => {
+    await Log.debug('Window state:', state);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onpermissionrequested" class="api-method">
+                    <h3>window.renweb.onPermissionRequested</h3>
+                    <div class="method-signature"><code>window.renweb.onPermissionRequested = async (event: { kind: string, origin: string }) => { ... }</code></div>
+                    <p class="method-description">Called when the native webview emits a permission request.
+                        <br><strong>Note:</strong> Permission kinds differ by engine; macOS currently reports authentication/credential challenge flows.
+                    </p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onPermissionRequested = async (event) => {
+    await Log.warn('Permission request:', event);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onnewwindowrequested" class="api-method">
+                    <h3>window.renweb.onNewWindowRequested</h3>
+                    <div class="method-signature"><code>window.renweb.onNewWindowRequested = async (event: { url: string }) => { ... }</code></div>
+                    <p class="method-description">Called when native webview requests opening a new window.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onNewWindowRequested = async ({ url }) => {
+    await Log.info('New window requested:', url);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onrenderprocessterminated" class="api-method">
+                    <h3>window.renweb.onRenderProcessTerminated</h3>
+                    <div class="method-signature"><code>window.renweb.onRenderProcessTerminated = async (event: { reason: string }) => { ... }</code></div>
+                    <p class="method-description">Called when the web renderer process exits/crashes/unresponds.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onRenderProcessTerminated = async ({ reason }) => {
+    await Log.error('Renderer terminated:', reason);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-oncertificateerror" class="api-method">
+                    <h3>window.renweb.onCertificateError</h3>
+                    <div class="method-signature"><code>window.renweb.onCertificateError = async (event: { url: string, error: string }) => { ... }</code></div>
+                    <p class="method-description">Called when native TLS/certificate validation errors are reported.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onCertificateError = async (event) => {
+    await Log.error('Certificate error:', event);
 };</code></pre>
                     </div>
                 </div>

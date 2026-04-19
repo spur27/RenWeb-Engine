@@ -29,33 +29,15 @@
 /// <reference path="./index.d.ts" />
 import {
     Log, 
-    FS,
     Window,
-    System,
     Config,
-    Properties,
-    Process,
-    Debug,
-    Network,
-    Navigate,
-    Utils
+    Debug
  } from './index.js';
 
 
-window.onload = async () => {
-    await Log.info("Hello World!");
-    await Properties.setOpacity(0);
+window.renweb.onReady = async () => {
     await Window.show(true);
-    let step = 0;
-    const interval = setInterval(async () => {
-        step++;
-        let opacity = step / 5;
-        if (opacity > 1) opacity = 1;
-        else if (opacity < 0) opacity = 0;
-        await Properties.setOpacity(opacity);
-        if (step >= 5) clearInterval(interval);
-    }, 3);
-};
+}
 
 function updateTestStatus(testId, status) {
     const testItem = document.getElementById(testId);

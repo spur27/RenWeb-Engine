@@ -32,6 +32,7 @@
 #if defined(__linux__)
     #include <gtk/gtk.h>
     #include <gdk/gdk.h>
+    #include <webkit2/webkit2.h>
     #include <signal.h>
     #include <unistd.h>
     #include <fcntl.h>
@@ -41,24 +42,256 @@
     #include <urlmon.h>
     #include <shellapi.h>
     #include <commctrl.h>
+    #include <format>
+    #include <wrl.h>
+    #include "webview2/WebView2.h"
     #pragma comment(lib, "comctl32.lib")
     #pragma comment(lib, "urlmon.lib")
     #pragma comment(lib, "shell32.lib")
 #elif defined(__APPLE__)
     #import <Foundation/Foundation.h>
     #import <AppKit/AppKit.h>
+    #import <WebKit/WebKit.h>
+    #import <objc/runtime.h>
 #endif
 
-namespace RenWeb {
+using Webview = RenWeb::Webview;
+
+static std::string escapeJsString(const std::string& input) {
+    std::string out;
+    out.reserve(input.size());
+    for (char c : input) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '\'': out += "\\'"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out.push_back(c); break;
+        }
+    }
+    return out;
+}
+
+static std::string jsString(const std::string& value) {
+    return "'" + escapeJsString(value) + "'";
+}
+
+static std::string makeCallbackScript(const std::string& callback_name, const std::string& payload_js) {
+    return "(async () => {"
+           "  if (typeof window.renweb?." + callback_name + " === 'function') await window.renweb." + callback_name + "(" + payload_js + ");"
+           "})().catch(function(e) { console.error('[renweb] " + callback_name + " error:', e); });";
+}
+
+static std::string makeOnMoveScript(int x, int y) {
+    return makeCallbackScript(
+        "onMove",
+        "{ x: " + std::to_string(x) + ", y: " + std::to_string(y) + " }"
+    );
+}
+
+static std::string makeOnWindowStateChangedScript(const char* state) {
+    return makeCallbackScript("onWindowStateChanged", std::string("{ state: '") + state + "' }");
+}
+
+static std::string makeOnPermissionRequestedScript(const std::string& kind, const std::string& origin) {
+    return makeCallbackScript(
+        "onPermissionRequested",
+        "{ kind: " + jsString(kind) + ", origin: " + jsString(origin) + " }"
+    );
+}
+
+static std::string makeOnNewWindowRequestedScript(const std::string& url) {
+    return makeCallbackScript(
+        "onNewWindowRequested",
+        "{ url: " + jsString(url) + " }"
+    );
+}
+
+static std::string makeOnRenderProcessTerminatedScript(const std::string& reason) {
+    return makeCallbackScript(
+        "onRenderProcessTerminated",
+        "{ reason: " + jsString(reason) + " }"
+    );
+}
+
+static std::string makeOnCertificateErrorScript(const std::string& url, const std::string& error) {
+    return makeCallbackScript(
+        "onCertificateError",
+        "{ url: " + jsString(url) + ", error: " + jsString(error) + " }"
+    );
+}
+
+#if defined(__APPLE__)
+static WKWebView* getWKWebViewFromWindow(void* window_ptr) {
+    NSWindow* nsWindow = (NSWindow*)window_ptr;
+    if (!nsWindow) return nil;
+
+    for (NSView* view in [[nsWindow contentView] subviews]) {
+        if ([view isKindOfClass:[WKWebView class]]) {
+            return (WKWebView*)view;
+        }
+    }
+    return nil;
+}
+
+static bool isCertificateNSError(NSError* error) {
+    if (!error) return false;
+    if (![[error domain] isEqualToString:NSURLErrorDomain]) return false;
+
+    const NSInteger code = [error code];
+    return code == NSURLErrorServerCertificateUntrusted ||
+           code == NSURLErrorServerCertificateHasBadDate ||
+           code == NSURLErrorServerCertificateHasUnknownRoot ||
+           code == NSURLErrorServerCertificateNotYetValid ||
+           code == NSURLErrorClientCertificateRejected ||
+           code == NSURLErrorClientCertificateRequired;
+}
+
+static Class getOrCreateRenWebNavigationDelegateClass() {
+    static Class delegateClass = nil;
+    if (delegateClass) return delegateClass;
+
+    delegateClass = objc_allocateClassPair([NSObject class], "RenWebNavigationDelegate", 0);
+    if (!delegateClass) return NSClassFromString(@"RenWebNavigationDelegate");
+
+    class_addProtocol(delegateClass, @protocol(WKNavigationDelegate));
+
+    class_addMethod(delegateClass,
+        sel_registerName("webView:decidePolicyForNavigationAction:decisionHandler:"),
+        (IMP)+[](id self, SEL, WKWebView* webView, WKNavigationAction* action, void (^decisionHandler)(WKNavigationActionPolicy)) {
+            (void)webView;
+            NSValue* wvValue = (NSValue*)objc_getAssociatedObject(self, "renweb_wv_ptr");
+            webview::webview* wv = wvValue ? (webview::webview*)[wvValue pointerValue] : nullptr;
+
+            bool isNewWindow = false;
+            if (action && [action targetFrame] == nil) isNewWindow = true;
+            else if (action && [action targetFrame] && ![[action targetFrame] isMainFrame]) isNewWindow = true;
+
+            if (isNewWindow && wv) {
+                NSString* urlNS = [[[action request] URL] absoluteString];
+                std::string url = urlNS ? std::string([urlNS UTF8String]) : std::string();
+                try {
+                    wv->eval(makeOnNewWindowRequestedScript(url));
+                } catch (...) { }
+            }
+
+            if (decisionHandler) decisionHandler(WKNavigationActionPolicyAllow);
+        },
+        "v@:@@@@?");
+
+    class_addMethod(delegateClass,
+        sel_registerName("webViewWebContentProcessDidTerminate:"),
+        (IMP)+[](id self, SEL, WKWebView* webView) {
+            (void)webView;
+            NSValue* wvValue = (NSValue*)objc_getAssociatedObject(self, "renweb_wv_ptr");
+            webview::webview* wv = wvValue ? (webview::webview*)[wvValue pointerValue] : nullptr;
+            if (!wv) return;
+
+            try {
+                wv->eval(makeOnRenderProcessTerminatedScript("web-content-process-terminated"));
+            } catch (...) { }
+        },
+        "v@:@@");
+
+    class_addMethod(delegateClass,
+        sel_registerName("webView:didFailProvisionalNavigation:withError:"),
+        (IMP)+[](id self, SEL, WKWebView* webView, WKNavigation*, NSError* error) {
+            NSValue* wvValue = (NSValue*)objc_getAssociatedObject(self, "renweb_wv_ptr");
+            webview::webview* wv = wvValue ? (webview::webview*)[wvValue pointerValue] : nullptr;
+            if (!wv || !isCertificateNSError(error)) return;
+
+            NSString* urlNS = [[webView URL] absoluteString];
+            std::string url = urlNS ? std::string([urlNS UTF8String]) : std::string();
+            std::string err = std::string([[error localizedDescription] UTF8String]);
+
+            try {
+                wv->eval(makeOnCertificateErrorScript(url, err));
+            } catch (...) { }
+        },
+        "v@:@@@@");
+
+    class_addMethod(delegateClass,
+        sel_registerName("webView:didReceiveAuthenticationChallenge:completionHandler:"),
+        (IMP)+[](id self, SEL, WKWebView* webView, NSURLAuthenticationChallenge* challenge,
+                 void (^completionHandler)(NSURLSessionAuthChallengeDisposition, NSURLCredential*)) {
+            NSValue* wvValue = (NSValue*)objc_getAssociatedObject(self, "renweb_wv_ptr");
+            webview::webview* wv = wvValue ? (webview::webview*)[wvValue pointerValue] : nullptr;
+
+            if (wv && challenge) {
+                NSString* hostNS = [[[challenge protectionSpace] host] copy];
+                NSString* methodNS = [[[challenge protectionSpace] authenticationMethod] copy];
+                std::string origin = hostNS ? std::string([hostNS UTF8String]) : std::string();
+                std::string kind = methodNS ? std::string([methodNS UTF8String]) : std::string("authentication-challenge");
+                try {
+                    wv->eval(makeOnPermissionRequestedScript(kind, origin));
+                } catch (...) { }
+                [hostNS release];
+                [methodNS release];
+            }
+
+            if (completionHandler) completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+            (void)webView;
+        },
+        "v@:@@@?");
+
+    objc_registerClassPair(delegateClass);
+    return delegateClass;
+}
+#endif
 
 #if defined(_WIN32)
-// Static CALLBACK function for the WM_CLOSE subclass — lambdas cannot carry
-// the __stdcall calling convention required by SUBCLASSPROC.
+static std::string wideToUtf8(const wchar_t* wstr) {
+    if (!wstr) return std::string();
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return std::string();
+    std::string out(size - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+static bool isWindowFullscreen(HWND hwnd) {
+    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (!monitor) return false;
+
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(monitor, &mi)) return false;
+
+    RECT wr{};
+    if (!GetWindowRect(hwnd, &wr)) return false;
+
+    return wr.left == mi.rcMonitor.left && wr.top == mi.rcMonitor.top &&
+           wr.right == mi.rcMonitor.right && wr.bottom == mi.rcMonitor.bottom;
+}
+
 static LRESULT CALLBACK onCloseSubclassProc(
     HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR /*uid*/, DWORD_PTR data)
 {
+    auto* wv = reinterpret_cast<webview::webview*>(data);
+    if (msg == WM_SIZE && wv) {
+        const bool fullscreen = isWindowFullscreen(hwnd);
+        const bool minimized = (wp == SIZE_MINIMIZED);
+        if (minimized) {
+            try {
+                wv->eval(makeOnWindowStateChangedScript("minimized"));
+            } catch (...) { }
+        } else {
+            const char* state = fullscreen ? "fullscreen" : ((wp == SIZE_MAXIMIZED) ? "maximized" : "normal");
+            try {
+                wv->eval(makeOnWindowStateChangedScript(state));
+            } catch (...) { }
+        }
+    }
+    if (msg == WM_MOVE && wv) {
+        const int x = static_cast<int>(static_cast<short>(LOWORD(lp)));
+        const int y = static_cast<int>(static_cast<short>(HIWORD(lp)));
+        try {
+            wv->eval(makeOnMoveScript(x, y));
+        } catch (...) { }
+    }
     if (msg == WM_CLOSE) {
-        auto* wv = reinterpret_cast<webview::webview*>(data);
+        ShowWindow(hwnd, SW_HIDE);
         try {
             wv->eval(
                 "(async () => {"
@@ -67,10 +300,9 @@ static LRESULT CALLBACK onCloseSubclassProc(
                 "})().catch(function(e) { console.error('[renweb] onTerminate error:', e); BIND_terminate(null); });"
             );
         } catch (...) {
-            // Fall back to default close if eval throws
             return DefSubclassProc(hwnd, msg, wp, lp);
         }
-        return 0; // Handled — JS will call BIND_terminate() to close the window
+        return 0; 
     }
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
@@ -82,21 +314,20 @@ Webview::Webview(bool debug, void* window,
     : webview_impl(nullptr)
 #if defined(__APPLE__)
     , _close_observer(nullptr)
+    , _move_observer(nullptr)
+    , _miniaturize_observer(nullptr)
+    , _deminiaturize_observer(nullptr)
+    , _enter_fullscreen_observer(nullptr)
+    , _exit_fullscreen_observer(nullptr)
+    , _navigation_delegate(nullptr)
 #endif
 {
-    // -----------------------------------------------------------------
-    // Platform-specific pre-construction and webview instantiation
-    // -----------------------------------------------------------------
 #if defined(__linux__)
-    // g_set_prgname must be called before GTK creates the window so the
-    // compositor and taskbar show the correct application identity.
     if (!app_id.empty())
         g_set_prgname(app_id.c_str());
     webview_impl = std::make_unique<webview::webview>(debug, window);
 
 #elif defined(_WIN32)
-    // Attempt webview construction; on failure try to silently install the
-    // WebView2 runtime bootstrapper and retry once.
     auto try_install_webview2 = [&]() -> bool {
         wchar_t tmp_path[MAX_PATH];
         if (!GetTempPathW(MAX_PATH, tmp_path)) return false;
@@ -107,8 +338,8 @@ Webview::Webview(bool debug, void* window,
             bootstrapper.c_str(), 0, nullptr);
         if (FAILED(hr)) {
             if (logger)
-                logger->warn("[Webview] WebView2: failed to download bootstrapper (HRESULT={:08X})",
-                             static_cast<unsigned>(hr));
+                logger->warn(std::format("[webview] WebView2: failed to download bootstrapper (HRESULT={:08X})",
+                             static_cast<unsigned>(hr)));
             return false;
         }
         SHELLEXECUTEINFOW sei = {};
@@ -130,20 +361,20 @@ Webview::Webview(bool debug, void* window,
         webview_impl = std::make_unique<webview::webview>(debug, window);
     } catch (const webview::exception& e) {
         if (logger)
-            logger->warn("[Webview] WebView2 runtime unavailable ({}); attempting silent install...", e.what());
+            logger->warn(std::format("[webview] WebView2 runtime unavailable ({}); attempting silent install...", e.what()));
         if (try_install_webview2()) {
             if (logger)
-                logger->info("[Webview] WebView2 bootstrapper completed — retrying...");
+                logger->info("[webview] WebView2 bootstrapper completed — retrying...");
             try {
                 webview_impl = std::make_unique<webview::webview>(debug, window);
             } catch (const webview::exception& e2) {
                 if (logger)
-                    logger->error("[Webview] WebView2 still unavailable after install: {}", e2.what());
+                    logger->error(std::format("[webview] WebView2 still unavailable after install: {}", e2.what()));
                 throw;
             }
         } else {
             if (logger)
-                logger->error("[Webview] WebView2 install failed. Please install the runtime manually.");
+                logger->error("[webview] WebView2 install failed. Please install the runtime manually.");
             throw;
         }
     }
@@ -151,26 +382,23 @@ Webview::Webview(bool debug, void* window,
 #else
     webview_impl = std::make_unique<webview::webview>(debug, window);
 #endif
+    this->addWindowCallbacks();
+}
 
-    // -----------------------------------------------------------------
-    // Bootstrap the window.renweb namespace + onReady trigger.
-    // init() scripts run before any page script on every navigation,
-    // guaranteeing the namespace exists when user code assigns callbacks.
-    // The double-rAF on DOMContentLoaded fires onReady after the first
-    // painted frame — more reliable than window.onload for avoiding the
-    // white flash with initially_shown: false.
-    // -----------------------------------------------------------------
+void Webview::addWindowCallbacks() {
     webview_impl->init(
-        // Bootstrap the renweb namespace and install an onReady property that
-        // handles two timing scenarios:
-        //   1. onReady assigned before 'load' fires  → called in setTimeout(0)
-        //      after load (push past synchronous window.onload handlers).
-        //   2. onReady assigned after 'load' fires   → setter detects _ready
-        //      and calls the function immediately. This covers the common case
-        //      where the user assigns onReady deep inside an async window.onload
-        //      after several awaits have already yielded.
         "window.renweb = window.renweb || {};"
         "(function() {"
+        "  function _emit(name, payload) {"
+        "    try {"
+        "      var fn = window.renweb[name];"
+        "      if (typeof fn === 'function') {"
+        "        Promise.resolve(fn(payload)).catch(function(e) { console.error('[renweb] ' + name + ' error:', e); });"
+        "      }"
+        "    } catch (e) {"
+        "      console.error('[renweb] ' + name + ' error:', e);"
+        "    }"
+        "  }"
         "  var _ready = false;"
         "  var _fn = undefined;"
         "  Object.defineProperty(window.renweb, 'onReady', {"
@@ -184,6 +412,13 @@ Webview::Webview(bool debug, void* window,
         "      }"
         "    }"
         "  });"
+        "  if (typeof window.renweb.onMove === 'undefined') window.renweb.onMove = undefined;"
+        "  if (typeof window.renweb.onWindowStateChanged === 'undefined') window.renweb.onWindowStateChanged = undefined;"
+        "  if (typeof window.renweb.onPermissionRequested === 'undefined') window.renweb.onPermissionRequested = undefined;"
+        "  if (typeof window.renweb.onNewWindowRequested === 'undefined') window.renweb.onNewWindowRequested = undefined;"
+        "  if (typeof window.renweb.onRenderProcessTerminated === 'undefined') window.renweb.onRenderProcessTerminated = undefined;"
+        "  if (typeof window.renweb.onCertificateError === 'undefined') window.renweb.onCertificateError = undefined;"
+
         "  window.addEventListener('load', function() {"
         "    setTimeout(function() {"
         "      _ready = true;"
@@ -196,19 +431,115 @@ Webview::Webview(bool debug, void* window,
         "})();"
     );
 
-    // -----------------------------------------------------------------
-    // OS window-close hooks: fire onTerminate as best-effort when the
-    // user clicks the title-bar X.  The programmatic Window.terminate()
-    // path awaits onTerminate in JS before reaching C++.
-    // -----------------------------------------------------------------
 #if defined(__linux__)
     {
         auto win_opt = webview_impl->window();
         if (win_opt.has_value()) {
             GtkWidget* gtk_win = static_cast<GtkWidget*>(win_opt.value());
-            g_signal_connect(gtk_win, "delete-event",
-                G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer ud) -> gboolean {
+            auto widget_opt = webview_impl->widget();
+            if (widget_opt.has_value()) {
+                WebKitWebView* wk_webview = WEBKIT_WEB_VIEW(widget_opt.value());
+
+                g_signal_connect(wk_webview, "permission-request",
+                    G_CALLBACK(+[](WebKitWebView*, WebKitPermissionRequest* request, gpointer ud) -> gboolean {
+                        auto* wv = static_cast<webview::webview*>(ud);
+                        std::string kind = request ? G_OBJECT_TYPE_NAME(request) : "unknown";
+                        try {
+                            wv->eval(makeOnPermissionRequestedScript(kind, ""));
+                        } catch (...) { }
+                        return FALSE;
+                    }), webview_impl.get());
+
+                g_signal_connect(wk_webview, "decide-policy",
+                    G_CALLBACK(+[](WebKitWebView*, WebKitPolicyDecision* decision,
+                                   WebKitPolicyDecisionType type, gpointer ud) -> gboolean {
+                        if (type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION) return FALSE;
+                        auto* wv = static_cast<webview::webview*>(ud);
+                        std::string uri;
+
+                        WebKitNavigationPolicyDecision* nav_decision = WEBKIT_NAVIGATION_POLICY_DECISION(decision);
+                        if (nav_decision) {
+                            WebKitNavigationAction* action = webkit_navigation_policy_decision_get_navigation_action(nav_decision);
+                            if (action) {
+                                WebKitURIRequest* req = webkit_navigation_action_get_request(action);
+                                if (req) {
+                                    const char* u = webkit_uri_request_get_uri(req);
+                                    if (u) uri = u;
+                                }
+                            }
+                        }
+                        try {
+                            wv->eval(makeOnNewWindowRequestedScript(uri));
+                        } catch (...) { }
+                        return FALSE;
+                    }), webview_impl.get());
+
+                g_signal_connect(wk_webview, "load-failed-with-tls-errors",
+                    G_CALLBACK(+[](WebKitWebView*, const gchar* failing_uri,
+                                   GTlsCertificate*, GTlsCertificateFlags errors, gpointer ud) -> gboolean {
+                        auto* wv = static_cast<webview::webview*>(ud);
+                        std::string uri = failing_uri ? failing_uri : "";
+                        std::string err = std::to_string(static_cast<unsigned>(errors));
+                        try {
+                            wv->eval(makeOnCertificateErrorScript(uri, err));
+                        } catch (...) { }
+                        return FALSE;
+                    }), webview_impl.get());
+
+                g_signal_connect(wk_webview, "web-process-terminated",
+                    G_CALLBACK(+[](WebKitWebView*, WebKitWebProcessTerminationReason reason, gpointer ud) {
+                        auto* wv = static_cast<webview::webview*>(ud);
+                        const char* reason_str = "unknown";
+                        switch (reason) {
+                            case WEBKIT_WEB_PROCESS_CRASHED: reason_str = "web-process-crashed"; break;
+                            case WEBKIT_WEB_PROCESS_EXCEEDED_MEMORY_LIMIT: reason_str = "web-process-memory-limit"; break;
+                            case WEBKIT_WEB_PROCESS_TERMINATED_BY_API: reason_str = "web-process-terminated-by-api"; break;
+                            default: break;
+                        }
+                        try {
+                            wv->eval(makeOnRenderProcessTerminatedScript(reason_str));
+                        } catch (...) { }
+                    }), webview_impl.get());
+            }
+
+            g_signal_connect(gtk_win, "configure-event",
+                G_CALLBACK(+[](GtkWidget*, GdkEvent* event, gpointer ud) -> gboolean {
+                    if (!event || event->type != GDK_CONFIGURE) return FALSE;
                     auto* wv = static_cast<webview::webview*>(ud);
+                    GdkEventConfigure* cfg = (GdkEventConfigure*)event;
+                    try {
+                        wv->eval(makeOnMoveScript(cfg->x, cfg->y));
+                    } catch (...) { }
+                    return FALSE;
+                }), webview_impl.get());
+
+            g_signal_connect(gtk_win, "window-state-event",
+                G_CALLBACK(+[](GtkWidget*, GdkEventWindowState* event, gpointer ud) -> gboolean {
+                    if (!event) return FALSE;
+                    auto* wv = static_cast<webview::webview*>(ud);
+
+                    const bool minimized = (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) != 0;
+                    const bool maximized = (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+                    const bool fullscreen = (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0;
+
+                    const char* state = "normal";
+                    if (fullscreen) state = "fullscreen";
+                    else if (minimized) state = "minimized";
+                    else if (maximized) state = "maximized";
+
+                    try {
+                        wv->eval(makeOnWindowStateChangedScript(state));
+                    } catch (...) { }
+
+                    return FALSE;
+                }), webview_impl.get());
+
+            g_signal_connect(gtk_win, "delete-event",
+                G_CALLBACK(+[](GtkWidget* gtk_win, GdkEvent*, gpointer ud) -> gboolean {
+                    auto* wv = static_cast<webview::webview*>(ud);
+                    if (gtk_win) {
+                        gtk_widget_hide(gtk_win);
+                    }
                     try {
                         wv->eval(
                             "(async () => {"
@@ -217,16 +548,11 @@ Webview::Webview(bool debug, void* window,
                             "})().catch(function(e) { console.error('[renweb] onTerminate error:', e); BIND_terminate(null); });"
                         );
                     } catch (...) {
-                        return FALSE; // Fall back to default close if eval throws
+                        return FALSE;
                     }
-                    return TRUE; // Block GTK destroy — JS will call BIND_terminate() to close
+                    return TRUE;
                 }), webview_impl.get());
 
-            // Handle SIGINT (Ctrl+C) via a self-pipe: the raw signal handler
-            // only does an async-signal-safe write(), and GLib watches the pipe
-            // on the main thread where eval() is safe to call.
-            // sigaction is called AFTER webview_impl is constructed so our
-            // handler is guaranteed to be last (overrides anything WebKit set).
             {
                 static int _sigint_pipe_w = -1;
                 int sigpipe[2];
@@ -274,6 +600,114 @@ Webview::Webview(bool debug, void* window,
                               /*uid=*/1,
                               reinterpret_cast<DWORD_PTR>(webview_impl.get()));
         }
+
+        auto widget_opt = this->widget();
+        if (widget_opt.has_value()) {
+            auto* wv = webview_impl.get();
+            ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(widget_opt.value());
+
+            webview2->add_PermissionRequested(
+                Microsoft::WRL::Callback<ICoreWebView2PermissionRequestedEventHandler>(
+                    [wv](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) -> HRESULT {
+                        COREWEBVIEW2_PERMISSION_KIND kind = COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
+                        args->get_PermissionKind(&kind);
+
+                        LPWSTR uri_w = nullptr;
+                        args->get_Uri(&uri_w);
+                        std::string uri = wideToUtf8(uri_w);
+                        if (uri_w) CoTaskMemFree(uri_w);
+
+                        std::string kind_str = "unknown";
+                        switch (kind) {
+                            case COREWEBVIEW2_PERMISSION_KIND_MICROPHONE: kind_str = "microphone"; break;
+                            case COREWEBVIEW2_PERMISSION_KIND_CAMERA: kind_str = "camera"; break;
+                            case COREWEBVIEW2_PERMISSION_KIND_GEOLOCATION: kind_str = "geolocation"; break;
+                            case COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS: kind_str = "notifications"; break;
+                            case COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ: kind_str = "clipboard-read"; break;
+                            default: break;
+                        }
+
+                        try {
+                            wv->eval(makeOnPermissionRequestedScript(kind_str, uri));
+                        } catch (...) { }
+                        return S_OK;
+                    }).Get(),
+                nullptr
+            );
+
+            webview2->add_NewWindowRequested(
+                Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                    [wv](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                        LPWSTR uri_w = nullptr;
+                        args->get_Uri(&uri_w);
+                        std::string uri = wideToUtf8(uri_w);
+                        if (uri_w) CoTaskMemFree(uri_w);
+
+                        try {
+                            wv->eval(makeOnNewWindowRequestedScript(uri));
+                        } catch (...) { }
+                        return S_OK;
+                    }).Get(),
+                nullptr
+            );
+
+            webview2->add_ProcessFailed(
+                Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
+                    [wv](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs* args) -> HRESULT {
+                        COREWEBVIEW2_PROCESS_FAILED_KIND kind = COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
+                        args->get_ProcessFailedKind(&kind);
+
+                        std::string reason = "unknown";
+                        switch (kind) {
+                            case COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED: reason = "browser-process-exited"; break;
+                            case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED: reason = "render-process-exited"; break;
+                            case COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE: reason = "render-process-unresponsive"; break;
+                            case COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED: reason = "frame-render-process-exited"; break;
+                            default: break;
+                        }
+
+                        try {
+                            wv->eval(makeOnRenderProcessTerminatedScript(reason));
+                        } catch (...) { }
+                        return S_OK;
+                    }).Get(),
+                nullptr
+            );
+
+            webview2->add_NavigationCompleted(
+                Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                    [wv](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                        BOOL success = FALSE;
+                        args->get_IsSuccess(&success);
+                        if (success) return S_OK;
+
+                        COREWEBVIEW2_WEB_ERROR_STATUS status = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+                        args->get_WebErrorStatus(&status);
+
+                        bool isCertError =
+                            status == COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT ||
+                            status == COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED ||
+                            status == COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS ||
+                            status == COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED ||
+                            status == COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID;
+
+                        if (!isCertError) return S_OK;
+
+                        LPWSTR source_w = nullptr;
+                        std::string source;
+                        if (sender && SUCCEEDED(sender->get_Source(&source_w))) {
+                            source = wideToUtf8(source_w);
+                            if (source_w) CoTaskMemFree(source_w);
+                        }
+
+                        try {
+                            wv->eval(makeOnCertificateErrorScript(source, std::to_string(static_cast<int>(status))));
+                        } catch (...) { }
+                        return S_OK;
+                    }).Get(),
+                nullptr
+            );
+        }
     }
 #elif defined(__APPLE__)
     {
@@ -286,16 +720,99 @@ Webview::Webview(bool debug, void* window,
                 object:nsWindow
                 queue:nil
                 usingBlock:^(NSNotification*) {
+                    [nsWindow orderOut:nil];
                     try {
                         wv_ptr->eval(
                             "(async () => {"
                             "  if (typeof window.renweb?.onTerminate === 'function') await window.renweb.onTerminate();"
-                            "})().catch(function(e) { console.error('[renweb] onTerminate error:', e); });"
+                            "  await BIND_terminate(null);"
+                            "})().catch(function(e) { console.error('[renweb] onTerminate error:', e); BIND_terminate(null); });"
                         );
                     } catch (...) {}
                 }];
             [observer retain];
             _close_observer = (void*)observer;
+
+            id move_observer = [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidMoveNotification
+                object:nsWindow
+                queue:nil
+                usingBlock:^(NSNotification* notification) {
+                    NSWindow* w = (NSWindow*)[notification object];
+                    NSRect frame = [w frame];
+                    const int x = (int)frame.origin.x;
+                    const int y = (int)frame.origin.y;
+                    try {
+                        wv_ptr->eval(makeOnMoveScript(x, y));
+                    } catch (...) {}
+                }];
+            [move_observer retain];
+            _move_observer = (void*)move_observer;
+
+            id miniaturize_observer = [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidMiniaturizeNotification
+                object:nsWindow
+                queue:nil
+                usingBlock:^(NSNotification*) {
+                    try {
+                        wv_ptr->eval(makeOnWindowStateChangedScript("minimized"));
+                    } catch (...) {}
+                }];
+            [miniaturize_observer retain];
+            _miniaturize_observer = (void*)miniaturize_observer;
+
+            id deminiaturize_observer = [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidDeminiaturizeNotification
+                object:nsWindow
+                queue:nil
+                usingBlock:^(NSNotification*) {
+                    try {
+                        wv_ptr->eval(makeOnWindowStateChangedScript("normal"));
+                    } catch (...) {}
+                }];
+            [deminiaturize_observer retain];
+            _deminiaturize_observer = (void*)deminiaturize_observer;
+
+            id enter_fullscreen_observer = [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidEnterFullScreenNotification
+                object:nsWindow
+                queue:nil
+                usingBlock:^(NSNotification*) {
+                    try {
+                        wv_ptr->eval(makeOnWindowStateChangedScript("fullscreen"));
+                    } catch (...) {}
+                }];
+            [enter_fullscreen_observer retain];
+            _enter_fullscreen_observer = (void*)enter_fullscreen_observer;
+
+            id exit_fullscreen_observer = [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidExitFullScreenNotification
+                object:nsWindow
+                queue:nil
+                usingBlock:^(NSNotification*) {
+                    try {
+                        wv_ptr->eval(makeOnWindowStateChangedScript("normal"));
+                    } catch (...) {}
+                }];
+            [exit_fullscreen_observer retain];
+            _exit_fullscreen_observer = (void*)exit_fullscreen_observer;
+
+            WKWebView* wkWebView = getWKWebViewFromWindow(win_opt.value());
+            if (!wkWebView) {
+                auto widget_opt = this->widget();
+                if (widget_opt.has_value()) {
+                    wkWebView = (WKWebView*)widget_opt.value();
+                }
+            }
+
+            if (wkWebView) {
+                Class delegateClass = getOrCreateRenWebNavigationDelegateClass();
+                id delegate = [[delegateClass alloc] init];
+                objc_setAssociatedObject(delegate, "renweb_wv_ptr", [NSValue valueWithPointer:wv_ptr], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                [wkWebView setNavigationDelegate:delegate];
+                [delegate retain];
+                _navigation_delegate = (void*)delegate;
+            }
         }
     }
 #endif
@@ -307,6 +824,35 @@ Webview::~Webview() {
         [[NSNotificationCenter defaultCenter] removeObserver:(id)_close_observer];
         [(id)_close_observer release];
         _close_observer = nullptr;
+    }
+    if (_move_observer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:(id)_move_observer];
+        [(id)_move_observer release];
+        _move_observer = nullptr;
+    }
+    if (_miniaturize_observer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:(id)_miniaturize_observer];
+        [(id)_miniaturize_observer release];
+        _miniaturize_observer = nullptr;
+    }
+    if (_deminiaturize_observer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:(id)_deminiaturize_observer];
+        [(id)_deminiaturize_observer release];
+        _deminiaturize_observer = nullptr;
+    }
+    if (_enter_fullscreen_observer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:(id)_enter_fullscreen_observer];
+        [(id)_enter_fullscreen_observer release];
+        _enter_fullscreen_observer = nullptr;
+    }
+    if (_exit_fullscreen_observer) {
+        [[NSNotificationCenter defaultCenter] removeObserver:(id)_exit_fullscreen_observer];
+        [(id)_exit_fullscreen_observer release];
+        _exit_fullscreen_observer = nullptr;
+    }
+    if (_navigation_delegate) {
+        [(id)_navigation_delegate release];
+        _navigation_delegate = nullptr;
     }
 #endif
 }
@@ -355,5 +901,3 @@ void Webview::register_navigation_handler(std::function<bool(const std::string&)
         engine_ptr->set_navigation_callback(callback);
 }
 #endif
-
-}

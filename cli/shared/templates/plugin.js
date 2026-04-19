@@ -41,8 +41,8 @@ private:
  * @returns {string}
  */
 function makePluginCpp(info, pluginName, pluginClass) {
-    return `// Compile Boost.JSON's implementation directly into this translation unit so
-// no external libboost_json is needed at runtime — the plugin is self-contained.
+    return `// Compile Boost.JSON implementation in this TU so plugin builds
+// without requiring prebuilt Boost stage libraries.
 #define BOOST_JSON_SOURCE
 #include <boost/json/src.hpp>
 
@@ -138,6 +138,10 @@ void ${pluginClass}::registerFunctions() {
 extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr<RenWeb::ILogger> logger) {
     return new ${pluginClass}(logger);
 }
+
+extern "C" PLUGIN_EXPORT void destroyPlugin(RenWeb::Plugin* plugin) {
+    delete plugin;
+}
 `;
 }
 
@@ -179,49 +183,7 @@ function makePluginMakefile(info, pluginName) {
 #   riscv64-linux-gnu     s390x-linux-gnu     sparc64-linux-gnu
 # -----------------------------------------------------------------------------
 TOOLCHAIN :=
-ifdef TOOLCHAIN
-\tCROSS_COMPILE := $(TOOLCHAIN)-
-\tSYSROOT       := --sysroot=/usr/$(TOOLCHAIN)
-\tifeq ($(TOOLCHAIN),arm-linux-gnueabihf)
-\t\tARCH := arm32
-\telse ifeq ($(TOOLCHAIN),aarch64-linux-gnu)
-\t\tARCH := arm64
-\telse ifeq ($(TOOLCHAIN),i686-linux-gnu)
-\t\tARCH := x86_32
-\telse ifeq ($(TOOLCHAIN),mips-linux-gnu)
-\t\tARCH := mips32
-\telse ifeq ($(TOOLCHAIN),mipsel-linux-gnu)
-\t\tARCH := mips32el
-\telse ifeq ($(TOOLCHAIN),mips64-linux-gnuabi64)
-\t\tARCH := mips64
-\telse ifeq ($(TOOLCHAIN),mips64el-linux-gnuabi64)
-\t\tARCH := mips64el
-\telse ifeq ($(TOOLCHAIN),powerpc-linux-gnu)
-\t\tARCH := powerpc32
-\telse ifeq ($(TOOLCHAIN),powerpc64-linux-gnu)
-\t\tARCH := powerpc64
-\telse ifeq ($(TOOLCHAIN),riscv64-linux-gnu)
-\t\tARCH := riscv64
-\telse ifeq ($(TOOLCHAIN),s390x-linux-gnu)
-\t\tARCH := s390x
-\telse ifeq ($(TOOLCHAIN),sparc64-linux-gnu)
-\t\tARCH := sparc64
-\telse ifeq ($(TOOLCHAIN),x86_64-linux-gnu)
-\t\tARCH := x86_64
-\telse
-\t\tARCH := unknown
-\tendif
-else
-\tCROSS_COMPILE :=
-\tSYSROOT       :=
-endif
-
-# -----------------------------------------------------------------------------
-# Build target
-# -----------------------------------------------------------------------------
-ifndef TARGET
-\tTARGET := debug
-endif
+REQUIRED_BOOST_VERSION := 109000
 
 # -----------------------------------------------------------------------------
 # OS / compiler / architecture detection
@@ -232,20 +194,24 @@ ifeq ($(OS),Windows_NT)
 \tSHARED_EXT := .dll
 \tOBJ_EXT    := .obj
 \tOBJ_DIR    := src\\\\.build
+\t_NON_COMPILE_GOALS := clean clear info help
+\t_COMPILE_GOALS_REQ := $(filter-out $(_NON_COMPILE_GOALS), $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all))
+\t_SHELL_INIT        := $(shell :)
 \tifeq ($(RENWEB_VS_BOOTSTRAPPED),)
 \tCL_IN_PATH := $(shell which cl 2>/dev/null)
 \tifeq ($(CL_IN_PATH),)
+\tifneq ($(_COMPILE_GOALS_REQ),)
 \tNEED_VS_BOOTSTRAP := 1
 \tendif
 \tendif
+\tendif
 \tCXX      := cl
-\tCXXFLAGS := /std:c++17 /utf-8 /EHsc /W3 /FS /nologo
 \tifeq ($(TARGET),debug)
-\t\tCXXFLAGS += /Zi /Od /MTd
+        CXXFLAGS := /std:c++20 /utf-8 /EHsc /W3 /FS /nologo /Od /MT /Zi /DBOOST_ALL_NO_LIB /DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
 \t\tLDFLAGS  := /DEBUG
 \telse
-\t\tCXXFLAGS += /O2 /GL /GS- /Gy /MT
-\t\tLDFLAGS  := /LTCG /OPT:REF /OPT:ICF
+		CXXFLAGS := /std:c++20 /utf-8 /EHsc /W3 /FS /nologo /O2 /GS- /Gy /MT /DBOOST_ALL_NO_LIB /DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
+\t\tLDFLAGS  := /OPT:REF /OPT:ICF
 \tendif
 \tifdef VSCMD_ARG_TGT_ARCH
 \t\tifeq ($(VSCMD_ARG_TGT_ARCH),x64)
@@ -261,10 +227,36 @@ ifeq ($(OS),Windows_NT)
 \t\t\tARCH    := x86_64
 \t\t\tLDFLAGS += /MACHINE:X64
 \t\tendif
-\telse ifndef ARCH
-\t\tARCH    := x86_64
-\t\tLDFLAGS += /MACHINE:X64
+	else
+		ifndef ARCH
+			ARCH := x86_64
+		endif
+		ifeq ($(ARCH),x86_32)
+			LDFLAGS += /MACHINE:X86
+		else ifeq ($(ARCH),arm64)
+			LDFLAGS += /MACHINE:ARM64
+		else
+			LDFLAGS += /MACHINE:X64
+		endif
 \tendif
+    # ---- Boost header detection (external-only) ----
+    # Plugins use boostorg/boost as a single source of truth.
+    ifneq ($(wildcard external/boost/libs/json/include/boost/json/src.hpp),)
+        BOOST_JSON_INC := /Iexternal/boost/libs/json/include
+    endif
+    ifneq ($(wildcard external/boost/libs/config/include/boost/config.hpp),)
+        BOOST_TRANSITIVE_INCS := $(foreach d,$(wildcard external/boost/libs/*/include),/I$(d))
+    endif
+    ifneq ($(BOOST_JSON_INC),)
+        CXXFLAGS += $(BOOST_JSON_INC)
+        ifneq ($(BOOST_TRANSITIVE_INCS),)
+            CXXFLAGS += $(BOOST_TRANSITIVE_INCS)
+        else
+$(warning [RenWeb] Boost transitive headers not found in external/boost/libs/*/include. Initialize required external/boost submodules.)
+        endif
+    else
+$(warning [RenWeb] Boost.JSON headers not found in external/boost/libs/json/include.)
+	endif
 else
 \tSHELL   := /bin/sh
 \tUNAME_S := $(shell uname -s)
@@ -277,11 +269,7 @@ else
 \t\tCXX          := clang++
 \t\tCXXFLAGS     := -std=c++17 -MMD -MP -fPIC -mmacosx-version-min=10.15
 \t\tLDFLAGS      := -mmacosx-version-min=10.15
-\t\tifeq ($(TARGET),debug)
-\t\t\tCXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces
-\t\telse
-\t\t\tCXXFLAGS += -O3 -flto
-\t\tendif
+		CXXFLAGS += -O3 -flto -DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
 \t\tifdef ARCH_FLAGS
 \t\t\tCXXFLAGS += $(ARCH_FLAGS)
 \t\t\tLDFLAGS  += $(ARCH_FLAGS)
@@ -303,12 +291,8 @@ else
 \t\tSHARED_EXT   := .so
 \t\tSHARED_FLAGS := -shared
 \t\tCXX          := $(CROSS_COMPILE)g++
-\t\tCXXFLAGS     := -std=c++17 -MMD -MP -fPIC -D_GNU_SOURCE
-\t\tifeq ($(TARGET),debug)
-\t\t\tCXXFLAGS += $(SYSROOT) -g -O0 -Wall -Wextra -Wno-missing-braces
-\t\telse
-\t\t\tCXXFLAGS += $(SYSROOT) -O3 -flto
-\t\tendif
+\t\tCXXFLAGS     := -std=c++20 -MMD -MP -fPIC -D_GNU_SOURCE
+		CXXFLAGS += $(SYSROOT) -O3 -flto -DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
 \t\tifdef TOOLCHAIN
 \t\t\tCXXFLAGS += -isystem /usr/$(TOOLCHAIN)/usr/local/include
 \t\t\tLDFLAGS  := --sysroot=/usr/$(TOOLCHAIN) -L/lib -L/lib64 -L/usr/lib -L/usr/lib64
@@ -358,11 +342,16 @@ endef
 # in src/*.cpp: the 2nd string param is internal_name; the 3rd is version.
 # -----------------------------------------------------------------------------
 BUILD_DIR      := build/plugins
-SRC            := src/${pluginName}.cpp
-OBJ            := $(OBJ_DIR)/${pluginName}$(OBJ_EXT)
-PLUGIN_NAME    := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '2p' | tr -d '"' | xargs)
-PLUGIN_VERSION := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '3p' | tr -d '"' | xargs)
+SRC            := $(sort $(wildcard src/*.cpp))
+OBJ            := $(patsubst src/%.cpp,$(OBJ_DIR)/%$(OBJ_EXT),$(SRC))
+HEADERS        := $(sort $(wildcard include/*.hpp))
+PLUGIN_NAME    := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '2p' | tr -d '"' | xargs)
+PLUGIN_VERSION := $(shell grep -hE -A5 ': (RenWeb::)?Plugin\\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '3p' | tr -d '"' | xargs)
 OUT            := $(BUILD_DIR)/$(PLUGIN_NAME)-$(PLUGIN_VERSION)-$(OS_NAME)-$(ARCH)$(SHARED_EXT)
+
+ifeq ($(strip $(SRC)),)
+$(error No C++ source files found in src/*.cpp)
+endif
 
 # =============================================================================
 # VS auto-bootstrap (Windows only: runs when cl.exe is absent from PATH)
@@ -431,34 +420,33 @@ all: $(OUT)
 ifeq ($(OS_NAME),windows)
 $(OUT): $(OBJ) | $(BUILD_DIR)
 \t$(call step,Linking,$(PLUGIN_NAME))
-\t$(CXX) $(OBJ) /LD /Fe:$(OUT) /link $(LDFLAGS)
+	$(CXX) $(OBJ) /LD /Fe:$(OUT) /link $(LDFLAGS) /IMPLIB:$(OBJ_DIR)/$(PLUGIN_NAME).lib /PDB:$(OBJ_DIR)/$(PLUGIN_NAME).pdb
 else
 $(OUT): $(OBJ) | $(BUILD_DIR)
 \t$(call step,Linking,$(PLUGIN_NAME))
-\t$(CXX) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) $(SHARED_FLAGS) $(LDFLAGS) -o $@ $^
 endif
 
 $(BUILD_DIR):
 ifeq ($(OS_NAME),windows)
-\tmkdir "$(BUILD_DIR)" 2>nul || exit 0
+\tmkdir "$(BUILD_DIR)" 2>/dev/null || exit 0
 else
 \tmkdir -p $(BUILD_DIR)
 endif
 
 # ── Compile ───────────────────────────────────────────────────────────────────
 ifeq ($(OS_NAME),windows)
-$(OBJ): $(SRC) include/${pluginName}.hpp include/plugin.hpp | $(OBJ_DIR)
-\t$(call step,Compiling,$<)
-\t$(CXX) $(CXXFLAGS) /I include/ /c $(SRC) /Fo$@
+$(OBJ_DIR)/%$(OBJ_EXT): src/%.cpp $(HEADERS) | $(OBJ_DIR)
+	$(call step,Compiling,$<)
+	$(CXX) $(CXXFLAGS) /Fd$(subst \\\\,/,$(OBJ_DIR))/ /I include/ /c $< /Fo$@
 else
-$(OBJ): $(SRC) include/${pluginName}.hpp include/plugin.hpp | $(OBJ_DIR)
-\t$(call step,Compiling,$<)
-\t$(CXX) $(CXXFLAGS) -I include/ -c $< -o $@
+$(OBJ_DIR)/%$(OBJ_EXT): src/%.cpp $(HEADERS) | $(OBJ_DIR)
+	$(call step,Compiling,$<)
+	$(CXX) $(CXXFLAGS) -I include/ -c $< -o $@
 endif
-
 $(OBJ_DIR):
 ifeq ($(OS_NAME),windows)
-\tmkdir "$@" 2>nul || exit 0
+\tmkdir "$@" 2>/dev/null || exit 0
 else
 \tmkdir -p $@
 endif
@@ -466,20 +454,11 @@ endif
 # ── Utility ───────────────────────────────────────────────────────────────────
 clear:
 \t$(call step,Clearing,object files)
-ifeq ($(OS_NAME),windows)
-\t-rmdir /s /q "$(OBJ_DIR)" 2>nul
-else
 \trm -rf $(OBJ_DIR)
-endif
 
 clean:
 \t$(call step,Cleaning,all build outputs)
-ifeq ($(OS_NAME),windows)
-\t-rmdir /s /q "$(OBJ_DIR)" 2>nul
-\t-rmdir /s /q "$(BUILD_DIR)" 2>nul
-else
 \trm -rf $(OBJ_DIR) $(BUILD_DIR)
-endif
 
 info:
 \t$(call describe,Plugin,$(PLUGIN_NAME),Version,$(PLUGIN_VERSION))
@@ -517,10 +496,10 @@ endif
  */
 function makePluginBuildAllArchs(pluginName) {
     return `#!/usr/bin/env bash
-# build_all_archs.sh — build ${pluginName} plugin for all supported architectures
+# build_all_archs.sh — build plugin for all supported architectures
 #
 # Usage:
-#   ./build_all_archs.sh
+#   ./build_all_archs.sh [--arch <arch>] ...
 #
 # On Linux:   builds all 13 toolchain architectures (requires cross-compilers)
 # On macOS:   builds arm64 + x86_64, then creates a universal .dylib via lipo
@@ -528,25 +507,73 @@ function makePluginBuildAllArchs(pluginName) {
 
 set -e
 
-RESET='\\033[0m'
-RED='\\033[31m'
-GREEN='\\033[32m'
-YELLOW='\\033[33m'
-MAGENTA='\\033[35m'
-CYAN='\\033[36m'
-BOLD='\\033[1m'
+RESET=$(printf '\\033[0m')
+RED=$(printf '\\033[31m')
+GREEN=$(printf '\\033[32m')
+YELLOW=$(printf '\\033[33m')
+MAGENTA=$(printf '\\033[35m')
+CYAN=$(printf '\\033[36m')
+BOLD=$(printf '\\033[1m')
 
 LINUX_TOOLCHAINS="x86_64-linux-gnu i686-linux-gnu aarch64-linux-gnu arm-linux-gnueabihf mips-linux-gnu mipsel-linux-gnu mips64-linux-gnuabi64 mips64el-linux-gnuabi64 powerpc-linux-gnu powerpc64-linux-gnu riscv64-linux-gnu s390x-linux-gnu sparc64-linux-gnu"
 
-print_header()  { echo -e "$CYAN$BOLD========================================$RESET"; echo -e "$CYAN$BOLD$1$RESET"; echo -e "$CYAN$BOLD========================================$RESET"; }
-print_info()    { echo -e "$GREEN$BOLD[INFO]$RESET $1"; }
-print_warning() { echo -e "$YELLOW$BOLD[WARN]$RESET $1"; }
-print_error()   { echo -e "$RED$BOLD[ERROR]$RESET $1"; }
-print_success() { echo -e "$GREEN$BOLD[SUCCESS]$RESET $1"; }
-print_building(){ echo -e "$MAGENTA$BOLD[BUILD]$RESET Building for $CYAN$1$RESET ($YELLOW$2$RESET)"; }
+PLUGIN_NAME_DISPLAY=$(grep -hE -A5 ': (RenWeb::)?Plugin\\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '2p' | tr -d '"' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+if [ -z "$PLUGIN_NAME_DISPLAY" ]; then
+    PLUGIN_NAME_DISPLAY=$(basename "$PWD")
+fi
+
+print_header()  { echo "\${CYAN}\${BOLD}========================================\${RESET}"; echo "\${CYAN}\${BOLD}$1\${RESET}"; echo "\${CYAN}\${BOLD}========================================\${RESET}"; }
+print_info()    { echo "\${GREEN}\${BOLD}[INFO]\${RESET} $1"; }
+print_warning() { echo "\${YELLOW}\${BOLD}[WARN]\${RESET} $1"; }
+print_error()   { echo "\${RED}\${BOLD}[ERROR]\${RESET} $1"; }
+print_success() { echo "\${GREEN}\${BOLD}[SUCCESS]\${RESET} $1"; }
+print_building(){ echo "\${MAGENTA}\${BOLD}[BUILD]\${RESET} Building for \${CYAN}$1\${RESET} (\${YELLOW}$2\${RESET})"; }
 
 command_exists()  { command -v "$1" >/dev/null 2>&1; }
 toolchain_exists(){ command_exists "$1-gcc" && command_exists "$1-g++"; }
+
+normalize_arch() {
+    case "$1" in
+        x86_64|x64|amd64)              echo "x86_64"    ;;
+        x86_32|x86|i686|i386|ia32)    echo "x86_32"    ;;
+        arm64|aarch64)                 echo "arm64"     ;;
+        arm32|armhf|armv7|armv7l)     echo "arm32"     ;;
+        mips32|mips)                   echo "mips32"    ;;
+        mips32el|mipsel)               echo "mips32el"  ;;
+        mips64)                        echo "mips64"    ;;
+        mips64el)                      echo "mips64el"  ;;
+        powerpc32|ppc|ppc32)           echo "powerpc32" ;;
+        powerpc64|ppc64)               echo "powerpc64" ;;
+        riscv64)                       echo "riscv64"   ;;
+        s390x)                         echo "s390x"     ;;
+        sparc64)                       echo "sparc64"   ;;
+        *)                             echo "$1"        ;;
+    esac
+}
+FILTER_ARCHS=""
+arch_matches() {
+    [ -z "$FILTER_ARCHS" ] && return 0
+    for _fa in $FILTER_ARCHS; do [ "$_fa" = "$1" ] && return 0; done
+    return 1
+}
+toolchain_to_arch() {
+    case "$1" in
+        arm-linux-gnueabihf)         echo "arm32"     ;;
+        aarch64-linux-gnu)           echo "arm64"     ;;
+        i686-linux-gnu)              echo "x86_32"    ;;
+        x86_64-linux-gnu)            echo "x86_64"    ;;
+        mips-linux-gnu)              echo "mips32"    ;;
+        mipsel-linux-gnu)            echo "mips32el"  ;;
+        mips64-linux-gnuabi64)       echo "mips64"    ;;
+        mips64el-linux-gnuabi64)     echo "mips64el"  ;;
+        powerpc-linux-gnu)           echo "powerpc32" ;;
+        powerpc64-linux-gnu)         echo "powerpc64" ;;
+        riscv64-linux-gnu)           echo "riscv64"   ;;
+        s390x-linux-gnu)             echo "s390x"     ;;
+        sparc64-linux-gnu)           echo "sparc64"   ;;
+        *)                           echo "$1"        ;;
+    esac
+}
 
 build_for_toolchain() {
     local toolchain=$1 arch_name=$2
@@ -587,7 +614,7 @@ detect_os() {
 
 build_linux() {
     local success_count=0 fail_count=0 total_count=0
-    print_header "Building ${pluginName} for Linux (13 architectures)"
+    print_header "Building \${PLUGIN_NAME_DISPLAY} for Linux (13 architectures)"
     print_info "Host: $HOST_ARCH"
     echo ""
 
@@ -608,17 +635,31 @@ build_linux() {
         sparc64)       host_toolchain="sparc64-linux-gnu" ;;
     esac
 
-    total_count=\$((total_count + 1))
-    if build_native "native ($HOST_ARCH)"; then
-        success_count=\$((success_count + 1))
+    local native_arch
+    native_arch=\$(normalize_arch "$HOST_ARCH")
+    if arch_matches "$native_arch"; then
+        total_count=\$((total_count + 1))
+        if build_native "native ($HOST_ARCH)"; then
+            success_count=\$((success_count + 1))
+        else
+            fail_count=\$((fail_count + 1))
+        fi
+        echo ""
     else
-        fail_count=\$((fail_count + 1))
+        print_info "Skipping native ($HOST_ARCH) — not in arch filter"
+        echo ""
     fi
-    echo ""
 
     for toolchain in $LINUX_TOOLCHAINS; do
         if [ "$toolchain" = "$host_toolchain" ]; then
             print_info "Skipping $toolchain (already built natively)"
+            continue
+        fi
+        local tc_arch
+        tc_arch=\$(toolchain_to_arch "$toolchain")
+        if ! arch_matches "$tc_arch"; then
+            print_info "Skipping $toolchain ($tc_arch) — not in arch filter"
+            echo ""
             continue
         fi
         total_count=\$((total_count + 1))
@@ -636,7 +677,7 @@ build_linux() {
     done
 
     print_header "Build Summary"
-    echo -e "$GREEN Successful: $BOLD$success_count$RESET  $RED Failed: $BOLD$fail_count$RESET  $CYAN Total: $BOLD$total_count$RESET"
+    echo "\${GREEN}Successful: \${BOLD}\${success_count}\${RESET}  \${RED}Failed: \${BOLD}\${fail_count}\${RESET}  \${CYAN}Total: \${BOLD}\${total_count}\${RESET}"
     if [ \$success_count -gt 0 ]; then
         print_info "Output: ./build/plugins/"
         ls -lh build/plugins/ 2>/dev/null | grep '\\.so$' || true
@@ -645,13 +686,18 @@ build_linux() {
 
 build_macos() {
     local success_count=0 fail_count=0
-    print_header "Building ${pluginName} for macOS (arm64 + x86_64)"
+    print_header "Building \${PLUGIN_NAME_DISPLAY} for macOS (arm64 + x86_64)"
     echo ""
 
     command_exists clang++ || { print_error "clang++ not found"; return 1; }
     local ncpu=\$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
     for arch in arm64 x86_64; do
+        if ! arch_matches "$arch"; then
+            print_info "Skipping $arch — not in arch filter"
+            echo ""
+            continue
+        fi
         print_building "$arch" "clang++ -arch $arch"
         make clear >/dev/null 2>&1 || true
         if ARCH="$arch" ARCH_FLAGS="-arch $arch" make TARGET=release -j\$ncpu; then
@@ -680,7 +726,7 @@ build_macos() {
     fi
 
     print_header "Build Summary"
-    echo -e "$GREEN Successful: $BOLD$success_count$RESET  $RED Failed: $BOLD$fail_count$RESET"
+    echo "\${GREEN}Successful: \${BOLD}\${success_count}\${RESET}  \${RED}Failed: \${BOLD}\${fail_count}\${RESET}"
     if [ \$success_count -gt 0 ]; then
         print_info "Output: ./build/plugins/"
         ls -lh build/plugins/ 2>/dev/null | grep '\\.dylib$' || true
@@ -689,7 +735,7 @@ build_macos() {
 
 build_windows() {
     local success_count=0 fail_count=0
-    print_header "Building ${pluginName} for Windows (x64 + x86 + arm64)"
+    print_header "Building \${PLUGIN_NAME_DISPLAY} for Windows (x86_64 + x86_32 + arm64)"
     echo ""
 
     local vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
@@ -703,24 +749,28 @@ build_windows() {
     local vcvars_path="$vs_path/VC/Auxiliary/Build"
     [ -d "$vcvars_path" ] || { print_error "vcvars path not found: $vcvars_path"; return 1; }
 
-    for arch_spec in "x64:x86_64:vcvars64.bat" "x86:x86_32:vcvars32.bat" "arm64:arm64:vcvarsamd64_arm64.bat"; do
-        IFS=':' read -r win_arch make_arch vcvars <<< "$arch_spec"
-        print_building "$win_arch" "$vcvars"
+    for arch_spec in "x86_64:vcvars64.bat" "x86_32:vcvars32.bat" "arm64:vcvarsamd64_arm64.bat"; do
+        IFS=':' read -r make_arch vcvars <<< "$arch_spec"
+        if ! arch_matches "$make_arch"; then
+            print_info "Skipping $make_arch — not in arch filter"
+            echo ""
+            continue
+        fi
+        print_building "$make_arch" "$vcvars"
         local vcvars_win=\$(cygpath -w "$vcvars_path/$vcvars" 2>/dev/null || echo "$vcvars_path\\\\$vcvars")
+        rm -rf src/.build
         local temp_bat=\$(mktemp --suffix=.bat)
         cat > "$temp_bat" <<BATEOF
 @echo off
 call "$vcvars_win" >nul 2>&1
 if errorlevel 1 exit /b 1
-make clear ARCH=$make_arch TARGET=release >nul 2>&1
-if errorlevel 1 exit /b 1
 make ARCH=$make_arch TARGET=release -j4
 BATEOF
         if cmd //c "\$(cygpath -w "$temp_bat" 2>/dev/null || echo "$temp_bat")" 2>&1; then
-            print_success "Built $win_arch"
+            print_success "Built $make_arch"
             success_count=\$((success_count + 1))
         else
-            print_error "Failed $win_arch"
+            print_error "Failed $make_arch"
             fail_count=\$((fail_count + 1))
         fi
         rm -f "$temp_bat"
@@ -728,7 +778,7 @@ BATEOF
     done
 
     print_header "Build Summary"
-    echo -e "$GREEN Successful: $BOLD$success_count$RESET  $RED Failed: $BOLD$fail_count$RESET"
+    echo "\${GREEN}Successful: \${BOLD}\${success_count}\${RESET}  \${RED}Failed: \${BOLD}\${fail_count}\${RESET}"
     if [ \$success_count -gt 0 ]; then
         print_info "Output: ./build/plugins/"
         ls -lh build/plugins/ 2>/dev/null | grep '\\.dll$' || true
@@ -739,20 +789,29 @@ BATEOF
 }
 
 main() {
-    case "\${1:-}" in
-        --help|-h)
-            echo "Usage: $0"
-            echo "Builds the ${pluginName} plugin for all architectures on the current OS."
-            echo "  Linux:   13 cross-compiled .so files (requires toolchains)"
-            echo "  macOS:   arm64 + x86_64 .dylib files + universal binary"
-            echo "  Windows: x64 + x86 + arm64 .dll files (requires VS 2022)"
-            exit 0 ;;
-        "") ;;
-        *) print_error "Unknown option: $1"; exit 1 ;;
-    esac
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --arch|-a)
+                if [ -z "\${2:-}" ] || [ "\${2#-}" != "$2" ]; then
+                    print_error "--arch requires an architecture name"; exit 1
+                fi
+                _fa=\$(normalize_arch "$2")
+                FILTER_ARCHS="\${FILTER_ARCHS:+$FILTER_ARCHS }$_fa"
+                shift 2 ;;
+            --help|-h)
+                echo "Usage: $0 [--arch <arch>]..."
+                echo "Builds the \${PLUGIN_NAME_DISPLAY} plugin for all architectures on the current OS."
+                echo "  --arch <arch>  Only build for the specified architecture (repeatable)"
+                echo "  Linux:   13 cross-compiled .so files (requires toolchains)"
+                echo "  macOS:   arm64 + x86_64 .dylib files + universal binary"
+                echo "  Windows: x86_64 + x86_32 + arm64 .dll files (requires VS 2022)"
+                exit 0 ;;
+            *) print_error "Unknown option: $1"; exit 1 ;;
+        esac
+    done
 
     detect_os
-    print_header "${pluginName} Plugin — Multi-Architecture Build"
+    print_header "\${PLUGIN_NAME_DISPLAY} Plugin — Multi-Architecture Build"
     print_info "OS: $OS_NAME"
     echo ""
 
@@ -781,7 +840,7 @@ function makePluginBuildForRelease() {
     return `#!/usr/bin/env bash
 # build_for_release.sh — collect all plugin binaries into ./release/
 #
-# Usage: ./build_for_release.sh
+# Usage: ./build_for_release.sh [--arch <arch>] ...
 #
 # 1. Removes and recreates ./release/
 # 2. Runs ./build_all_archs.sh (builds build/plugins/ for all platforms)
@@ -789,31 +848,80 @@ function makePluginBuildForRelease() {
 
 set -e
 
-RESET='\\033[0m'
-RED='\\033[31m'
-GREEN='\\033[32m'
-YELLOW='\\033[33m'
-CYAN='\\033[36m'
-BOLD='\\033[1m'
+RESET=$(printf '\\033[0m')
+RED=$(printf '\\033[31m')
+GREEN=$(printf '\\033[32m')
+YELLOW=$(printf '\\033[33m')
+CYAN=$(printf '\\033[36m')
+BOLD=$(printf '\\033[1m')
+
+normalize_arch() {
+    case "$1" in
+        x86_64|x64|amd64)              echo "x86_64"    ;;
+        x86_32|x86|i686|i386|ia32)     echo "x86_32"    ;;
+        arm64|aarch64)                  echo "arm64"     ;;
+        arm32|armhf|armv7|armv7l)       echo "arm32"     ;;
+        mips32|mips)                    echo "mips32"    ;;
+        mips32el|mipsel)                echo "mips32el"  ;;
+        mips64)                         echo "mips64"    ;;
+        mips64el)                       echo "mips64el"  ;;
+        powerpc32|ppc|ppc32)            echo "powerpc32" ;;
+        powerpc64|ppc64)                echo "powerpc64" ;;
+        riscv64)                        echo "riscv64"   ;;
+        s390x)                          echo "s390x"     ;;
+        sparc64)                        echo "sparc64"   ;;
+        *)                              echo "$1"        ;;
+    esac
+}
 
 RELEASE_DIR="./release"
 PLUGINS_DIR="./build/plugins"
+PLUGIN_NAME_DISPLAY=$(grep -hE -A5 ': (RenWeb::)?Plugin\\b' src/*.cpp 2>/dev/null | grep -o '"[^"]*"' | sed -n '2p' | tr -d '"' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+if [ -z "$PLUGIN_NAME_DISPLAY" ]; then
+    PLUGIN_NAME_DISPLAY=$(basename "$PWD")
+fi
 
-print_header()  { echo -e "$CYAN$BOLD========================================$RESET"; echo -e "$CYAN$BOLD  $1$RESET"; echo -e "$CYAN$BOLD========================================$RESET"; }
-print_info()    { echo -e "$GREEN$BOLD[INFO]$RESET $1"; }
-print_warning() { echo -e "$YELLOW$BOLD[WARN]$RESET $1"; }
-print_error()   { echo -e "$RED$BOLD[ERROR]$RESET $1" >&2; }
-print_success() { echo -e "$GREEN$BOLD[SUCCESS]$RESET $1"; }
+print_header()  { echo "\${CYAN}\${BOLD}========================================\${RESET}"; echo "\${CYAN}\${BOLD}$1\${RESET}"; echo "\${CYAN}\${BOLD}========================================\${RESET}"; }
+print_info()    { echo "\${GREEN}\${BOLD}[INFO]\${RESET} $1"; }
+print_warning() { echo "\${YELLOW}\${BOLD}[WARN]\${RESET} $1"; }
+print_error()   { echo "\${RED}\${BOLD}[ERROR]\${RESET} $1" >&2; }
+print_success() { echo "\${GREEN}\${BOLD}[SUCCESS]\${RESET} $1"; }
 
-print_header "Cleaning release directory"
+ARCH_FLAGS=""
+while [ $# -gt 0 ]; do
+    case $1 in
+        --arch|-a)
+            if [ -z "$2" ] || [ "\${2#-}" != "$2" ]; then
+                print_error "--arch requires an architecture name"
+                exit 1
+            fi
+            _fa=$(normalize_arch "$2")
+            ARCH_FLAGS="\${ARCH_FLAGS:+$ARCH_FLAGS }--arch $_fa"
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--arch <arch>] ..."
+            echo ""
+            echo "  --arch <arch>, -a    Build only the specified architecture (repeatable)."
+            echo "                       Accepts canonical names or common aliases."
+            echo "                       Default: all architectures."
+            exit 0 ;;
+        *)
+            print_error "Unknown option: $1"
+            exit 1 ;;
+    esac
+done
+
+print_header "\${PLUGIN_NAME_DISPLAY} — Cleaning release directory"
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 print_info "Ready: $RELEASE_DIR/"
 
-print_header "Building all architectures"
-bash ./build_all_archs.sh
+print_header "\${PLUGIN_NAME_DISPLAY} — Building all architectures"
+# shellcheck disable=SC2086
+bash ./build_all_archs.sh $ARCH_FLAGS
 
-print_header "Collecting plugins"
+print_header "\${PLUGIN_NAME_DISPLAY} — Collecting plugins"
 plugin_count=0
 if [ -d "$PLUGINS_DIR" ]; then
     for f in "$PLUGINS_DIR"/*; do
@@ -862,6 +970,8 @@ ${pluginName}/
 │   ├── content/test/index.html       # plugin test harness page
 │   └── plugins/                      # compiled plugin output (per arch)
 ├── release/                          # output from build_for_release.sh
+├── external/
+│   └── boost/                        # pinned Boost submodule (boost-1.90.0)
 ├── include/
 │   ├── plugin.hpp          # RenWeb Plugin base class (fetched from engine)
 │   └── ${pluginName}.hpp   # Plugin class declaration
@@ -874,20 +984,21 @@ ${pluginName}/
 
 ## Dependencies
 
-Requires a C++17-capable compiler and the **Boost** development headers  
-(Boost.JSON is compiled statically into the plugin via \`#include <boost/json/src.hpp>\` —
-no separate \`libboost_json\` needed at runtime).
+Requires a C++20-capable compiler. This template vendors required Boost headers
+as pinned git submodules under \`external/\`.
+
+Boost.JSON is compiled into the plugin via \`BOOST_JSON_SOURCE\`, so no prebuilt
+Boost libraries are required for plugin builds.
+
+This template pins the expected Boost ABI to **Boost 1.90.0**
+(\`BOOST_VERSION=109000\`) to avoid runtime crashes from mismatched C++ ABI.
+If you intentionally need another Boost version, override
+\`REQUIRED_BOOST_VERSION\` in the make invocation and ensure the RenWeb engine
+was compiled against the same version.
 
 | Platform | Command |
 |----------|---------|
-| **Ubuntu / Debian** | \`sudo apt install libboost-dev\` |
-| **Fedora / RHEL** | \`sudo dnf install boost-devel\` |
-| **Arch Linux** | \`sudo pacman -S boost\` |
-| **openSUSE** | \`sudo zypper install boost-devel\` |
-| **Alpine Linux** | \`apk add boost-dev\` |
-| **macOS (Homebrew)** | \`brew install boost\` |
-| **Windows (vcpkg)** | \`vcpkg install boost-json:x64-windows\` then add the vcpkg include path |
-| **Windows (manual)** | Download from [boost.org](https://www.boost.org/users/download/) and add the extracted folder to \`CPATH\` or your IDE include paths |
+| **All platforms** | \`git -C external/boost submodule update --init --depth 1 libs/json libs/assert libs/config libs/container libs/container_hash libs/core libs/describe libs/endian libs/mp11 libs/predef libs/preprocessor libs/static_assert libs/system libs/throw_exception libs/type_traits libs/variant2 libs/winapi libs/move libs/intrusive libs/compat\` |
 
 ## Building
 
@@ -903,6 +1014,9 @@ make TOOLCHAIN=aarch64-linux-gnu
 
 # Windows (MinGW or MSVC Developer Prompt)
 make
+
+# Intentional override (only if engine uses the same Boost version)
+make REQUIRED_BOOST_VERSION=109000
 \`\`\`
 
 Output: \`<internal_name>-<version>-<os>-<arch>.so\` (or \`.dll\` / \`.dylib\`)
@@ -999,26 +1113,20 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: \${{ matrix.os }}
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
+                with:
+                    submodules: true
 
-      - name: Install Boost headers (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get install -y libboost-dev
-
-      - name: Install Boost headers (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install boost
-          echo "CPATH=$(brew --prefix boost)/include:$CPATH" >> "$GITHUB_ENV"
-
-      - name: Install Boost headers (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          vcpkg install boost-json:x64-windows
-          mkdir -p include
-          cp -r "C:/vcpkg/installed/x64-windows/include/boost" include/
+            - name: Initialize required Boost modules
+                shell: bash
+                run: |
+                    git -C external/boost submodule update --init --depth 1 \\
+                        libs/json libs/assert libs/config libs/container libs/container_hash \\
+                        libs/core libs/describe libs/endian libs/mp11 libs/predef \\
+                        libs/preprocessor libs/static_assert libs/system \\
+                        libs/throw_exception libs/type_traits libs/variant2 libs/winapi \\
+                        libs/move libs/intrusive libs/compat
 
       - name: Build (Linux/macOS)
         if: runner.os != 'Windows'
@@ -1114,7 +1222,6 @@ function makePluginTestHarnessHtml(info, pluginName) {
 `;
 }
 
-// ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
     makePluginHpp,

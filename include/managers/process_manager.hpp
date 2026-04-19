@@ -57,6 +57,7 @@
 #include <map>
 #include <deque>
 #include <future>
+#include <atomic>
 
 #if defined(_WIN32)
     #include <windows.h>
@@ -129,6 +130,7 @@ namespace RenWeb {
             std::unique_ptr<boost::asio::io_context> signal_io_context;
             std::unique_ptr<boost::asio::signal_set> signals;
             std::thread signal_thread;
+            std::atomic<bool> shutdown_requested{false};
             
             static std::filesystem::path getRegistryPath();
             static std::filesystem::path getProcessOutputDir(Pid pid);
@@ -1574,9 +1576,32 @@ inline void PM::setupSignalHandler() {
 
     this->signals->async_wait([this](const boost::system::error_code& error, int signal_number) {
         if (!error) {
+            if (this->shutdown_requested.exchange(true)) {
+                return;
+            }
             this->logger->info("[proc] Received signal " + std::to_string(signal_number) + ", terminating application");
             if (this->app && this->app->w) {
-                this->app->w->terminate();
+                try {
+                    this->app->w->dispatch([this]() {
+                        if (this->app && this->app->w) {
+                            this->app->w->terminate();
+                        }
+                    });
+                } catch (const std::exception& e) {
+                    this->logger->warn("[proc] Signal termination dispatch failed: " + std::string(e.what()));
+#if defined(_WIN32)
+                    auto hwnd = this->app->w->window();
+                    if (hwnd.has_value()) {
+                        PostMessageW(static_cast<HWND>(hwnd.value()), WM_CLOSE, 0, 0);
+                        return;
+                    }
+#endif
+                    try {
+                        this->app->w->terminate();
+                    } catch (const std::exception& e2) {
+                        this->logger->error("[proc] Fallback terminate failed: " + std::string(e2.what()));
+                    }
+                }
             }
         }
     });

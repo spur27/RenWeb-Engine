@@ -1424,9 +1424,7 @@ function formatSignature(name, details) {
         },
         'Application': {
             'fetchRepositories': { params: [], returns: 'Promise<{app: string, engine: string, plugins: string[]}>' },
-            'fetchVersions': { params: [], returns: 'Promise<{app: string, engine: string, plugins: Record<string, string>}>' }
-        },
-        'Plugins': {
+            'fetchVersions': { params: [], returns: 'Promise<{app: string, engine: string, plugins: Record<string, string>}>' },
             'getPluginsList': { params: [], returns: 'Promise<any[]>' }
         },
         'Utils': {
@@ -1437,6 +1435,12 @@ function formatSignature(name, details) {
         'Callbacks': {
             'onReady': { params: [], returns: 'Promise<void>' },
             'onTerminate': { params: [], returns: 'Promise<void>' },
+            'onMove': { params: [{name: 'position', type: '{ x: number, y: number }'}], returns: 'Promise<void>' },
+            'onWindowStateChanged': { params: [{name: 'state', type: '{ state: "normal" | "minimized" | "maximized" | "fullscreen" }'}], returns: 'Promise<void>' },
+            'onPermissionRequested': { params: [{name: 'event', type: '{ kind: string, origin: string }'}], returns: 'Promise<void>' },
+            'onNewWindowRequested': { params: [{name: 'event', type: '{ url: string }'}], returns: 'Promise<void>' },
+            'onRenderProcessTerminated': { params: [{name: 'event', type: '{ reason: string }'}], returns: 'Promise<void>' },
+            'onCertificateError': { params: [{name: 'event', type: '{ url: string, error: string }'}], returns: 'Promise<void>' },
             'onServerMessage': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' }
         }
     };
@@ -1475,10 +1479,19 @@ function formatSignature(name, details) {
         'Debug': ['clearConsole', 'openDevtools', 'closeDevtools'],
         'Network': ['getLoadProgress', 'isLoading'],
         'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
-        'Application': ['fetchRepositories', 'fetchVersions'],
-        'Plugins': ['getPluginsList'],
+        'Application': ['fetchRepositories', 'fetchVersions', 'getPluginsList'],
         'Utils': ['decode', 'encode', 'serialize'],
-        'Callbacks': ['onReady', 'onTerminate', 'onServerMessage']
+        'Callbacks': [
+            'onReady',
+            'onTerminate',
+            'onMove',
+            'onWindowStateChanged',
+            'onPermissionRequested',
+            'onNewWindowRequested',
+            'onRenderProcessTerminated',
+            'onCertificateError',
+            'onServerMessage'
+        ]
     };
     
     // Generate tree HTML with CSS-based indentation

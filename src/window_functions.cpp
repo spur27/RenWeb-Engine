@@ -38,6 +38,8 @@
 #include <sstream>
 #include <string>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 #include <regex>
 #include "../include/web_server.hpp"
 #include "../include/app.hpp"
@@ -76,6 +78,39 @@
 
 using WF = RenWeb::WindowFunctions;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
+
+static bool startsWith(const std::string& value, const std::string& prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+static std::string toLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+static bool isSafeOpenUriScheme(const std::string& uri) {
+    const std::string lower = toLowerAscii(uri);
+    return startsWith(lower, "http://") ||
+           startsWith(lower, "https://") ||
+           startsWith(lower, "mailto:") ||
+           startsWith(lower, "file://");
+}
+
+static bool isTrustedExecutionContext(RenWeb::App* app) {
+    if (!app || !app->config || !app->ws) {
+        return false;
+    }
+
+    static const std::regex uri_regex(R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)");
+    const std::string current_page = app->config->current_page;
+    if (!std::regex_match(current_page, uri_regex)) {
+        return true;
+    }
+
+    const std::string ws_url = app->ws->getURL();
+    return startsWith(current_page, ws_url);
+}
 
 #if defined(_WIN32)
 namespace WebView2Helper {
@@ -140,7 +175,8 @@ namespace WindowHelper {
             exStyle &= ~bit;
         }
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
     
     static void SetStyleBit(HWND hwnd, DWORD bit, bool set) {
@@ -152,7 +188,8 @@ namespace WindowHelper {
             style &= ~bit;
         }
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
     
     static float GetDpiScale(HWND hwnd) {
@@ -340,7 +377,15 @@ json::value WF::getSingleParameter(const json::value& param) {
 }
 
 WF* WF::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
-    this->app->w->bind(fn_name, fn);
+    this->app->w->bind(fn_name, [this, fn_name, fn](const std::string& req) -> std::string {
+        if (startsWith(fn_name, "BIND_") && !startsWith(fn_name, "BIND_log_")) {
+            if (!isTrustedExecutionContext(this->app)) {
+                this->logger->warn("[security] Blocked native binding call from untrusted context: " + fn_name);
+                return json::serialize(this->formatOutput(nullptr));
+            }
+        }
+        return fn(req);
+    });
     this->logger->trace("[function] Bound " + fn_name);
     return this;
 }
@@ -506,7 +551,8 @@ WF* WF::setGetSets() {
             if (hwnd) {
                 int physical_x = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(x));
                 int physical_y = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(y));
-                SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -552,7 +598,7 @@ WF* WF::setGetSets() {
                 }
                 SetWindowLongPtr(hwnd, GWL_STYLE, style);
                 SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -734,7 +780,11 @@ WF* WF::setGetSets() {
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
-                ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
+                if (minimize) {
+                    ShowWindow(hwnd, SW_MINIMIZE);
+                } else if (IsIconic(hwnd)) {
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -787,7 +837,11 @@ WF* WF::setGetSets() {
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
-                ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
+                if (maximize) {
+                    ShowWindow(hwnd, SW_MAXIMIZE);
+                } else if (IsZoomed(hwnd)) {
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -840,13 +894,18 @@ WF* WF::setGetSets() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 if (fullscreen) {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-                    ShowWindow(hwnd, SW_MAXIMIZE);
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP);
+                    if (IsWindowVisible(hwnd)) {
+                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    }
                 } else {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
-                    ShowWindow(hwnd, SW_RESTORE);
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+                    if (IsWindowVisible(hwnd) && (IsZoomed(hwnd) || IsIconic(hwnd))) {
+                        ShowWindow(hwnd, SW_RESTORE);
+                    }
                 }
-                SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -981,9 +1040,53 @@ WF* WF::setWindowCallbacks() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 if (hwnd) {
-                    ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
+                    auto controller_result = this->app->w->get_controller();
+                    ICoreWebView2Controller* controller = nullptr;
+                    if (controller_result.has_value() && controller_result.value()) {
+                        controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
+                    }
+
                     if (show_window) {
-                        SetForegroundWindow(hwnd);
+                        if (controller) {
+                            controller->put_IsVisible(TRUE);
+                        }
+                        const BOOL was_visible = IsWindowVisible(hwnd);
+                        const int cmd = was_visible ? SW_SHOW : SW_SHOWNOACTIVATE;
+                        ShowWindow(hwnd, cmd);
+                        // Only force backend resize when widget/client geometry is out of sync.
+                        RECT client_rect{};
+                        if (GetClientRect(hwnd, &client_rect)) {
+                            bool needs_sync = false;
+                            auto widget_result = this->app->w->widget();
+                            if (widget_result.has_value() && widget_result.value()) {
+                                RECT widget_rect{};
+                                HWND widget_hwnd = static_cast<HWND>(widget_result.value());
+                                if (GetClientRect(widget_hwnd, &widget_rect)) {
+                                    const int cw = client_rect.right - client_rect.left;
+                                    const int ch = client_rect.bottom - client_rect.top;
+                                    const int ww = widget_rect.right - widget_rect.left;
+                                    const int wh = widget_rect.bottom - widget_rect.top;
+                                    needs_sync = (cw != ww) || (ch != wh);
+                                } else {
+                                    needs_sync = true;
+                                }
+                            } else {
+                                needs_sync = true;
+                            }
+
+                            if (needs_sync) {
+                                const int logical_w = WindowHelper::PhysicalToLogical(hwnd, client_rect.right - client_rect.left);
+                                const int logical_h = WindowHelper::PhysicalToLogical(hwnd, client_rect.bottom - client_rect.top);
+                                this->app->w->set_size(logical_w, logical_h);
+                            }
+                        }
+                    } else {
+                        const bool is_startup_hide =
+                            this->saved_states.find("setup_complete") == this->saved_states.end();
+                        if (controller && !is_startup_hide) {
+                            controller->put_IsVisible(FALSE);
+                        }
+                        ShowWindow(hwnd, SW_HIDE);
                     }
                 }
             }
@@ -2226,6 +2329,11 @@ WF* WF::setNavigateCallbacks() {
             std::string resource = req.as_array()[0].as_string().c_str();            
             for (size_t i = 0; i < resource.length(); i++) {
                 if (resource[i] == '\\') resource[i] = '/';
+            }
+
+            if (!isSafeOpenUriScheme(resource)) {
+                this->logger->warn("[security] Blocked open_uri with unsupported scheme: " + resource);
+                return json::value(nullptr);
             }
             
         #if defined(_WIN32)

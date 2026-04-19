@@ -33,6 +33,7 @@
 #include <vector>
 #include <memory>
 #include <filesystem>
+#include <sstream>
 #include "../plugin.hpp"
 #include "../locate.hpp"
 
@@ -43,68 +44,173 @@
 #endif
 
 namespace RenWeb {
-    // Function pointer type for plugin factory
     typedef RenWeb::Plugin* (*CreatePluginFunc)(std::shared_ptr<ILogger>);
-    
+    typedef void            (*DestroyPluginFunc)(RenWeb::Plugin*);
+
+#if defined(_WIN32)
+    static HMODULE safe_load_library(const char* path, DWORD* out_seh_code) noexcept {
+        *out_seh_code = 0;
+        __try {
+            return LoadLibraryA(path);
+        } __except (*out_seh_code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+            return nullptr;
+        }
+    }
+#endif
+
     class PluginManager {
         private:
             std::shared_ptr<ILogger> logger;
+
+#if defined(_WIN32)
+            using LibraryHandle = HMODULE;
+#else
+            using LibraryHandle = void*;
+#endif
             
-            std::map<std::string, std::unique_ptr<Plugin>> plugins;
+            std::map<std::string, std::shared_ptr<Plugin>> plugins;
+
+            LibraryHandle openLibrary(const std::filesystem::path& path) {
+#if defined(_WIN32)
+                DWORD seh_code = 0;
+                HMODULE handle = safe_load_library(path.string().c_str(), &seh_code);
+                if (!handle) {
+                    if (seh_code != 0) {
+                        std::stringstream ss;
+                        ss << std::hex << seh_code;
+                        logger->error("[plugins] Failed to load plugin (SEH exception 0x" + ss.str() + "): " + path.string() +
+                            " -- likely CRT mismatch. Ensure plugin is built with the same"
+                            " /MTd (debug) or /MT (release) flag as the engine.");
+                    } else {
+                        logger->error("[plugins] Failed to load plugin: " + path.string() + " - " + std::to_string(GetLastError()));
+                    }
+                    return nullptr;
+                }
+
+                return handle;
+#else
+                void* handle = dlopen(path.string().c_str(), RTLD_LAZY);
+                if (!handle) {
+                    logger->error("[plugins] Failed to load plugin: " + path.string() + " - " + dlerror());
+                    return nullptr;
+                }
+
+                return handle;
+#endif
+            }
+
+            void closeLibrary(LibraryHandle handle) {
+#if defined(_WIN32)
+                if (handle) {
+                    FreeLibrary(handle);
+                }
+#else
+                if (handle) {
+                    dlclose(handle);
+                }
+#endif
+            }
+
+            template <typename T>
+            T resolveSymbol(LibraryHandle handle, const std::filesystem::path& path, const char* symbol) {
+#if defined(_WIN32)
+                SetLastError(0);
+                FARPROC fn = GetProcAddress(handle, symbol);
+                if (!fn) {
+                    logger->error("[plugins] Failed to find " + std::string(symbol) + " in: " + path.string() + " - " + std::to_string(GetLastError()));
+                    return nullptr;
+                }
+                return reinterpret_cast<T>(fn);
+#else
+                dlerror();
+                void* fn = dlsym(handle, symbol);
+                const char* dlsym_error = dlerror();
+                if (dlsym_error) {
+                    logger->error("[plugins] Failed to find " + std::string(symbol) + " in: " + path.string() + " - " + dlsym_error);
+                    return nullptr;
+                }
+                return reinterpret_cast<T>(fn);
+#endif
+            }
            
             void loadPlugin(const std::filesystem::path& path) {
                 try {
-                    #if defined(_WIN32)
-                        HMODULE handle = LoadLibraryA(path.string().c_str());
-                        if (!handle) {
-                            logger->error("[plugins] Failed to load plugin: " + path.string() + " - " + std::to_string(GetLastError()));
-                            return;
+                    const LibraryHandle handle = openLibrary(path);
+                    if (!handle) {
+                        return;
+                    }
+
+                    const auto createFunc = resolveSymbol<CreatePluginFunc>(handle, path, "createPlugin");
+                    if (!createFunc) {
+                        closeLibrary(handle);
+                        return;
+                    }
+
+                    const auto destroyFunc = resolveSymbol<DestroyPluginFunc>(handle, path, "destroyPlugin");
+                    if (!destroyFunc) {
+                        closeLibrary(handle);
+                        return;
+                    }
+
+                    RenWeb::Plugin* plugin_raw = nullptr;
+                    try {
+                        plugin_raw = createFunc(logger);
+                    } catch (const std::exception& e) {
+                        logger->error("[plugins] createPlugin threw for: " + path.string() + " - " + std::string(e.what()));
+                        closeLibrary(handle);
+                        return;
+                    } catch (...) {
+                        logger->error("[plugins] createPlugin threw a non-standard exception for: " + path.string());
+                        closeLibrary(handle);
+                        return;
+                    }
+
+                    if (!plugin_raw) {
+                        logger->error("[plugins] createPlugin returned null for: " + path.string());
+                        closeLibrary(handle);
+                        return;
+                    }
+
+                    std::string internal_name;
+                    std::string plugin_name;
+                    std::string plugin_version;
+                    try {
+                        internal_name = plugin_raw->getInternalName();
+                        plugin_name = plugin_raw->getName();
+                        plugin_version = plugin_raw->getVersion();
+                    } catch (const std::exception& e) {
+                        logger->error("[plugins] Failed to read plugin metadata for: " + path.string() + " - " + std::string(e.what()));
+                        try {
+                            destroyFunc(plugin_raw);
+                        } catch (...) {
+                            logger->warn("[plugins] destroyPlugin threw while cleaning up failed plugin: " + path.string());
                         }
-                        
-                        SetLastError(0);
-                        
-                        CreatePluginFunc createFunc = (CreatePluginFunc)GetProcAddress(handle, "createPlugin");
-                        if (!createFunc) {
-                            logger->error("[plugins] Failed to find createPlugin in: " + path.string() + " - " + std::to_string(GetLastError()));
-                            FreeLibrary(handle);
-                            return;
+                        closeLibrary(handle);
+                        return;
+                    } catch (...) {
+                        logger->error("[plugins] Failed to read plugin metadata (non-standard exception) for: " + path.string());
+                        try {
+                            destroyFunc(plugin_raw);
+                        } catch (...) {
+                            logger->warn("[plugins] destroyPlugin threw while cleaning up failed plugin: " + path.string());
                         }
-                        
-                        RenWeb::Plugin* plugin_raw = createFunc(logger);
-                        if (!plugin_raw) {
-                            logger->error("[plugins] createPlugin returned null for: " + path.string());
-                            FreeLibrary(handle);
-                            return;
+                        closeLibrary(handle);
+                        return;
+                    }
+
+                    plugins[internal_name] = std::shared_ptr<Plugin>(plugin_raw, [destroyFunc, handle, this](Plugin* p) {
+                        try {
+                            destroyFunc(p);
+                        } catch (const std::exception& e) {
+                            logger->error("[plugins] destroyPlugin threw: " + std::string(e.what()));
+                        } catch (...) {
+                            logger->error("[plugins] destroyPlugin threw a non-standard exception");
                         }
-                    #else
-                        void* handle = dlopen(path.string().c_str(), RTLD_LAZY);
-                        if (!handle) {
-                            logger->error("[plugins] Failed to load plugin: " + path.string() + " - " + dlerror());
-                            return;
-                        }
-                        
-                        dlerror();
-                        
-                        CreatePluginFunc createFunc = (CreatePluginFunc)dlsym(handle, "createPlugin");
-                        const char* dlsym_error = dlerror();
-                        if (dlsym_error) {
-                            logger->error("[plugins] Failed to find createPlugin in: " + path.string() + " - " + dlsym_error);
-                            dlclose(handle);
-                            return;
-                        }
-                        
-                        RenWeb::Plugin* plugin_raw = createFunc(logger);
-                        if (!plugin_raw) {
-                            logger->error("[plugins] createPlugin returned null for: " + path.string());
-                            dlclose(handle);
-                            return;
-                        }
-                    #endif
+                        closeLibrary(handle);
+                    });
                     
-                    plugins[plugin_raw->getInternalName()] = std::unique_ptr<Plugin>(plugin_raw);
-                    
-                    logger->info("[plugins] Loaded plugin: " + plugin_raw->getName() + " v" + 
-                                plugin_raw->getVersion() + " from " + path.string());
+                    logger->info("[plugins] Loaded plugin: " + plugin_name + " v" +
+                                plugin_version + " from " + path.string());
                     
                 } catch (const std::exception& e) {
                     logger->error("[plugins] Exception loading plugin " + path.string() + ": " + e.what());
@@ -155,7 +261,7 @@ namespace RenWeb {
             PluginManager(const PluginManager&) = delete;
             PluginManager& operator=(const PluginManager&) = delete;
 
-            const std::map<std::string, std::unique_ptr<Plugin>>& getPlugins() const {
+            const std::map<std::string, std::shared_ptr<Plugin>>& getPlugins() const {
                 return plugins;
             };
             json::array getPluginList() const {

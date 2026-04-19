@@ -23,10 +23,6 @@ const FRAMEWORK_DEP = {
 
 // ─── Detection ───────────────────────────────────────────────────────────────
 
-/**
- * Infer the project type from files present in projectDir.
- * Returns one of: 'angular' | framework type | 'vite' | 'deno' | 'node-vanilla' | 'vanilla'
- */
 function detectType(projectDir) {
     if (fs.existsSync(path.join(projectDir, 'angular.json'))) return 'angular';
 
@@ -41,7 +37,7 @@ function detectType(projectDir) {
                 if (deps[dep]) return type;
             }
         }
-        return 'vite'; // generic Vite project, unknown framework
+        return 'vite';
     }
 
     if (fs.existsSync(path.join(projectDir, 'deno.json')) ||
@@ -70,10 +66,6 @@ function typeLabel(type) {
 
 // ─── Patchers ────────────────────────────────────────────────────────────────
 
-/**
- * Add renweb-api dependency and prebuild hook to package.json.
- * Returns true if any changes were made.
- */
 function patchPackageJson(projectDir) {
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) return false;
@@ -99,10 +91,6 @@ function patchPackageJson(projectDir) {
     return changed;
 }
 
-/**
- * Patch vite.config.* to output to build/content/<pageName>/.
- * Returns { patched: boolean, note?: string }.
- */
 function patchViteConfig(projectDir, pageName) {
     const viteFile = ['vite.config.js', 'vite.config.ts', 'vite.config.mjs']
         .find(f => fs.existsSync(path.join(projectDir, f)));
@@ -112,24 +100,20 @@ function patchViteConfig(projectDir, pageName) {
     let src = fs.readFileSync(configPath, 'utf8');
     const outDirTarget = `build/content/${pageName}`;
 
-    // Already configured correctly
     if (src.includes(outDirTarget)) return { patched: true, note: 'Already configured' };
 
-    // Replace existing outDir value
     if (/outDir\s*:\s*['"`][^'"`]*['"`]/.test(src)) {
         src = src.replace(/outDir\s*:\s*['"`][^'"`]*['"`]/, `outDir: '${outDirTarget}'`);
         fs.writeFileSync(configPath, src, 'utf8');
         return { patched: true };
     }
 
-    // Existing build block without outDir — insert at start of block
     if (/\bbuild\s*:\s*\{/.test(src)) {
         src = src.replace(/(\bbuild\s*:\s*\{)/, `$1\n    outDir: '${outDirTarget}',`);
         fs.writeFileSync(configPath, src, 'utf8');
         return { patched: true };
     }
 
-    // No build block — insert before the last \n} (closing brace of defineConfig arg)
     const lastIdx = src.lastIndexOf('\n}');
     if (lastIdx !== -1) {
         const buildBlock = `\n  build: {\n    outDir: '${outDirTarget}',\n    emptyOutDir: true,\n  },`;
@@ -144,11 +128,6 @@ function patchViteConfig(projectDir, pageName) {
     };
 }
 
-/**
- * Patch angular.json outputPath to always use the object form expected by
- * the Angular 17+ application builder: { base, browser: '' }.
- * Returns true if successful.
- */
 function patchAngularJson(projectDir, pageName) {
     const angPath = path.join(projectDir, 'angular.json');
     if (!fs.existsSync(angPath)) return false;
@@ -164,10 +143,6 @@ function patchAngularJson(projectDir, pageName) {
     return true;
 }
 
-/**
- * Patch deno.json to prefix the build task with `rw build --meta-only &&`.
- * If no build task exists, adds one that only runs the meta step.
- */
 function patchDenoJson(projectDir) {
     const denoPath = ['deno.json', 'deno.jsonc']
         .map(f => path.join(projectDir, f))
@@ -186,9 +161,6 @@ function patchDenoJson(projectDir) {
     return true;
 }
 
-/**
- * Append any missing RenWeb-relevant entries to .gitignore.
- */
 function updateGitignore(projectDir) {
     const giPath = path.join(projectDir, '.gitignore');
     const needed = ['build/', 'credentials/', '.env', '*.log', '.rw/'];
@@ -231,9 +203,6 @@ function describePlan(type) {
 
 // ─── App info prompt ──────────────────────────────────────────────────────────
 
-/**
- * Prompt for app metadata. Uses existing info.json values as defaults.
- */
 async function promptInitInfo(rl, yes, projectDir) {
     let existing = {};
     try { existing = JSON.parse(fs.readFileSync(path.join(projectDir, 'info.json'), 'utf8')); } catch (_) {}
@@ -351,7 +320,6 @@ async function run(args) {
         }
 
     } else {
-        // vanilla — no bundler, no package manager
         ui.step('Fetching RenWeb JS API…');
         fetchWebApi(path.join(projectDir, 'src', 'modules', 'renweb'));
     }

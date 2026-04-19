@@ -167,14 +167,16 @@ namespace RenWeb {
                         this->unable_to_log_msg = true;
                     }
                 }
-                file_sink->set_level(spdlog::level::trace);
-                file_sink->set_pattern(boring_log_str.str());
                 std::vector<spdlog::sink_ptr> log_sinks;
                 if (!this->flags->log_silent) {
                     log_sinks.push_back(console_sink);
                 }
-                log_sinks.push_back(file_sink);
-                
+                if (file_sink) {
+                    file_sink->set_level(spdlog::level::trace);
+                    file_sink->set_pattern(boring_log_str.str());
+                    log_sinks.push_back(file_sink);
+                }
+
                 this->logger.reset(new spdlog::logger("default", begin(log_sinks), end(log_sinks)));
                 this->logger->set_level(spdlog::level::trace);
                 if (this->flags->log_level < spdlog::level::info) {

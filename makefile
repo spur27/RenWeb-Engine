@@ -112,6 +112,14 @@ ifndef TARGET
 	TARGET := debug
 endif
 # -----------------------------------------------------------------------------
+# Boost ABI pin
+# 109000 == Boost 1.90.0
+# Override only if the entire engine/plugin toolchain uses the same version.
+# -----------------------------------------------------------------------------
+ifndef REQUIRED_BOOST_VERSION
+	REQUIRED_BOOST_VERSION := 109000
+endif
+# -----------------------------------------------------------------------------
 # OS info
 # -----------------------------------------------------------------------------
 ifeq ($(OS),Windows_NT)
@@ -122,16 +130,21 @@ ifeq ($(OS),Windows_NT)
 # VS environment detection (Windows only)
 # If cl.exe is not in PATH and VS has not been bootstrapped yet, set
 # NEED_VS_BOOTSTRAP so the ifdef block near the build targets can intercept.
+# Bootstrap is skipped for non-compile targets (clean, clear, info, help).
 # -----------------------------------------------------------------------------
+_NON_COMPILE_GOALS := clean clear info help
+_COMPILE_GOALS_REQ := $(filter-out $(_NON_COMPILE_GOALS), $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all))
 ifeq ($(RENWEB_VS_BOOTSTRAPPED),)
 CL_IN_PATH := $(shell which cl 2>/dev/null)
 ifeq ($(CL_IN_PATH),)
+ifneq ($(_COMPILE_GOALS_REQ),)
 NEED_VS_BOOTSTRAP := 1
+endif
 endif
 endif
 	OBJ_EXT := .obj
 	CXX := cl
-	CXXFLAGS := /std:c++20 /utf-8 /bigobj /DBOOST_ALL_NO_LIB /experimental:external /external:W0
+	CXXFLAGS := /std:c++20 /utf-8 /bigobj /DBOOST_ALL_NO_LIB /DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION) /experimental:external /external:W0
 ifeq ($(TARGET),debug)
 	CXXFLAGS += /MTd /EHsc /Zi /Od /W3 /FS
 	LDFLAGS += /DEBUG
@@ -190,7 +203,7 @@ else
     ifeq ($(UNAME_S),Linux)
         OS_NAME := linux
 		CXX := $(CROSS_COMPILE)g++
-		CXXFLAGS := -MMD -MP -D_GNU_SOURCE
+		CXXFLAGS := -MMD -MP -D_GNU_SOURCE -DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION)
 		ifeq ($(TARGET), debug)
 			CXXFLAGS += $(SYSROOT) -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
 		else
@@ -209,7 +222,7 @@ else
     else ifeq ($(UNAME_S),Darwin)
         OS_NAME := macos
 		CXX := clang++
-		CXXFLAGS := -std=c++17 -MMD -MP -mmacosx-version-min=10.15
+		CXXFLAGS := -std=c++17 -MMD -MP -DRENWEB_EXPECTED_BOOST_VERSION=$(REQUIRED_BOOST_VERSION) -mmacosx-version-min=10.15
 		LDFLAGS += -mmacosx-version-min=10.15
 		ifeq ($(TARGET), debug)
 			CXXFLAGS += -g -O0 -Wall -Wextra -Wno-missing-braces -Wcast-qual -Wpointer-arith -Wunused 
@@ -260,7 +273,7 @@ INFO_PATH :=   ./info.json
 CONFIG_PATH := ./config.json
 ASSETS_PATH := ./web/example/assets
 SRC_PATH :=    ./src
-OBJ_PATH :=    $(SRC_PATH)/.build
+OBJ_PATH :=    $(SRC_PATH)/.build/$(TARGET)
 INC_PATH :=    ./include
 PATCH_PATH :=  ./patches
 EXE_NAME := $(shell sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]_]/-/g' | xargs)
@@ -595,14 +608,14 @@ $(OBJ_PATH):
 clean:
 	$(call step,Cleaning)
 	rm -rf $(wildcard $(BUILD_PATH)/$(EXE_NAME)-*)
-	rm -rf $(OBJ_PATH)/*
+	rm -rf $(SRC_PATH)/.build/*
 	$(call step,Cleaning [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Remove build files and exe
 # -----------------------------------------------------------------------------
 clear:
 	$(call step,Clearing)
-	rm -rf $(OBJ_PATH)/*
+	rm -rf $(SRC_PATH)/.build/*
 	$(call step,Clearing [DONE])
 # -----------------------------------------------------------------------------
 # COMMAND: Run the program

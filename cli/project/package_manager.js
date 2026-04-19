@@ -22,7 +22,7 @@ class DenoAdapter {
     name()             { return 'deno'; }
     build_cmd()        { return ['deno', ['task', 'build']]; }
     run(script, ...a)  { return spawnSync('deno', ['task', script, ...a], { cwd: this.root, stdio: 'inherit' }); }
-    install()          { return null; } // Deno resolves dependencies at runtime
+    install()          { return null; }
 }
 
 class BunAdapter {
