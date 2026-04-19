@@ -97,19 +97,121 @@ static bool isSafeOpenUriScheme(const std::string& uri) {
            startsWith(lower, "file://");
 }
 
-static bool isTrustedExecutionContext(RenWeb::App* app) {
-    if (!app || !app->config || !app->ws) {
+static bool isUriLike(const std::string& value) {
+    static const std::regex uri_regex(R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)");
+    return std::regex_match(value, uri_regex);
+}
+
+static std::string normalizeOriginOrUri(const std::string& value) {
+    static const std::regex origin_regex(R"(^([a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+))");
+    std::smatch match;
+    if (std::regex_search(value, match, origin_regex) && match.size() > 1) {
+        return toLowerAscii(match[1].str());
+    }
+    return toLowerAscii(value);
+}
+
+static std::string extractHostFromUri(const std::string& value) {
+    static const std::regex host_regex(R"(^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#\s]+))");
+    std::smatch match;
+    if (std::regex_search(value, match, host_regex) && match.size() > 1) {
+        return toLowerAscii(match[1].str());
+    }
+    return std::string();
+}
+
+static std::string trimAscii(std::string value) {
+    const auto start = value.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) {
+        return std::string();
+    }
+    const auto end = value.find_last_not_of(" \t\n\r");
+    return value.substr(start, end - start + 1);
+}
+
+static bool trustedRuleMatchesTarget(const std::string& rule_value, const std::string& current_page) {
+    const bool target_is_uri = isUriLike(current_page);
+    if (target_is_uri) {
+        const std::string target_origin = normalizeOriginOrUri(current_page);
+        const std::string target_host = extractHostFromUri(current_page);
+        if (isUriLike(rule_value)) {
+            return normalizeOriginOrUri(rule_value) == target_origin;
+        }
+        const std::string lowered_rule = toLowerAscii(rule_value);
+        return lowered_rule == target_host || lowered_rule == target_origin;
+    }
+
+    if (isUriLike(rule_value)) {
         return false;
     }
+    return toLowerAscii(rule_value) == toLowerAscii(current_page);
+}
 
-    static const std::regex uri_regex(R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)");
-    const std::string current_page = app->config->current_page;
-    if (!std::regex_match(current_page, uri_regex)) {
-        return true;
+static bool evaluateRuleList(const json::value& rules, const std::string& target) {
+    std::vector<std::string> allows, denies;
+
+    auto process_rule = [&](const std::string& raw) {
+        std::string r = trimAscii(raw);
+        if (r.empty()) return;
+        if (r[0] == '!') {
+            std::string val = trimAscii(r.substr(1));
+            if (!val.empty()) denies.push_back(std::move(val));
+        } else {
+            allows.push_back(std::move(r));
+        }
+    };
+
+    if (rules.is_array()) {
+        for (const auto& entry : rules.as_array()) {
+            if (entry.is_string())
+                process_rule(std::string(entry.as_string().c_str()));
+        }
+    } else if (rules.is_string()) {
+        process_rule(std::string(rules.as_string().c_str()));
     }
 
-    const std::string ws_url = app->ws->getURL();
-    return startsWith(current_page, ws_url);
+    for (const auto& d : denies)
+        if (trustedRuleMatchesTarget(d, target)) return false;
+    for (const auto& a : allows)
+        if (trustedRuleMatchesTarget(a, target)) return true;
+    return false;
+}
+
+static bool isOriginAllowlisted(const std::string& target_uri, const json::value& origins) {
+    if (!origins.is_array() && !origins.is_string()) {
+        return false;
+    }
+    return evaluateRuleList(origins, target_uri);
+}
+
+static bool isTrustedExecutionContext(RenWeb::App* app) {
+    if (!app || !app->config || !app->info) {
+        return false;
+    }
+    const std::string current_page = app->config->current_page;
+    const auto trusted_rules = app->info->getProperty("trusted");
+
+    if (isUriLike(current_page)) {
+        if (!trusted_rules.is_array() && !trusted_rules.is_string()) return false;
+        return evaluateRuleList(trusted_rules, current_page);
+    }
+
+    if (!trusted_rules.is_array() && !trusted_rules.is_string()) return true;
+    if (trusted_rules.is_array()) {
+        for (const auto& entry : trusted_rules.as_array()) {
+            if (!entry.is_string()) continue;
+            const std::string r = trimAscii(std::string(entry.as_string().c_str()));
+            if (r.size() > 1 && r[0] == '!') {
+                if (trustedRuleMatchesTarget(trimAscii(r.substr(1)), current_page))
+                    return false;
+            }
+        }
+    } else if (trusted_rules.is_string()) {
+        const std::string r = trimAscii(std::string(trusted_rules.as_string().c_str()));
+        if (r.size() > 1 && r[0] == '!' && trustedRuleMatchesTarget(trimAscii(r.substr(1)), current_page))
+            return false;
+    }
+    return true;
 }
 
 #if defined(_WIN32)
@@ -378,7 +480,7 @@ json::value WF::getSingleParameter(const json::value& param) {
 
 WF* WF::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
     this->app->w->bind(fn_name, [this, fn_name, fn](const std::string& req) -> std::string {
-        if (startsWith(fn_name, "BIND_") && !startsWith(fn_name, "BIND_log_")) {
+        if (startsWith(fn_name, "BIND_") && !startsWith(fn_name, "BIND_log_") && fn_name != "BIND_terminate") {
             if (!isTrustedExecutionContext(this->app)) {
                 this->logger->warn("[security] Blocked native binding call from untrusted context: " + fn_name);
                 return json::serialize(this->formatOutput(nullptr));
@@ -1158,10 +1260,7 @@ WF* WF::setWindowCallbacks() {
     }))->add("reload_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
-            static const std::regex uri_regex(
-                R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
-            );
-            if (std::regex_match(this->app->config->current_page, uri_regex)) {
+            if (isUriLike(this->app->config->current_page)) {
                 this->logger->info("[function] Reloading URI " + this->app->config->current_page);
                 this->app->w->navigate(this->app->config->current_page);
             } else {
@@ -1171,42 +1270,29 @@ WF* WF::setWindowCallbacks() {
             return json::value(nullptr);
     }))->add("navigate_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            const std::string uri = this->getSingleParameter(req).as_string().c_str();
-            static const std::regex uri_regex(
-                R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
-            );
-            if (uri != "_") this->app->config->current_page = uri;
-            if (std::regex_match(uri, uri_regex)) {
-                this->logger->info("[function] Navigating to page " + uri);
-                const auto csp = this->app->info->getProperty("origins");
-                if (csp.is_array()) {
-                    std::string origin_str;
-                    for (const auto& origin : csp.as_array()) {
-                        if (origin.is_string()) {
-                            origin_str = std::string(origin.as_string().c_str());
-                        } else {
-                            continue;
-                        }
-                        if (origin_str == uri || origin_str == "*") {
-                            this->app->w->navigate(uri);
-                            return json::value(nullptr);
-                        }
-                    }
-                    this->logger->warn("[function] Navigation blocked (origin not in allowlist): " + uri);
-                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
-                } else if (csp.is_string()) {
-                    std::string origin_str = std::string(csp.as_string().c_str());
-                    if (origin_str == uri || origin_str == "*") {
-                        this->app->w->navigate(uri);
-                    }
-                } else if (uri == this->app->ws->getURL()) {
-                    this->app->w->navigate(this->app->ws->getURL());
+            std::string page = this->getSingleParameter(req).as_string().c_str();
+            if (this->app->ws && startsWith(page, this->app->ws->getURL())) {
+                const auto pos = page.find("?page=");
+                if (pos != std::string::npos) {
+                    page = page.substr(pos + 6);
+                    const auto end = page.find_first_of("&#");
+                    if (end != std::string::npos) page = page.substr(0, end);
                 } else {
-                    this->logger->warn("[function] Navigation blocked (no origins configured): " + uri);
-                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
+                    page = "_"; 
+                }
+            }
+            if (page != "_") this->app->config->current_page = page;
+            if (isUriLike(page)) {
+                const auto origins = this->app->info->getProperty("origins");
+                if (isOriginAllowlisted(page, origins)) {
+                    this->logger->info("[function] Navigating to external URI " + page);
+                    this->app->w->navigate(page);
+                } else {
+                    this->logger->warn("[function] Navigation blocked (origin not in allowlist): " + page);
+                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + page + "</p>"));
                 }
             } else {
-                this->logger->info("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
+                this->logger->info("[function] Navigating to page " + page);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);

@@ -57,7 +57,12 @@ const INFO_JSON = {
   "startup_notify": false,
   "origins": [
     "https://example.one",
-    "http://example.two/sequel"
+    "http://example.two/sequel",
+    "!https://blocked.example"
+  ],
+  "trusted": [
+    "!restricted-page",
+    "https://partner.io"
   ],
   "port": 8270,
 };

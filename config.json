@@ -16,22 +16,26 @@
       "height": 920
     },
     "taskbar_show": true,
-    "initially_shown": false
+    "initially_shown": true
   },
   "hello": {
     "title": "RenWeb ~ Hello World",
-    "merge_defaults": true
+    "merge_defaults": true,
+    "initially_shown": false
   },
   "media": {
     "title": "RenWeb ~ Media",
-    "merge_defaults": true
+    "merge_defaults": true,
+    "initially_shown": false
   },
   "security": {
     "title": "RenWeb ~ Security",
-    "merge_defaults": true
+    "merge_defaults": true,
+    "initially_shown": false
   },
   "test": {
     "title": "RenWeb ~ Test",
-    "merge_defaults": true
+    "merge_defaults": true,
+    "initially_shown": false
   }
 }

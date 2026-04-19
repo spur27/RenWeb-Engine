@@ -230,9 +230,11 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
             }
         }
 
-        window.onload = async () => {
-            await BIND_show(true);
+        if (window.renweb == null || window.renweb == undefined) window.renweb = {};
+
+        window.renweb.onReady = async () => {
             await BIND_log_debug(encode('Error page has been loaded'));
+            await BIND_show(true);
         };
 
         if (window.history && window.history.length > 1) {

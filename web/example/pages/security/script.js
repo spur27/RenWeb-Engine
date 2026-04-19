@@ -32,6 +32,7 @@ import {
     Window,
     Config,
     Debug,
+    FS,
     System,
     Properties
  } from './index.js';
@@ -119,8 +120,80 @@ function testImage(imgId, resultId, testId, isWhitelisted) {
     }
 }
 
+async function runTrustTests() {
+    // Test 1: Log call — bypasses trust gate, must always succeed
+    try {
+        await Log.debug('[security-test] trust gate log probe');
+        document.getElementById('result-bind-log').textContent = '✓ Log call succeeded (trust-gate bypass confirmed)';
+        updateTestStatus('test-bind-log', 'pass');
+    } catch (e) {
+        document.getElementById('result-bind-log').textContent = `✗ Log call failed: ${e.message}`;
+        updateTestStatus('test-bind-log', 'fail');
+    }
+
+    // Test 2: Window.currentPage — trust-gated
+    try {
+        const page = await Window.currentPage();
+        document.getElementById('result-bind-current-page').textContent = `✓ Got page name: "${page}"`;
+        updateTestStatus('test-bind-current-page', 'pass');
+    } catch (e) {
+        document.getElementById('result-bind-current-page').textContent = `✗ Blocked or failed: ${e.message}`;
+        updateTestStatus('test-bind-current-page', 'fail');
+    }
+
+    // Test 3: Window.currentTitle — trust-gated
+    try {
+        const title = await Window.currentTitle();
+        document.getElementById('result-bind-get-title').textContent = `✓ Got title: "${title}"`;
+        updateTestStatus('test-bind-get-title', 'pass');
+    } catch (e) {
+        document.getElementById('result-bind-get-title').textContent = `✗ Blocked or failed: ${e.message}`;
+        updateTestStatus('test-bind-get-title', 'fail');
+    }
+
+    // Test 4: Config.getConfig — trust-gated
+    try {
+        const cfg = await Config.getConfig();
+        const val = cfg != null ? cfg['resizable'] : undefined;
+        document.getElementById('result-bind-config-get').textContent = `✓ Config read succeeded: resizable = ${JSON.stringify(val)}`;
+        updateTestStatus('test-bind-config-get', 'pass');
+    } catch (e) {
+        document.getElementById('result-bind-config-get').textContent = `✗ Blocked or failed: ${e.message}`;
+        updateTestStatus('test-bind-config-get', 'fail');
+    }
+
+    // Test 5: FS.exists — trust-gated filesystem call
+    try {
+        const exists = await FS.exists('./info.json');
+        document.getElementById('result-bind-filesystem').textContent = `✓ FS call succeeded: info.json exists = ${exists}`;
+        updateTestStatus('test-bind-filesystem', 'pass');
+    } catch (e) {
+        document.getElementById('result-bind-filesystem').textContent = `✗ Blocked or failed: ${e.message}`;
+        updateTestStatus('test-bind-filesystem', 'fail');
+    }
+
+    // Test 6: Verify current page name is "security" — the trusted rule key
+    try {
+        const page = await Window.currentPage();
+        const isSecurity = page === 'security';
+        const resultEl = document.getElementById('result-trust-page-name');
+        if (isSecurity) {
+            resultEl.textContent = `✓ Current page is "${page}" — add "!security" to trusted array in info.json to block this page's native calls`;
+            updateTestStatus('test-trust-page-name', 'pass');
+        } else {
+            resultEl.textContent = `⚠ Current page is "${page}", expected "security" — rule matching may not behave as documented`;
+            updateTestStatus('test-trust-page-name', 'pending');
+        }
+    } catch (e) {
+        document.getElementById('result-trust-page-name').textContent = `✗ Could not determine page: ${e.message}`;
+        updateTestStatus('test-trust-page-name', 'fail');
+    }
+}
+
 function runTests() {
     console.log('Starting origin security tests...');
+
+    runTrustTests().catch(e => console.error('Trust tests error:', e));
 
     // Test: Google Image (whitelisted)
     testImage('google-img', 'result-img-google', 'test-img-google', true);

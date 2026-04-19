@@ -162,6 +162,53 @@
     </div>
 
     <div class="test-section">
+        <h2>Native Bind Trust Tests</h2>
+        <p class="section-note">These tests call <code>BIND_*</code> functions directly and verify the trust gate. Passing means the current page is treated as a trusted context. If you add <code>"!security"</code> to the <code>trusted</code> array in <code>info.json</code> these should flip to blocked.</p>
+
+        <div class="test-item pending" id="test-bind-log">
+            <span class="status pending">AUTO</span>
+            <strong>Log Call (always allowed)</strong>
+            <div class="test-description"><code>BIND_log_*</code> calls bypass the trust gate — logging must always work</div>
+            <div class="test-result" id="result-bind-log">Testing…</div>
+        </div>
+
+        <div class="test-item pending" id="test-bind-current-page">
+            <span class="status pending">AUTO</span>
+            <strong>Window.currentPage() (trust-gated)</strong>
+            <div class="test-description">Reads the current page name via a trust-gated native call</div>
+            <div class="test-result" id="result-bind-current-page">Testing…</div>
+        </div>
+
+        <div class="test-item pending" id="test-bind-get-title">
+            <span class="status pending">AUTO</span>
+            <strong>Window.currentTitle() (trust-gated)</strong>
+            <div class="test-description">Reads the window title via a trust-gated native call</div>
+            <div class="test-result" id="result-bind-get-title">Testing…</div>
+        </div>
+
+        <div class="test-item pending" id="test-bind-config-get">
+            <span class="status pending">AUTO</span>
+            <strong>Config.getConfig() (trust-gated)</strong>
+            <div class="test-description">Reads a config property — would expose app internals if untrusted code could call it</div>
+            <div class="test-result" id="result-bind-config-get">Testing…</div>
+        </div>
+
+        <div class="test-item pending" id="test-bind-filesystem">
+            <span class="status pending">AUTO</span>
+            <strong>FileSystem.exists() (trust-gated)</strong>
+            <div class="test-description">Calls a filesystem function — should only be reachable from trusted contexts</div>
+            <div class="test-result" id="result-bind-filesystem">Testing…</div>
+        </div>
+
+        <div class="test-item pending" id="test-trust-page-name">
+            <span class="status pending">AUTO</span>
+            <strong>Trust policy: page-name rule matching</strong>
+            <div class="test-description">Verifies current page is <code>security</code> — the rule engine uses this name when evaluating <code>trusted</code> entries like <code>"security"</code> or <code>"!security"</code></div>
+            <div class="test-result" id="result-trust-page-name">Testing…</div>
+        </div>
+    </div>
+
+    <div class="test-section">
         <h2>Special Cases</h2>
         
         <div class="test-item pending" id="test-data-uri">

@@ -235,16 +235,20 @@ void App::run() {
     this->w->dispatch([this](){
         json::object current_state = this->config->getJson().is_object() 
             ? this->config->getJson().as_object() : json::object{};
-        if (current_state["merge_defaults"] == json::value(true)) {
-            json::object defaults = this->config->getDefaultsJson().is_object() 
-                ? this->config->getDefaultsJson().as_object() : json::object{};
-            auto merged_state = JSON::merge(defaults, current_state);
-            this->fns->setState(merged_state);
-            this->fns->setup(merged_state);
+        json::object defaults = this->config->getDefaultsJson().is_object() 
+            ? this->config->getDefaultsJson().as_object() : json::object{};
+
+        json::object effective_state;
+        if (current_state.empty()) {
+            // Page not in config.json (e.g. external URL): use defaults as-is.
+            effective_state = defaults;
+        } else if (current_state["merge_defaults"] == json::value(true)) {
+            effective_state = JSON::merge(defaults, current_state);
         } else {
-            this->fns->setState(current_state);
-            this->fns->setup(current_state);
+            effective_state = current_state;
         }
+        this->fns->setState(effective_state);
+        this->fns->setup(effective_state);
         this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     });
     this->w->run();

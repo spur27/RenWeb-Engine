@@ -333,8 +333,6 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
 <span style="color: #808080;">│   └──</span> <span style="color: #ce9178; font-weight: bold;">&lt;page_name&gt;/</span>
 <span style="color: #808080;">│       ├──</span> <span style="color: #ce9178;">index.html</span>            <span style="color: #6a9955;"># Required entry point</span>
 <span style="color: #808080;">│       └── ...</span>
-<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">assets/</span>                       <span style="color: #6a9955;"># Shared assets</span>
-<span style="color: #808080;">│   └── ...</span>
 <span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">resources/</span>                    <span style="color: #6a9955;"># Resources</span>
 <span style="color: #808080;">│   └── ...</span>
 <span style="color: #808080;">├──</span> <span style="color: #569cd6;">custom/</span>                       <span style="color: #6a9955;"># User customization - optional</span>
@@ -419,6 +417,7 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         <li><code>app_id</code> (string) - Unique application identifier for packaging (reverse domain notation recommcended)</li>
                         <li><code>pkg_id</code> (string) - Short package identifier for package management systems</li>
                         <li><code>startup_notify</code> (boolean) - Whether to show desktop startup notification</li>
+                        <li><code>trusted</code> (array of strings) - Controls which pages/origins may call native <code>BIND_*</code> functions. Internal page names are trusted by default (deny with <code>!pagename</code>); external URLs are untrusted by default (allow with a plain URL or hostname entry).</li>
                         <li><code>port</code> (number) - Port (default: random)</li>
                     </ul>
                 </div>
@@ -438,14 +437,44 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                 <h4>Origins Array</h4>
                 <div class="info-box">
                     <p>
-                        The <code>origins</code> field contains an array of allowed base URLs with protocols. 
-                        This provides URI allowlisting for security.
+                        The <code>origins</code> field allowlists external URLs the window is permitted to navigate to.
+                        If absent or empty, no external navigation is permitted (internal pages are always reachable).
                     </p>
+                    <ul>
+                        <li>Plain entry &mdash; allow rule (e.g. <code>"https://example.com"</code> or bare <code>"example.com"</code>)</li>
+                        <li><code>!</code> prefix &mdash; deny rule (e.g. <code>"!https://evil.com"</code>)</li>
+                        <li>Deny always wins over allow when both could match</li>
+                        <li>Matching is by full origin (<code>scheme://host</code>); bare hostnames are matched against the host only</li>
+                    </ul>
                     <pre><code class="language-json">"origins": [
-  "https://example.one",
-  "http://example.two/sequel",
-  "*" // Allow all origins (not recommended)
+  "https://example.one",       // allow this origin
+  "!https://blocked.example"   // deny this origin even if another rule would allow it
 ]</code></pre>
+                </div>
+
+                <h4>Trusted Array</h4>
+                <div class="info-box">
+                    <p>
+                        The <code>trusted</code> array controls which pages and origins may call native bound functions (<code>BIND_*</code>).
+                        <strong>Page names and external URLs behave differently:</strong>
+                    </p>
+                    <ul>
+                        <li><strong>Internal page names</strong> are <em>trusted by default</em>. Add <code>"!pagename"</code> to deny a specific page.</li>
+                        <li><strong>External URLs</strong> are <em>untrusted by default</em>. Add a plain URL or hostname to explicitly allow one.</li>
+                        <li>If absent or empty, all internal pages are trusted and all external URLs are untrusted.</li>
+                    </ul>
+                    <pre><code class="language-json">// Block one internal page:
+"trusted": ["!restricted-page"]
+
+// Allow an external URL:
+"trusted": ["https://partner.io"]
+
+// Block a page and allow an external URL:
+"trusted": ["!restricted-page", "https://partner.io"]
+
+// Block all internal pages (allow none by name — they still need no entry to be trusted,
+// but you can deny selectively):
+"trusted": ["!page-one", "!page-two"]</code></pre>
                 </div>
 
                 <h3 id="config-json">config.json</h3>
