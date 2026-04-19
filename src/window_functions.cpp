@@ -975,8 +975,18 @@ WF* WF::setGetSets() {
             }
             return json::value(1.0f); // Default fully opaque
         #elif defined(__APPLE__)
+            __block float alpha = 1.0f;
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-            return json::value(static_cast<float>([nsWindow alphaValue]));
+            if (nsWindow) {
+                if ([NSThread isMainThread]) {
+                    alpha = static_cast<float>([nsWindow alphaValue]);
+                } else {
+                    dispatch_sync(dispatch_get_main_queue(), ^{
+                        alpha = static_cast<float>([nsWindow alphaValue]);
+                    });
+                }
+            }
+            return json::value(alpha);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             return json::value(gtk_widget_get_opacity(GTK_WIDGET(window_widget)));
@@ -1000,7 +1010,15 @@ WF* WF::setGetSets() {
                 }
         #elif defined(__APPLE__)
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-                [nsWindow setAlphaValue:opacity_amt];
+                if (nsWindow) {
+                    if ([NSThread isMainThread]) {
+                        [nsWindow setAlphaValue:opacity_amt];
+                    } else {
+                        dispatch_sync(dispatch_get_main_queue(), ^{
+                            [nsWindow setAlphaValue:opacity_amt];
+                        });
+                    }
+                }
         #elif defined(__linux__)
                 auto window_window = this->app->w->window().value();
                 gtk_widget_set_opacity(GTK_WIDGET(window_window), opacity_amt);

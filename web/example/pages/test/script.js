@@ -103,7 +103,23 @@ async function logWebviewCallback(name, payload) {
 
 window.renweb.onReady = async () => {
     await logWebviewCallback("onReady", "Window is ready!");
+    const os = String(await System.getOS()).toLowerCase();
+    let targetOpacity = 1;
+    if (os === "macos") {
+        targetOpacity = await Properties.getOpacity();
+        await Properties.setOpacity(0);
+    }
+
     await Window.show(true);
+
+    if (os === "macos") {
+        const fadeSteps = 5;
+        const stepDelayMs = 10;
+        for (let i = 1; i <= fadeSteps; i++) {
+            await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+            await Properties.setOpacity((targetOpacity * i) / fadeSteps);
+        }
+    }
 }
 
 window.renweb.onTerminate = async () => {
@@ -181,7 +197,8 @@ window.onload = async () => {
         document.querySelector(".opacity_slider").value = Math.floor(opacity * 100);
         document.querySelector(".opacity_input").value = opacity.toFixed(2);
         document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
-        document.querySelector(".systems_os").textContent = `${await System.getOS()}`;
+        const os = await System.getOS();
+        document.querySelector(".systems_os").textContent = `${os}`;
         const plugins = await Application.getPluginsList();
         document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
         document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);

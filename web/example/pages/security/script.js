@@ -31,12 +31,29 @@ import {
     Log, 
     Window,
     Config,
-    Debug
+    Debug,
+    System,
+    Properties
  } from './index.js';
 
-
 window.renweb.onReady = async () => {
+    const os = String(await System.getOS()).toLowerCase();
+    let targetOpacity = 1;
+    if (os === "macos") {
+        targetOpacity = await Properties.getOpacity();
+        await Properties.setOpacity(0);
+    }
+
     await Window.show(true);
+
+    if (os === "macos") {
+        const fadeSteps = 5;
+        const stepDelayMs = 10;
+        for (let i = 1; i <= fadeSteps; i++) {
+            await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+            await Properties.setOpacity((targetOpacity * i) / fadeSteps);
+        }
+    }
 }
 
 function updateTestStatus(testId, status) {
@@ -267,7 +284,6 @@ window.addEventListener("touchmove", (e) => {
 
 // Window onload event - show window after content loaded
 window.addEventListener('load', async () => {
-    await Window.show(true);
 });
 
 // Back button
