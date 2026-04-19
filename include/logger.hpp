@@ -39,6 +39,7 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/stdout_sinks.h"
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <filesystem>
@@ -63,10 +64,52 @@ namespace RenWeb {
     };
     class Logger : public RenWeb::ILogger {
         private: 
+            static constexpr std::uintmax_t max_log_size_bytes = 8 * 1024 * 1024;
+            static constexpr std::uintmax_t trimmed_log_size_bytes = 4 * 1024 * 1024;
             std::unique_ptr<struct RenWeb::LogFlags> flags;
             std::unique_ptr<spdlog::logger> logger;
             std::shared_ptr<File> file;
             bool unable_to_log_msg = false;
+
+            void trimLogFileOnStartup() {
+                if (!this->file || !this->file->exists()) {
+                    return;
+                }
+                try {
+                    const std::filesystem::path& log_path = this->file->getPath();
+                    const std::uintmax_t current_size = std::filesystem::file_size(log_path);
+                    if (current_size <= Logger::max_log_size_bytes) {
+                        return;
+                    }
+
+                    const std::uintmax_t keep_size =
+                        std::min(current_size, Logger::trimmed_log_size_bytes);
+                    if (keep_size == 0) {
+                        this->file->clear();
+                        return;
+                    }
+
+                    std::ifstream file_stream(log_path, std::ios::in | std::ios::binary);
+                    if (!file_stream) {
+                        return;
+                    }
+
+                    const std::streamoff keep_size_offset =
+                        static_cast<std::streamoff>(keep_size);
+                    file_stream.seekg(-keep_size_offset, std::ios::end);
+
+                    std::string trimmed_data(static_cast<std::size_t>(keep_size), '\0');
+                    file_stream.read(trimmed_data.data(), keep_size_offset);
+                    trimmed_data.resize(static_cast<std::size_t>(file_stream.gcount()));
+
+                    const std::size_t first_newline = trimmed_data.find('\n');
+                    if (first_newline != std::string::npos && first_newline + 1 < trimmed_data.size()) {
+                        trimmed_data.erase(0, first_newline + 1);
+                    }
+
+                    this->file->write(trimmed_data);
+                } catch (const std::exception&) { }
+            }
         public:
             Logger(
                 std::unique_ptr<LogFlags> flags = std::make_unique<LogFlags>()
@@ -77,6 +120,7 @@ namespace RenWeb {
                 if (this->flags->log_clear) {
                     this->file->clear();
                 }
+                this->trimLogFileOnStartup();
                 this->refresh({});
             };
             Logger(
@@ -89,6 +133,7 @@ namespace RenWeb {
                 if (this->flags->log_clear) {
                     this->file->clear();
                 }
+                this->trimLogFileOnStartup();
                 this->refresh({});
             };
             ~Logger() override = default;
