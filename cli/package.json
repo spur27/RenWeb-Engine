@@ -8,7 +8,11 @@
   "files": [
     "index.js",
     "commands/",
-    "project/"
+    "project/",
+    "shared/",
+    "Dockerfile",
+    ".dockerignore",
+    "DOCKER.md"
   ],
   "keywords": [
     "renweb",
