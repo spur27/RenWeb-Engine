@@ -417,6 +417,11 @@ main() {
     # Step 8: Compress build directory to example archives
     # ==========================================================================
     print_step "8. Creating example archives"
+
+    if [ -d "./build/.build" ]; then
+        print_info "Removing build intermediates: ./build/.build"
+        rm -rf ./build/.build
+    fi
     
     print_info "Creating: example-${VERSION}.zip"
     zip_dir "./build" "./release/example-${VERSION}.zip"
