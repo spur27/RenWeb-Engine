@@ -7,6 +7,6 @@
   ],
   "scripts": {
     "build:api": "npm run build --workspace=web/api",
-    "link:cli":  "npm link --workspace=cli"
+    "build:cli": "npm run build --workspace=cli"
   }
 }
