@@ -565,6 +565,11 @@ $(OBJ_PATH)/app$(OBJ_EXT): $(SRC_PATH)/app.cpp | $(OBJ_PATH)
 	$(call step,Compiling (Objective-C++),$<)
 	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
 	$(call step,Compiling [DONE],$<)
+
+$(OBJ_PATH)/webview$(OBJ_EXT): $(SRC_PATH)/webview.cpp | $(OBJ_PATH)
+	$(call step,Compiling (Objective-C++),$<)
+	$(CXX) $(CXXFLAGS) -x objective-c++ -I$(PATCH_PATH) -I$(INC_PATH) $(EXTERN_INC_PATHS) -c $< -o $@
+	$(call step,Compiling [DONE],$<)
 endif
 # -----------------------------------------------------------------------------
 # RULE: Compile source files to object files
