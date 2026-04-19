@@ -148,6 +148,15 @@ function buildApiDataFromMethodDetails(methodDetails) {
                     });
                 }
             });
+        } else if (category === 'Callbacks') {
+            data[category] = [];
+            for (const [methodName, details] of Object.entries(methods)) {
+                data[category].push({
+                    name: `window.renweb.${methodName}`,
+                    signature: `window.renweb.${formatSignature(methodName, details)}`,
+                    description: `Returns: ${details.returns}`
+                });
+            }
         } else {
             // Regular namespace
             data[category] = [];
@@ -192,6 +201,10 @@ function formatSignature(name, details) {
     let activeDropdown = null;
     
     // Build search index from API data (if available)
+    // Controls whether the category name is prepended to searchText for each entry.
+    // Set to true for all categories so e.g. "Config.getConfig" is searchable.
+    const prependCategoryInSearch = true;
+
     function buildSearchIndex() {
         // Check window.apiData first (for index.html), then fall back to global apiData (for api.html)
         const data = window.apiData || (typeof apiData !== 'undefined' ? apiData : null);
@@ -199,12 +212,13 @@ function formatSignature(name, details) {
             const index = [];
             for (const [category, functions] of Object.entries(data)) {
                 functions.forEach(func => {
+                    const prefix = prependCategoryInSearch ? `${category}.` : '';
                     index.push({
                         category,
                         name: func.name,
                         signature: func.signature,
                         description: func.description || '',
-                        searchText: `${category}.${func.name} ${func.signature} ${func.description || ''}`.toLowerCase()
+                        searchText: `${prefix}${func.name} ${func.signature} ${func.description || ''}`.toLowerCase()
                     });
                 });
             }
@@ -337,7 +351,8 @@ function formatSignature(name, details) {
     
     // Navigate to result
     function navigateToResult(category, name) {
-        const targetId = `${category.toLowerCase()}-${name.toLowerCase()}`;
+        const anchorName = name.toLowerCase().replace(/\./g, '-');
+        const targetId = `${category.toLowerCase()}-${anchorName}`;
         
         // Determine which page based on category
         const page = category === 'Plugin' ? 'plugins' : 'api';
@@ -1152,7 +1167,11 @@ function formatSignature(name, details) {
         html += `      <div class="api-tree-line tree-indent-1">`;
         html += `        <span class="tree-icon" data-node="${methodNodeId}">▶</span>`;
         html += `        <span class="tree-connector">${prefix}${methodConnector}</span>`;
-        html += `        <span class="tree-label method" data-node="${methodNodeId}" data-scroll="${namespace.toLowerCase()}-${method.toLowerCase()}">${method}(${params})</span>`;
+        const displayMethod = namespace === 'Callbacks' ? `window.renweb.${method}` : method;
+        const scrollTarget = namespace === 'Callbacks'
+            ? `${namespace.toLowerCase()}-window-renweb-${method.toLowerCase()}`
+            : `${namespace.toLowerCase()}-${method.toLowerCase()}`;
+        html += `        <span class="tree-label method" data-node="${methodNodeId}" data-scroll="${scrollTarget}">${displayMethod}(${params})</span>`;
         html += `        <span class="tree-tag function">function</span>`;
         // Only add async tag if namespace functions are actually async (Utils is not)
         if (namespace !== 'Utils') {
@@ -1357,6 +1376,7 @@ function formatSignature(name, details) {
         },
         'Config': {
             'getConfig': { params: [], returns: 'Promise<any>' },
+            'getInfo': { params: [], returns: 'Promise<any>' },
             'getDefaults': { params: [], returns: 'Promise<any>' },
             'getState': { params: [], returns: 'Promise<any>' },
             'loadState': { params: [{name: 'state', type: 'any'}], returns: 'Promise<void>' },
@@ -1366,7 +1386,8 @@ function formatSignature(name, details) {
         },
         'System': {
             'getPID': { params: [], returns: 'Promise<number>' },
-            'getOS': { params: [], returns: 'Promise<string>' }
+            'getOS': { params: [], returns: 'Promise<string>' },
+            'getCPUArchitecture': { params: [], returns: 'Promise<string>' }
         },
         'Process': {
             'createProcess': { params: [{name: 'args', type: 'string[]'}, {name: 'options?', type: 'object', defaultValue: '{ is_detachable: false, share_stdio: false }'}], returns: 'Promise<Process | null>' },
@@ -1401,7 +1422,9 @@ function formatSignature(name, details) {
             'canGoForward': { params: [], returns: 'Promise<boolean>' },
             'openURI': { params: [{name: 'uri', type: 'string'}], returns: 'Promise<void>' }
         },
-        'Plugins': {
+        'Application': {
+            'fetchRepositories': { params: [], returns: 'Promise<{app: string, engine: string, plugins: string[]}>' },
+            'fetchVersions': { params: [], returns: 'Promise<{app: string, engine: string, plugins: Record<string, string>}>' },
             'getPluginsList': { params: [], returns: 'Promise<any[]>' }
         },
         'Utils': {
@@ -1410,6 +1433,14 @@ function formatSignature(name, details) {
             'serialize': { params: [{name: 'obj', type: 'any'}], returns: 'string' }
         },
         'Callbacks': {
+            'onReady': { params: [], returns: 'Promise<void>' },
+            'onTerminate': { params: [], returns: 'Promise<void>' },
+            'onMove': { params: [{name: 'position', type: '{ x: number, y: number }'}], returns: 'Promise<void>' },
+            'onWindowStateChanged': { params: [{name: 'state', type: '{ state: "normal" | "minimized" | "maximized" | "fullscreen" }'}], returns: 'Promise<void>' },
+            'onPermissionRequested': { params: [{name: 'event', type: '{ kind: string, origin: string }'}], returns: 'Promise<void>' },
+            'onNewWindowRequested': { params: [{name: 'event', type: '{ url: string }'}], returns: 'Promise<void>' },
+            'onRenderProcessTerminated': { params: [{name: 'event', type: '{ reason: string }'}], returns: 'Promise<void>' },
+            'onCertificateError': { params: [{name: 'event', type: '{ url: string, error: string }'}], returns: 'Promise<void>' },
             'onServerMessage': { params: [{name: 'msg', type: 'any'}], returns: 'Promise<void>' }
         }
     };
@@ -1419,8 +1450,8 @@ function formatSignature(name, details) {
         'Window': ['isFocus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
         'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
         'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'downloadUri'],
-        'Config': ['getConfig', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
-        'System': ['getPID', 'getOS'],
+        'Config': ['getConfig', 'getInfo', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
+        'System': ['getPID', 'getOS', 'getCPUArchitecture'],
         'Process': {
             factoryConstructors: ['createProcess', 'createWindow', 'duplicate'],
             staticMethods: ['listenToOutput', 'getMessages', 'dumpProcess', 'dumpProcesses', 'dumpCurrentProcess', 'waitAll'],
@@ -1448,9 +1479,19 @@ function formatSignature(name, details) {
         'Debug': ['clearConsole', 'openDevtools', 'closeDevtools'],
         'Network': ['getLoadProgress', 'isLoading'],
         'Navigate': ['back', 'forward', 'stopLoading', 'canGoBack', 'canGoForward', 'openURI'],
-        'Plugins': ['getPluginsList'],
+        'Application': ['fetchRepositories', 'fetchVersions', 'getPluginsList'],
         'Utils': ['decode', 'encode', 'serialize'],
-        'Callbacks': ['onServerMessage']
+        'Callbacks': [
+            'onReady',
+            'onTerminate',
+            'onMove',
+            'onWindowStateChanged',
+            'onPermissionRequested',
+            'onNewWindowRequested',
+            'onRenderProcessTerminated',
+            'onCertificateError',
+            'onServerMessage'
+        ]
     };
     
     // Generate tree HTML with CSS-based indentation
@@ -1918,9 +1959,12 @@ function formatSignature(name, details) {
 // GitHub API configuration
 const GITHUB_REPO = 'spur27/RenWeb-Engine';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases`;
+const GITHUB_PLUGIN_EXAMPLE_REPO = 'spur27/renweb-example-plugin';
+const GITHUB_PLUGIN_EXAMPLE_API = `https://api.github.com/repos/${GITHUB_PLUGIN_EXAMPLE_REPO}/releases`;
 const RELEASES_CACHE_TIME = 5 * 60 * 1000; // 5 minutes
 
 let allReleases = [];
+let allPluginReleases = [];
 let currentRelease = null;
 let releasesPromiseResolve = null;
 const releasesPromise = new Promise(resolve => {
@@ -2057,9 +2101,9 @@ function getOSFromFilename(name) {
  */
 function categorizeAssets(assets) {
     const categories = {
-        linux: { executables: [], bundles: [] },
-        windows: { executables: [], bundles: [] },
-        macos: { executables: [], bundles: [] },
+        linux: { executables: [] },
+        windows: { executables: [] },
+        macos: { executables: [] },
         other: []
     };
     
@@ -2073,53 +2117,10 @@ function categorizeAssets(assets) {
         }
         
         // Determine type
-        if (name.includes('bundle') || name.includes('portable')) {
-            categories[os].bundles.push(asset);
-        } else if (name.match(/\.(exe|app|appimage)$/) || name.includes('renweb')) {
+        if (name.match(/\.(exe|app|appimage)$/) || name.includes('renweb')) {
             categories[os].executables.push(asset);
         } else {
             categories.other.push(asset);
-        }
-    });
-    
-    return categories;
-}
-
-/**
- * Categorize bundles by OS
- * @param {Array} assets - Array of asset objects
- * @param {string} archiveExt - Archive extension to filter by
- * @returns {Object} Categorized bundles
- */
-/**
- * Detect bundle type from filename
- * @param {string} filename - Lowercase filename
- * @returns {'bootstrap'|'standard'}
- */
-function getBundleType(filename) {
-    if (filename.startsWith('bundle-bootstrap-')) return 'bootstrap';
-    return 'standard';
-}
-
-function categorizeBundles(assets, archiveExt) {
-    const categories = {
-        linux: [],
-        windows: [],
-        macos: []
-    };
-    
-    assets.forEach(asset => {
-        const name = asset.name.toLowerCase();
-        
-        // Only include assets starting with 'bundle'
-        if (!name.startsWith('bundle')) return;
-        
-        // Filter by archive extension
-        if (!name.endsWith(`.${archiveExt}`)) return;
-        
-        const os = getOSFromFilename(name);
-        if (os) {
-            categories[os].push({ ...asset, bundleType: getBundleType(name) });
         }
     });
     
@@ -2260,75 +2261,6 @@ function updateDownloads(release) {
 }
 
 /**
- * Update bundles display for selected version and archive extension
- * @param {Object} release - Release object
- * @param {string} archiveExt - Archive extension
- */
-function updateBundles(release, archiveExt) {
-    if (!release) {
-        console.error('No release provided to updateBundles');
-        return;
-    }
-    
-    const assets = release.assets;
-    const version = release.tag_name;
-    
-    console.log(`Updating bundles for version: ${version}, archive: ${archiveExt}`);
-    
-    const categories = categorizeBundles(assets, archiveExt);
-    
-    // Update each OS section
-    ['linux', 'windows', 'macos'].forEach(os => {
-        const element = document.getElementById(`${os}-bundles`);
-        if (!element) return;
-        
-        if (categories[os].length > 0) {
-            // Group by bundle type: standard first, then bootstrap
-            const typeOrder = ['standard', 'bootstrap'];
-            const typeLabels = {
-                standard: 'Full Bundle',
-                bootstrap: 'Bootstrap Bundle'
-            };
-            const typeDescriptions = {
-                standard: 'Includes a fixed build of all runtime dependencies.',
-                bootstrap: 'Includes a bootstrapper to install the runtime on first run.'
-            };
-
-            const groups = typeOrder
-                .map(type => ({
-                    type,
-                    assets: sortByArchitecture(categories[os].filter(a => a.bundleType === type))
-                }))
-                .filter(g => g.assets.length > 0);
-
-            const html = groups.map(({ type, assets }) => {
-                const items = assets.map(asset => `
-                    <div class="arch-item arch-item--bundle-${type}">
-                        <strong>${getArchitecture(asset.name)}</strong>
-                        <small>${(asset.size / 1024 / 1024).toFixed(1)} MB</small>
-                        ${createDownloadButton(asset.browser_download_url, asset.name)}
-                    </div>
-                `).join('');
-                return `
-                    <div class="bundle-type-group">
-                        <div class="bundle-type-header bundle-type-header--${type}">
-                            <span class="bundle-type-badge bundle-type-badge--${type}">${typeLabels[type]}</span>
-                            <span class="bundle-type-desc">${typeDescriptions[type]}</span>
-                        </div>
-                        <div class="arch-grid">${items}</div>
-                    </div>
-                `;
-            }).join('');
-            element.innerHTML = html;
-        } else {
-            element.innerHTML = createNoItemsMessage('bundles');
-        }
-    });
-    
-    reHighlightCode();
-}
-
-/**
  * Update examples display for selected version and archive extension
  * @param {Object} release - Release object
  * @param {string} archiveExt - Archive extension
@@ -2394,7 +2326,7 @@ function createErrorHTML() {
  */
 function showDownloadsError() {
     // Update all select elements
-    ['version-select', 'bundle-version-select', 'example-version-select'].forEach(id => {
+    ['version-select', 'example-version-select'].forEach(id => {
         const select = document.getElementById(id);
         if (select) select.innerHTML = '<option value="">No releases available</option>';
     });
@@ -2404,9 +2336,7 @@ function showDownloadsError() {
     
     ['linux', 'windows', 'macos'].forEach(os => {
         const downloads = document.getElementById(`${os}-downloads`);
-        const bundles = document.getElementById(`${os}-bundles`);
         if (downloads) downloads.innerHTML = errorHTML;
-        if (bundles) bundles.innerHTML = errorHTML;
     });
     
     const examples = document.getElementById('all-examples');
@@ -2433,14 +2363,27 @@ async function initDownloadsPage() {
     
     // Populate dropdowns
     populateVersionDropdown(releases, 'version-select');
-    populateVersionDropdown(releases, 'bundle-version-select');
     populateVersionDropdown(releases, 'example-version-select');
     
     // Update displays with latest release
     updateDownloads(releases[0]);
-    updateBundles(releases[0], 'zip');
     updateExamples(releases[0], 'zip');
-    
+
+    // Load plugin releases (separate repo)
+    const pluginReleases = await fetchPluginReleases();
+    if (pluginReleases && pluginReleases.length > 0) {
+        allPluginReleases = pluginReleases;
+        populateVersionDropdown(pluginReleases, 'example-plugin-version-selector');
+        updatePlugins(pluginReleases[0]);
+    } else {
+        const sel = document.getElementById('example-plugin-version-selector');
+        if (sel) sel.innerHTML = '<option value="">No releases available</option>';
+        ['linux', 'windows', 'macos'].forEach(os => {
+            const el = document.getElementById(`plugin-${os}-downloads`);
+            if (el) el.innerHTML = `<div class="error">Unable to load. Visit <a href="https://github.com/${GITHUB_PLUGIN_EXAMPLE_REPO}/releases" target="_blank">GitHub Releases</a>.</div>`;
+        });
+    }
+
     // Set up event listeners
     setupDownloadsEventListeners();
 }
@@ -2477,6 +2420,57 @@ function createSelectionHandler(versionSelectId, archiveSelectId, updateFn) {
 }
 
 /**
+ * Fetch plugin releases from GitHub API (separate repo)
+ * @returns {Promise<Array>} Array of release objects
+ */
+async function fetchPluginReleases() {
+    try {
+        const cacheKey = 'renweb_plugin_releases';
+        const tsKey = 'renweb_plugin_releases_timestamp';
+        const cached = localStorage.getItem(cacheKey);
+        const ts = localStorage.getItem(tsKey);
+        if (cached && ts && (Date.now() - parseInt(ts)) < RELEASES_CACHE_TIME) {
+            return JSON.parse(cached);
+        }
+        const response = await fetch(GITHUB_PLUGIN_EXAMPLE_API);
+        if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+        const data = await response.json();
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+        localStorage.setItem(tsKey, Date.now().toString());
+        return data;
+    } catch (e) {
+        console.error('fetchPluginReleases failed:', e);
+        return null;
+    }
+}
+
+/**
+ * Update plugin downloads display for the selected release
+ * @param {Object} release - Release object from the plugin repo
+ */
+function updatePlugins(release) {
+    if (!release) return;
+    ['linux', 'windows', 'macos'].forEach(os => {
+        const el = document.getElementById(`plugin-${os}-downloads`);
+        if (!el) return;
+        const matching = sortByArchitecture(
+            (release.assets || []).filter(a => getOSFromFilename(a.name) === os)
+        );
+        if (matching.length === 0) {
+            el.innerHTML = createNoItemsMessage('plugin binaries');
+        } else {
+            el.innerHTML = `<div class="arch-grid">${matching.map(a => `
+                <div class="arch-item">
+                    <strong>${getArchitecture(a.name)}</strong>
+                    <small>${(a.size / 1024 / 1024).toFixed(2)} MB</small>
+                    ${createDownloadButton(a.browser_download_url, a.name)}
+                </div>`).join('')}</div>`;
+        }
+    });
+    reHighlightCode();
+}
+
+/**
  * Set up event listeners for downloads page
  */
 function setupDownloadsEventListeners() {
@@ -2486,11 +2480,17 @@ function setupDownloadsEventListeners() {
         updateDownloads(release);
     });
     
-    // Bundles: version + archive extension
-    createSelectionHandler('bundle-version-select', 'archive-ext-select', updateBundles);
-    
     // Examples: version + archive extension
     createSelectionHandler('example-version-select', 'example-archive-ext-select', updateExamples);
+
+    // Plugins: version only (separate repo)
+    const pluginVersionSelect = document.getElementById('example-plugin-version-selector');
+    if (pluginVersionSelect) {
+        pluginVersionSelect.addEventListener('change', () => {
+            const rel = allPluginReleases.find(r => r.tag_name === pluginVersionSelect.value);
+            if (rel) updatePlugins(rel);
+        });
+    }
 }
 
 // Initialize Everything

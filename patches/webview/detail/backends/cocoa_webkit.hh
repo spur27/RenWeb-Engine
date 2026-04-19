@@ -30,17 +30,16 @@
 
 #if defined(__cplusplus) && !defined(WEBVIEW_HEADER)
 
-// Use absolute paths to original headers in external/webview
-#include "../../../../../external/webview/core/include/webview/macros.h"
+#include "../../../../external/webview/core/include/webview/macros.h"
 
 #if defined(WEBVIEW_PLATFORM_DARWIN) && defined(WEBVIEW_COCOA)
 
-#include "../../../../../external/webview/core/include/webview/types.hh"
-#include "../../../../../external/webview/core/include/webview/detail/engine_base.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/cocoa/cocoa.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/objc/objc.hh"
-#include "../../../../../external/webview/core/include/webview/detail/platform/darwin/webkit/webkit.hh"
-#include "../../../../../external/webview/core/include/webview/detail/user_script.hh"
+#include "../../../../external/webview/core/include/webview/types.hh"
+#include "../../../../external/webview/core/include/webview/detail/engine_base.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/cocoa/cocoa.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/objc/objc.hh"
+#include "../../../../external/webview/core/include/webview/detail/platform/darwin/webkit/webkit.hh"
+#include "../../../../external/webview/core/include/webview/detail/user_script.hh"
 
 #include <atomic>
 #include <functional>
@@ -205,12 +204,10 @@ protected:
     }
     NSWindow_center(m_window);
 
-    // PATCH: Don't automatically show window when size is set
-    // Explicitly ensure window stays hidden
+    // PATCH: setFrame/display can re-show an ordered-out window; keep it hidden.
     if (owns_window() && m_window && !m_is_window_shown) {
       objc::msg_send<void>(m_window, objc::selector("orderOut:"), nullptr);
     }
-    // Original: return window_show();
     return {};
   }
   
@@ -466,6 +463,14 @@ private:
     auto ui_delegate = create_webkit_ui_delegate();
     m_webview =
         objc::retain(WKWebView_withFrame(CGRectMake(0, 0, 0, 0), config));
+
+    // PATCH: Disable white CA backing store to prevent flash before first composited frame.
+    if (objc::msg_send<bool>(m_webview, objc::selector("respondsToSelector:"),
+                             objc::selector("setDrawsBackground:"))) {
+      objc::msg_send<void>(m_webview, objc::selector("setDrawsBackground:"),
+                           false);
+    }
+
     auto autoresizing_mask{static_cast<NSAutoresizingMaskOptions>(
         NSViewWidthSizable | NSViewMaxXMargin | NSViewHeightSizable |
         NSViewMaxYMargin)};
@@ -552,7 +557,7 @@ private:
     
     // PATCH: Explicitly hide the window immediately after creation
     objc::msg_send<void>(m_window, objc::selector("orderOut:"), nullptr);
-    
+
     m_window_delegate = create_window_delegate();
     set_associated_webview(m_window_delegate, this);
     NSWindow_set_delegate(m_window, m_window_delegate);
@@ -565,10 +570,10 @@ private:
     if (m_is_window_shown) {
       return {};
     }
+    m_is_window_shown = true;
     if (owns_window()) {
       NSWindow_makeKeyAndOrderFront(m_window);
     }
-    m_is_window_shown = true;
     return {};
   }
 

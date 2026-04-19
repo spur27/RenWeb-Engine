@@ -62,24 +62,88 @@ export declare const Utils: {
 declare global {
     interface Window {
         /**
-         * Callback invoked when a message is received from another RenWeb process.
-         * @param msg - The message object received. \
-         * The `msg` param will already be decoded when it's passed. \
-         * Messages should automatically be encoded as an object with `sender` and `message` properties, \
-         * but this is not guaranteed.
-         * @example
-         * window.onServerMessage = async (msg) => {
-         *     if (msg?.sender != null) {
-         *        await Log.info(`Received message from PID ${msg.sender?.pid}:`, msg?.message);
-         *    } else {
-         *        await Log.info(`Received unformatted message:`, msg?.message);
-         *    }
-         * };
+         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
+         * before page content renders to ensure they are invoked at the right time.
          */
-        onServerMessage: (msg: ({
-            sender: Process;
-            message: any;
-        }) | any) => Promise<void>;
+        renweb: {
+            /**
+             * Called after the browser's first painted frame on every page navigation.
+             * More reliable than `window.onload` for avoiding the white flash when using
+             * `initially_shown: false`. Use this to show the window once ready.
+             * @example
+             * window.renweb.onReady = async () => { await Window.show(true); };
+             */
+            onReady?: () => void | Promise<void>;
+            /**
+             * Called when the window is about to close. Use for cleanup before exit.
+             * @example
+             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+             */
+            onTerminate?: () => void | Promise<void>;
+            /**
+             * Called when the native window position changes.
+             * @example
+             * window.renweb.onMove = ({ x, y }) => {
+             *     console.log(`Window moved to (${x}, ${y})`);
+             * };
+             */
+            onMove?: (position: {
+                x: number;
+                y: number;
+            }) => void | Promise<void>;
+            /**
+             * Called when the native window state changes.
+             * @example
+             * window.renweb.onWindowStateChanged = ({ state }) => {
+             *     console.log(`Window state: ${state}`);
+             * };
+             */
+            onWindowStateChanged?: (state: {
+                state: "normal" | "minimized" | "maximized" | "fullscreen";
+            }) => void | Promise<void>;
+            /**
+             * Called when the web engine asks for protected permissions.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onPermissionRequested?: (event: {
+                kind: string;
+                origin: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when the engine requests opening a new browser window.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onNewWindowRequested?: (event: {
+                url: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when the web render process crashes/exits/unresponds.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onRenderProcessTerminated?: (event: {
+                reason: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when TLS/certificate validation errors occur during load.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onCertificateError?: (event: {
+                url: string;
+                error: string;
+            }) => void | Promise<void>;
+            /**
+             * Called when a message is received from another RenWeb process via `proc.send()`.
+             * The `msg` parameter will already be decoded.
+             * @example
+             * window.renweb.onServerMessage = async (msg) => {
+             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+             * };
+             */
+            onServerMessage?: (msg: ({
+                sender: Process;
+                message: any;
+            }) | any) => void | Promise<void>;
+        };
     }
 }
 /**
@@ -471,6 +535,11 @@ export declare namespace Config {
      */
     function getConfig(): Promise<any>;
     /**
+ * Gets the info json file.
+ * @returns Promise that resolves to the info object
+ */
+    function getInfo(): Promise<any>;
+    /**
      * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object
      */
@@ -515,9 +584,14 @@ export declare namespace System {
     function getPID(): Promise<number>;
     /**
      * Gets the operating system name.
-     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "MacOS")
      */
-    function getOS(): Promise<string>;
+    function getOS(): Promise<'Linux' | 'Windows' | 'MacOS'>;
+    /**
+     * Gets the CPU architecture of the current system.
+     * @returns Promise that resolves to the architecture string
+     */
+    function getCPUArchitecture(): Promise<"x86_64" | "x86_32" | "arm64" | "arm32" | "mips32" | "mips32el" | "mips64" | "mips64el" | "powerpc32" | "powerpc64" | "riscv64" | "s390x" | "sparc64">;
 }
 /**
  * Represents a system or RenWeb process with methods for process management and communication.
@@ -828,6 +902,37 @@ export declare namespace Network {
     function isLoading(): Promise<boolean>;
 }
 /**
+ * Application information functions, including repository URLs and version strings for the app, engine, and plugins.
+ */
+export declare namespace Application {
+    /**
+     * Fetches the repository URLs for the app, engine, and plugins from info.json.
+     * @returns Promise that resolves to an object with app, engine, and plugins repository URLs
+     */
+    function fetchRepositories(): Promise<{
+        app: string;
+        engine: string;
+        plugins: string[];
+    }>;
+    /**
+     * Fetches the current version strings for the app, engine, and loaded plugins.
+     * - App version is read from info.json.
+     * - Engine version is extracted from the executable filename in the application directory.
+     * - Plugin versions are extracted from plugin filenames in the plugins/ directory.
+     * @returns Promise that resolves to an object with app, engine, and plugins version strings
+     */
+    function fetchVersions(): Promise<{
+        app: string;
+        engine: string;
+        plugins: Record<string, string>;
+    }>;
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    function getPluginsList(): Promise<any[]>;
+}
+/**
  * Page navigation functions.
  */
 export declare namespace Navigate {
@@ -862,15 +967,5 @@ export declare namespace Navigate {
      * @returns Promise that resolves when the URI is opened
      */
     function openURI(uri: string): Promise<void>;
-}
-/**
- * Plugins
- */
-export declare namespace Plugins {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    function getPluginsList(): Promise<any[]>;
 }
 export {};

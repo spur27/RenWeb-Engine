@@ -8,8 +8,47 @@ const { spawnSync } = require('child_process');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const GITHUB_RAW = 'https://raw.githubusercontent.com/spur27/RenWeb-Engine/main';
-const GITHUB_API = 'https://api.github.com/repos/spur27/RenWeb-Engine/releases/latest';
+const DEFAULT_ENGINE_REPO = 'https://github.com/spur27/RenWeb-Engine';
+const GITHUB_RAW      = 'https://raw.githubusercontent.com/spur27/RenWeb-Engine/main';
+const GITHUB_API_BASE = 'https://api.github.com/repos/spur27/RenWeb-Engine';
+const GITHUB_API      = `${GITHUB_API_BASE}/releases/latest`;
+
+/**
+ * Derive the raw.githubusercontent.com base URL from a GitHub repo URL.
+ * Falls back to the default engine raw base if the URL is not a GitHub repo.
+ */
+function engineRawBase(repoUrl) {
+    const m = (repoUrl || '').replace(/\.git$/, '').match(/github\.com\/([^/\s]+)\/([^/\s]+)/);
+    return m ? `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main` : GITHUB_RAW;
+}
+
+/**
+ * Derive the api.github.com repos base URL from a GitHub repo URL.
+ * Falls back to the default engine API base if the URL is not a GitHub repo.
+ */
+function engineApiBase(repoUrl) {
+    const m = (repoUrl || '').replace(/\.git$/, '').match(/github\.com\/([^/\s]+)\/([^/\s]+)/);
+    return m ? `https://api.github.com/repos/${m[1]}/${m[2]}` : GITHUB_API_BASE;
+}
+
+/**
+ * Resolve the engine repository URL.
+ * Reads `engine_repository` from the nearest project info.json (upward walk);
+ * falls back to DEFAULT_ENGINE_REPO.
+ * Pass an explicit projectRoot to skip the auto-detect.
+ */
+function resolveEngineRepo(projectRoot) {
+    const roots = [];
+    if (projectRoot) roots.push(projectRoot);
+    const autoRoot = findProjectRoot(process.cwd(), 0);
+    if (autoRoot && autoRoot !== projectRoot) roots.push(autoRoot);
+    for (const r of roots) {
+        const info = loadInfo(r);
+        const repo = info && (info.engine_repository || info['engine-repository']);
+        if (typeof repo === 'string' && repo.trim()) return repo.trim();
+    }
+    return DEFAULT_ENGINE_REPO;
+}
 
 // ─── Network ─────────────────────────────────────────────────────────────────
 
@@ -20,8 +59,8 @@ const GITHUB_API = 'https://api.github.com/repos/spur27/RenWeb-Engine/releases/l
 function download(url, dest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     for (const [cmd, args] of [
-        ['curl', ['-fsSL', '--output', dest, url]],
-        ['wget', ['-q',    '-O',       dest, url]],
+        ['curl', ['-fsSL', '--max-time', '30', '--output', dest, url]],
+        ['wget', ['-q', '--timeout=30', '-O', dest, url]],
     ]) {
         try {
             const r = spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'inherit'] });
@@ -40,14 +79,23 @@ function downloadText(url) {
 }
 
 /**
- * Fetch the latest RenWeb release metadata from GitHub.
+ * Fetch a RenWeb engine release from GitHub.
+ * Pass a tag string (e.g. '0.0.7') to pin to a specific release, or null/undefined
+ * for the latest. Pass repoUrl to override the auto-resolved engine repository
+ * (defaults to the `engine_repository` field in the nearest info.json, or
+ * DEFAULT_ENGINE_REPO when not set).
  * Returns the parsed JSON or null on failure.
  */
-function fetchLatestRelease() {
-    const text = downloadText(GITHUB_API);
+function fetchRelease(tag, repoUrl) {
+    const base = engineApiBase(repoUrl || resolveEngineRepo());
+    const url  = tag ? `${base}/releases/tags/${tag}` : `${base}/releases/latest`;
+    const text = downloadText(url);
     if (!text) return null;
     try { return JSON.parse(text); } catch (_) { return null; }
 }
+
+/** Convenience wrapper. Pass repoUrl to target a specific GitHub repo. */
+function fetchLatestRelease(repoUrl) { return fetchRelease(null, repoUrl); }
 
 // ─── Platform ────────────────────────────────────────────────────────────────
 
@@ -58,27 +106,6 @@ function detectTarget() {
     const ARCH_MAP   = { x64: 'x86_64', ia32: 'x86_32', arm: 'arm32' };
     const targetArch = ARCH_MAP[arch] ?? arch;
     return { os: targetOs, arch: targetArch };
-}
-
-// ─── Project type detection ───────────────────────────────────────────────────
-
-/**
- * Infer the frontend framework used by a project from its package.json.
- * Returns 'react' | 'vue' | 'svelte' | 'preact' | 'vanilla'.
- */
-function detectProjectType(projectRoot) {
-    const pkgPath = path.join(projectRoot, 'package.json');
-    if (!fs.existsSync(pkgPath)) return 'vanilla';
-    try {
-        const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-        if (deps['react'])   return 'react';
-        if (deps['vue'])     return 'vue';
-        if (deps['svelte'])  return 'svelte';
-        if (deps['preact'])  return 'preact';
-        if (deps['vite'])    return 'vanilla';
-    } catch (_) {}
-    return 'vanilla';
 }
 
 // ─── Project root ─────────────────────────────────────────────────────────────
@@ -122,40 +149,6 @@ function findProjectRoot(start, maxDownDepth = 5) {
     }
     // Fallback: bounded downward search from the starting directory
     return maxDownDepth > 0 ? _findRootDown(cur, maxDownDepth) : null;
-}
-
-/**
- * Find the nearest build/ directory: walk upward first, then bounded downward.
- */
-function findBuildDir(start, maxDownDepth = 5) {
-    let cur = path.resolve(start || process.cwd());
-    // Walk upward
-    let check = cur;
-    while (true) {
-        const candidate = path.join(check, 'build');
-        try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch (_) {}
-        const parent = path.dirname(check);
-        if (parent === check) break;
-        check = parent;
-    }
-    // Bounded downward search
-    if (maxDownDepth <= 0) return null;
-    return _findBuildDown(cur, maxDownDepth);
-}
-
-function _findBuildDown(dir, maxDepth) {
-    if (maxDepth <= 0) return null;
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return null; }
-    for (const e of entries) {
-        if (!e.isDirectory()) continue;
-        if (e.name.startsWith('.') || e.name === 'node_modules') continue;
-        const sub = path.join(dir, e.name);
-        if (e.name === 'build') return sub;
-        const found = _findBuildDown(sub, maxDepth - 1);
-        if (found) return found;
-    }
-    return null;
 }
 
 /**
@@ -208,25 +201,6 @@ function saveInfo(projectRoot, data) {
     }
 }
 
-// ─── Engine PID management ───────────────────────────────────────────────────
-
-const PID_FILE = (projectRoot) => path.join(projectRoot, 'build', '.engine.pid');
-
-/** Kill any tracked engine process started by this project. */
-function killEngine(projectRoot) {
-    const pidFile = PID_FILE(projectRoot);
-    if (!fs.existsSync(pidFile)) return false;
-    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    try { fs.unlinkSync(pidFile); } catch (_) {}
-    if (!pid) return false;
-    try { process.kill(pid, 'SIGTERM'); return true; } catch (_) { return false; }
-}
-
-/** Record the PID of a newly launched engine process. */
-function saveEnginePid(projectRoot, pid) {
-    fs.writeFileSync(PID_FILE(projectRoot), String(pid), 'utf8');
-}
-
 // ─── File utils ──────────────────────────────────────────────────────────────
 
 function copyDir(src, dest) {
@@ -255,26 +229,75 @@ function prompt(rl, question, fallback = '') {
 function toSnake(s) { return s.trim().toLowerCase().replace(/[\s\-]+/g, '_'); }
 function toKebab(s) { return s.trim().toLowerCase().replace(/[\s_]+/g, '-'); }
 
+// ─── RenWeb cache helpers ────────────────────────────────────────────────────
+
+/** Absolute path to the .rw/ cache directory in a project root. */
+function rwCacheDir(root)        { return path.join(root, '.rw'); }
+/** Absolute path to the .rw/plugins/ directory. */
+function rwPluginsDir(root)      { return path.join(root, '.rw', 'plugins'); }
+/** Absolute path to the .rw/trash/ directory. */
+function rwTrashDir(root)        { return path.join(root, '.rw', 'trash'); }
+/** Absolute path to the .rw/executables/ cache directory. */
+function rwExecutablesDir(root)  { return path.join(root, '.rw', 'executables'); }
+
+/**
+ * Ensure '.rw/' appears in the project's .gitignore.
+ * Creates the file if it does not exist.
+ */
+function ensureRwGitignore(root) {
+    const gitignorePath = path.join(root, '.gitignore');
+    const entry = '.rw/';
+    try {
+        if (fs.existsSync(gitignorePath)) {
+            const lines = fs.readFileSync(gitignorePath, 'utf8').split('\n');
+            if (!lines.some(l => l.trim() === entry || l.trim() === '.rw'))
+                fs.appendFileSync(gitignorePath, `\n# RenWeb cache\n${entry}\n`, 'utf8');
+        } else {
+            fs.writeFileSync(gitignorePath, `# RenWeb cache\n${entry}\n`, 'utf8');
+        }
+    } catch (_) {}
+}
+
+/**
+ * Parse a GitHub repository URL or shorthand into { owner, repo }.
+ * Accepts: https://github.com/owner/repo[.git], github.com/owner/repo, owner/repo
+ * Returns null if the input cannot be parsed as a GitHub repo path.
+ */
+function parseGitHubUrl(input) {
+    const clean = (input || '').trim().replace(/\.git$/, '').replace(/\/$/, '');
+    const m = clean.match(/(?:https?:\/\/)?(?:github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+    if (!m) return null;
+    return { owner: m[1], repo: m[2] };
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
+    DEFAULT_ENGINE_REPO,
     GITHUB_RAW,
     GITHUB_API,
+    GITHUB_API_BASE,
+    engineRawBase,
+    engineApiBase,
+    resolveEngineRepo,
     download,
     downloadText,
+    fetchRelease,
     fetchLatestRelease,
     detectTarget,
-    detectProjectType,
     findProjectRoot,
-    findBuildDir,
     findProjectExecutable,
     loadInfo,
     saveInfo,
-    killEngine,
-    saveEnginePid,
     copyDir,
     makeRl,
     prompt,
     toSnake,
     toKebab,
+    rwCacheDir,
+    rwPluginsDir,
+    rwTrashDir,
+    rwExecutablesDir,
+    ensureRwGitignore,
+    parseGitHubUrl,
 };

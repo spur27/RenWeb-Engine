@@ -22,20 +22,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     flatpak \
  && rm -rf /var/lib/apt/lists/*
 
+# ── XBPS tools (Void Linux) — not in Debian repos; use the official static musl build ──
+# The tarball contains /usr/bin/xbps-* statically linked against musl libc.
+# Architecture is detected at build time so this works on x86_64, aarch64, armv7l, etc.
+RUN XBPS_ARCH="$(uname -m)-musl" \
+ && curl -fsSL \
+    "https://repo-fastly.voidlinux.org/static/xbps-static-latest.${XBPS_ARCH}.tar.xz" \
+    -o /tmp/xbps-static.tar.xz \
+ && mkdir -p /tmp/xbps-static \
+ && tar -xf /tmp/xbps-static.tar.xz -C /tmp/xbps-static \
+ && install -m 755 /tmp/xbps-static/usr/bin/xbps-create.static   /usr/local/bin/xbps-create \
+ && install -m 755 /tmp/xbps-static/usr/bin/xbps-rindex.static   /usr/local/bin/xbps-rindex \
+ && rm -rf /tmp/xbps-static /tmp/xbps-static.tar.xz
+
 # ── Flatpak runtime + SDK — needed to build .flatpak bundles offline ──────────
+# buildFlatpakBundle requests org.gnome.Platform//47 + org.gnome.Sdk//47.
+# GNOME 47 depends on org.freedesktop.Platform//23.08 which flatpak pulls in
+# automatically; no need to list the freedesktop runtimes explicitly.
 # --noninteractive skips all prompts; system-level install works in Docker root.
 RUN flatpak remote-add --if-not-exists flathub \
     https://dl.flathub.org/repo/flathub.flatpakrepo \
  && flatpak install --noninteractive flathub \
-    org.freedesktop.Platform//23.08 \
-    org.freedesktop.Sdk//23.08 \
+    org.gnome.Platform//47 \
+    org.gnome.Sdk//47 \
  || true
 
 # ── Wine64 — runs rcedit to patch Windows PE version info + icons ─────────────
-# We only need wine64 (no i386 required) since rcedit-x64.exe is a 64-bit PE.
-# On Debian bullseye the package installs the binary as wine64-stable; create a
+# wine64 on Debian bullseye requires i386 multiarch even for 64-bit-only use
+# because the wine loader ships 32-bit components as i386 packages.
+# On Debian bullseye the binary may be installed as wine64-stable; create a
 # canonical wine64 symlink so all scripts can use the same name.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN dpkg --add-architecture i386 \
+ && apt-get update && apt-get install -y --no-install-recommends \
     wine64 \
  && rm -rf /var/lib/apt/lists/* \
  && ([ -x /usr/bin/wine64 ] || ln -sf /usr/bin/wine64-stable /usr/bin/wine64)
@@ -78,7 +96,8 @@ ENV APPIMAGE_EXTRACT_AND_RUN=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build libssl-dev zlib1g-dev libicu-dev \
  && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.sh \
+ && CMAKE_ARCH=$(uname -m) \
+ && curl -fsSL "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-${CMAKE_ARCH}.sh" \
       -o /tmp/cmake.sh \
  && sh /tmp/cmake.sh --prefix=/usr/local --skip-license \
  && rm /tmp/cmake.sh \
@@ -94,6 +113,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── fpm — multi-format packager (deb, rpm, pacman, apk, freebsd, etc.) ────────
 RUN gem install --no-document fpm || true
+
+# ── nfpm — Go-native packager; used in place of fpm for APK (correct APKv2) ───
+# Download the pre-built amd64 binary directly from GitHub releases.
+# python3 is already present in the image (installed above).
+RUN NFPM_VER=$(curl -fsSL https://api.github.com/repos/goreleaser/nfpm/releases/latest \
+      | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))") \
+ && curl -fsSL \
+      "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VER}/nfpm_${NFPM_VER}_Linux_x86_64.tar.gz" \
+      | tar -xz -C /usr/local/bin nfpm \
+ && chmod +x /usr/local/bin/nfpm
 
 # ── Project setup ─────────────────────────────────────────────────────────────
 WORKDIR /work

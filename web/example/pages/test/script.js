@@ -38,8 +38,8 @@ import {
     Debug,
     Network,
     Navigate,
-    Utils,
-    Plugins
+    Application,
+    Utils
  } from './index.js';
 
 
@@ -84,6 +84,72 @@ window.addEventListener("touchmove", (e) => {
         e.preventDefault();
     }
 }, { passive: false });
+
+async function logWebviewCallback(name, payload) {
+    const message = `[callback] ${name}: ${JSON.stringify(payload)}`;
+    try {
+        await Log.info(message);
+    } catch (e) {
+        console.error("[callback]", e);
+    }
+
+    const output = document.querySelector(".application_output");
+    if (output) {
+        output.textContent = `${message}\n${output.textContent || ""}`.slice(0, 4000);
+    }
+
+    console.info(message);
+}
+
+window.renweb.onReady = async () => {
+    await logWebviewCallback("onReady", "Window is ready!");
+    const os = String(await System.getOS()).toLowerCase();
+    let targetOpacity = 1;
+    if (os === "macos") {
+        targetOpacity = await Properties.getOpacity();
+        await Properties.setOpacity(0);
+    }
+
+    await Window.show(true);
+
+    if (os === "macos") {
+        const fadeSteps = 5;
+        const stepDelayMs = 10;
+        for (let i = 1; i <= fadeSteps; i++) {
+            await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+            await Properties.setOpacity((targetOpacity * i) / fadeSteps);
+        }
+    }
+}
+
+window.renweb.onTerminate = async () => {
+    await logWebviewCallback("onTerminate", "Window is terminating!");
+}
+
+window.renweb.onMove = async (position) => {
+    await logWebviewCallback("onMove", position);
+};
+
+window.renweb.onWindowStateChanged = async (state) => {
+    await logWebviewCallback("onWindowStateChanged", state);
+};
+
+window.renweb.onPermissionRequested = async (event) => {
+    await logWebviewCallback("onPermissionRequested", event);
+};
+
+window.renweb.onNewWindowRequested = async (event) => {
+    await logWebviewCallback("onNewWindowRequested", event);
+};
+
+window.renweb.onRenderProcessTerminated = async (event) => {
+    await logWebviewCallback("onRenderProcessTerminated", event);
+};
+
+window.renweb.onCertificateError = async (event) => {
+    await logWebviewCallback("onCertificateError", event);
+};
+
 
 // DISABLED: console.log = (async (msg) => await Log.debug(msg));
 window.onload = async () => {
@@ -131,8 +197,9 @@ window.onload = async () => {
         document.querySelector(".opacity_slider").value = Math.floor(opacity * 100);
         document.querySelector(".opacity_input").value = opacity.toFixed(2);
         document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
-        document.querySelector(".systems_os").textContent = `${await System.getOS()}`;
-        const plugins = await Plugins.getPluginsList();
+        const os = await System.getOS();
+        document.querySelector(".systems_os").textContent = `${os}`;
+        const plugins = await Application.getPluginsList();
         document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
         document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);
         document.querySelector(".settings_output").style.borderColor = "green";
@@ -149,15 +216,13 @@ window.onload = async () => {
         document.querySelector('.message_url').value = proc.url;
         document.querySelector('.message_pid').value = proc.pid;
         document.querySelector('.refresh_messages').click();
-        window.onServerMessage = async (message) => {
+        document.querySelector('.fetch_versions').click();
+        window.renweb.onServerMessage = async (message) => {
             document.querySelector('.refresh_messages').click();
         };
     } catch (e) {
         await Log.error(e.message);
     }
-    await Window.show(true);
-    
-    // Request notification permission
     if ("Notification" in window && Notification.permission === "default") {
         await Notification.requestPermission();
         await Log.info("Notification permission: " + Notification.permission);
@@ -829,7 +894,7 @@ document.querySelector(".send_notif_2").onclick = async () => {
 
 document.querySelector(".get_plugin_list").onclick = async () => {
     await Log.debug(`Getting plugin list...`);
-    const plugins = await Plugins.getPluginsList();
+    const plugins = await Application.getPluginsList();
     document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
 };
 
@@ -868,6 +933,13 @@ document.querySelector(".get_config").onclick = async () => {
     const config = await Config.getConfig();
     document.querySelector(".settings_output").value = JSON.stringify(config, null, 2);
 };
+
+document.querySelector(".get_info").onclick = async () => {
+    await Log.debug(`Getting Info...`);
+    const info = await Config.getInfo();
+    document.querySelector(".settings_output").value = JSON.stringify(info, null, 2);
+};
+
 
 document.querySelector(".get_defaults").onclick = async () => {
     await Log.debug(`Getting Defaults...`);
@@ -926,6 +998,23 @@ document.querySelector(".set_config_property").onclick = async () => {
     await Log.debug(`Setting config property "${key}" = "${parsedValue}"`);
     await Config.setConfigProperty(key, parsedValue);
 };
+
+// ============================================================================
+// APPLICATION SECTION  
+// ============================================================================
+
+document.querySelector(".fetch_repositories").onclick = async () => {
+    await Log.debug(`Fetching repositories...`);
+    const repos = await Application.fetchRepositories();
+    document.querySelector(".application_output").textContent = JSON.stringify(repos, null, 2);
+}
+
+document.querySelector(".fetch_versions").onclick = async () => {
+    await Log.debug(`Fetching versions...`);
+    const versions = await Application.fetchVersions();
+    document.querySelector(".application_output").textContent = JSON.stringify(versions, null, 2);
+}
+
 
 
 // ============================================================================

@@ -153,7 +153,6 @@ export const Utils = {
     encode,
     serialize
 };
-window.onServerMessage = async (msg) => { };
 /**
  * Window property getters and setters.
  */
@@ -364,7 +363,10 @@ export var Window;
      * Terminates the current window/process.
      * @returns Promise that resolves when termination starts
      */
-    async function terminate() { await BIND_terminate(null); }
+    async function terminate() {
+        await window.renweb?.onTerminate?.();
+        await BIND_terminate(null);
+    }
     Window.terminate = terminate;
     /**
      * Starts a window drag operation (allows moving the window).
@@ -593,6 +595,12 @@ export var Config;
     async function getConfig() { return decode(await BIND_get_config(null)); }
     Config.getConfig = getConfig;
     /**
+ * Gets the info json file.
+ * @returns Promise that resolves to the info object
+ */
+    async function getInfo() { return decode(await BIND_get_info(null)); }
+    Config.getInfo = getInfo;
+    /**
      * Gets the config set for \_\_defaults\_\_.
      * @returns Promise that resolves to the configuration object
      */
@@ -645,10 +653,16 @@ export var System;
     System.getPID = getPID;
     /**
      * Gets the operating system name.
-     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "MacOS")
      */
     async function getOS() { return decode(await BIND_get_OS(null)); }
     System.getOS = getOS;
+    /**
+     * Gets the CPU architecture of the current system.
+     * @returns Promise that resolves to the architecture string
+     */
+    async function getCPUArchitecture() { return decode(await BIND_get_cpu_architecture(null)); }
+    System.getCPUArchitecture = getCPUArchitecture;
 })(System || (System = {}));
 /**
  * Represents a system or RenWeb process with methods for process management and communication.
@@ -1030,6 +1044,96 @@ export var Network;
     Network.isLoading = isLoading;
 })(Network || (Network = {}));
 /**
+ * Application information functions, including repository URLs and version strings for the app, engine, and plugins.
+ */
+export var Application;
+(function (Application) {
+    const DEFAULT_ENGINE_REPOSITORY = "https://github.com/spur27/RenWeb-Engine";
+    /**
+     * Fetches the repository URLs for the app, engine, and plugins from info.json.
+     * @returns Promise that resolves to an object with app, engine, and plugins repository URLs
+     */
+    async function fetchRepositories() {
+        const app_dir = await FS.getApplicationDirPath();
+        try {
+            const infoText = await FS.readFile(app_dir + "/info.json");
+            if (infoText) {
+                const info = JSON.parse(infoText);
+                return {
+                    app: info.repository ?? "none",
+                    engine: info.engine_repository ?? DEFAULT_ENGINE_REPOSITORY,
+                    plugins: Array.isArray(info.plugin_repositories) ? info.plugin_repositories : []
+                };
+            }
+        }
+        catch { }
+        return { app: "none", engine: DEFAULT_ENGINE_REPOSITORY, plugins: [] };
+    }
+    Application.fetchRepositories = fetchRepositories;
+    /**
+     * Fetches the current version strings for the app, engine, and loaded plugins.
+     * - App version is read from info.json.
+     * - Engine version is extracted from the executable filename in the application directory.
+     * - Plugin versions are extracted from plugin filenames in the plugins/ directory.
+     * @returns Promise that resolves to an object with app, engine, and plugins version strings
+     */
+    async function fetchVersions() {
+        const app_dir = await FS.getApplicationDirPath();
+        const version_regex = /\d+\.\d+\.\d+/;
+        const unknown = "unknown";
+        let app_version = unknown;
+        try {
+            const info = JSON.parse(await FS.readFile(app_dir + "/info.json") ?? "{}");
+            app_version = info.version ?? unknown;
+        }
+        catch { }
+        let engine_version = unknown;
+        try {
+            const os = (await System.getOS()).toLocaleLowerCase();
+            const arch = (await System.getCPUArchitecture()).toLocaleLowerCase();
+            const files = await FS.ls(app_dir);
+            if (files) {
+                for (const file of files) {
+                    if (await FS.isDir(file))
+                        continue;
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const is_exe = os === "windows" ? filename.endsWith(`${os}-${arch}.exe`) : filename.endsWith(`${os}-${arch}`);
+                    const match = filename.match(version_regex);
+                    if (is_exe && match) {
+                        engine_version = match[0];
+                        break;
+                    }
+                }
+            }
+        }
+        catch { }
+        const plugin_versions = {};
+        try {
+            const plugins_dir = app_dir + "/plugins";
+            const plugin_files = await FS.ls(plugins_dir);
+            if (plugin_files) {
+                for (const file of plugin_files) {
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const match = filename.match(version_regex);
+                    if (match) {
+                        const plugin_name = filename.match(/^(.*?)-\d/)?.[1] ?? filename;
+                        plugin_versions[plugin_name] = match[0];
+                    }
+                }
+            }
+        }
+        catch { }
+        return { app: app_version, engine: engine_version, plugins: plugin_versions };
+    }
+    Application.fetchVersions = fetchVersions;
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
+    Application.getPluginsList = getPluginsList;
+})(Application || (Application = {}));
+/**
  * Page navigation functions.
  */
 export var Navigate;
@@ -1072,16 +1176,4 @@ export var Navigate;
     async function openURI(uri) { await BIND_open_uri(encode(uri)); }
     Navigate.openURI = openURI;
 })(Navigate || (Navigate = {}));
-/**
- * Plugins
- */
-export var Plugins;
-(function (Plugins) {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    async function getPluginsList() { return decode(await BIND_get_plugins_list(null)); }
-    Plugins.getPluginsList = getPluginsList;
-})(Plugins || (Plugins = {}));
 //# sourceMappingURL=index.js.map

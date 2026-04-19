@@ -1,43 +1,20 @@
 'use strict';
-// rw fetch [--executable | --bundle | --plugin | --api]
-// No flag → --executable (backward compat).
-// Flags are combinable: e.g. `rw fetch --api --plugin`
 
 const fs   = require('fs');
 const path = require('path');
-const os   = require('os');
-const { spawnSync } = require('child_process');
-const { download, fetchLatestRelease, detectTarget, GITHUB_RAW } = require('./shared');
-
-const TEMPLATE_INFO = {
-    title:          'My RenWeb App',
-    description:    '',
-    author:         '',
-    version:        '0.0.1',
-    license:        'BSL 1.0',
-    categories:     ['Utility'],
-    app_id:         'io.github.user.my_renweb_app',
-    repository:     '',
-    starting_pages: ['my_renweb_app'],
-    permissions: {
-        geolocation: false, notifications: true, media_devices: false,
-        pointer_lock: false, install_missing_media_plugins: true, device_info: true,
-    },
-    origins: [],
-};
-
-const API_FILES = ['index.js', 'index.js.map', 'index.d.ts', 'index.ts'];
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const { download, fetchRelease, detectTarget, GITHUB_RAW, resolveEngineRepo, engineRawBase } = require('../shared/utils');
+const { API_FILES }            = require('../shared/constants');
+const { DEFAULT_TEMPLATE_INFO } = require('../shared/templates/project');
+const ui = require('../shared/ui');
 
 function writeInfoIfMissing(cwd) {
     const dest    = path.join(cwd, 'info.json');
-    const infoText = JSON.stringify(TEMPLATE_INFO, null, 4) + '\n';
+    const infoText = JSON.stringify(DEFAULT_TEMPLATE_INFO, null, 4) + '\n';
     if (!fs.existsSync(dest)) {
         fs.writeFileSync(dest, infoText, 'utf8');
-        console.log(`  ✓ info.json  (template — edit with your details)`);
+        ui.ok('info.json  (template — edit with your details)');
     } else {
-        console.log(`  ↷ info.json already exists — skipped`);
+        ui.dim('↷ info.json already exists — skipped');
     }
 }
 
@@ -47,57 +24,28 @@ function fetchExecutable(release, cwd) {
     const pattern = new RegExp(`-${tOs}-${tArch}(\\.exe)?$`, 'i');
     const asset   = (release.assets || []).find(a => pattern.test(a.name));
     if (!asset) {
-        console.error(`No executable asset found for ${tOs}-${tArch} in release ${ver}`);
-        console.log('Available assets:');
-        (release.assets || []).forEach(a => console.log(`  ${a.name}`));
+        ui.error(`No executable asset found for ${tOs}-${tArch} in release ${ver}`);
+        ui.info('Available assets:');
+        (release.assets || []).forEach(a => ui.dim(a.name));
         process.exit(1);
     }
     const dest = path.join(cwd, asset.name);
-    console.log(`  Downloading: ${asset.name}`);
+    ui.step(`Downloading: ${asset.name}`);
     if (!download(asset.browser_download_url, dest)) {
-        console.error('  ✗ Download failed');
+        ui.error('Download failed');
         process.exit(1);
     }
     try { fs.chmodSync(dest, 0o755); } catch (_) {}
-    console.log(`  ✓ ${asset.name}`);
+    ui.ok(asset.name);
     writeInfoIfMissing(cwd);
-    console.log(`\nDone. Run \`rw run\` to launch the engine.\n`);
-}
-
-function fetchBundle(release, cwd) {
-    const { os: tOs, arch: tArch } = detectTarget();
-    const ver     = release.tag_name || release.name || 'latest';
-    const pattern = new RegExp(`^bundle-[\\d][\\w.]*-${tOs}-${tArch}\\.tar\\.gz$`, 'i');
-    const asset   = (release.assets || []).find(a => pattern.test(a.name));
-    if (!asset) {
-        console.error(`No bundle asset found for ${tOs}-${tArch} in release ${ver}`);
-        console.log('Available assets:');
-        (release.assets || []).forEach(a => console.log(`  ${a.name}`));
-        process.exit(1);
-    }
-    const tmp = path.join(os.tmpdir(), asset.name);
-    console.log(`  Downloading: ${asset.name}`);
-    if (!download(asset.browser_download_url, tmp)) {
-        console.error('  ✗ Download failed');
-        process.exit(1);
-    }
-    // Bundle tar.gz is flat (exe + bundle_exec script + lib/) — extract directly to cwd
-    console.log(`  Extracting to cwd…`);
-    const r = spawnSync('tar', ['-xzf', tmp, '-C', cwd], { stdio: 'inherit' });
-    try { fs.unlinkSync(tmp); } catch (_) {}
-    if (r.status !== 0) {
-        console.error('  ✗ Extraction failed');
-        process.exit(1);
-    }
-    console.log(`  ✓ bundle extracted`);
-    writeInfoIfMissing(cwd);
-    console.log(`\nDone. Run \`rw run\` to launch the engine.\n`);
+    ui.ok('Done. Run `rw run` to launch the engine.');
 }
 
 function fetchPlugin(cwd) {
-    const url  = `${GITHUB_RAW}/include/plugin.hpp`;
+    const rawBase = engineRawBase(resolveEngineRepo());
+    const url  = `${rawBase}/include/plugin.hpp`;
     const dest = path.join(cwd, 'plugin.hpp');
-    console.log(`  Downloading: plugin.hpp`);
+    ui.step('Downloading: plugin.hpp');
     if (!download(url, dest)) {
         console.error('  ✗ Download failed');
         process.exit(1);
@@ -106,57 +54,51 @@ function fetchPlugin(cwd) {
 }
 
 function fetchApi(cwd) {
+    const rawBase = engineRawBase(resolveEngineRepo());
     for (const file of API_FILES) {
-        const url  = `${GITHUB_RAW}/web/api/${file}`;
+        const url  = `${rawBase}/web/api/${file}`;
         const dest = path.join(cwd, file);
-        console.log(`  Downloading: ${file}`);
+        ui.step(`Downloading: ${file}`);
         if (!download(url, dest)) {
-            console.error(`  ✗ Download failed for ${file}`);
+            ui.error(`Download failed for ${file}`);
             process.exit(1);
         }
-        console.log(`  ✓ ${file}`);
+        ui.ok(file);
     }
 }
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
-
 function run(args) {
     const hasExe    = args.includes('--executable');
-    const hasBundle = args.includes('--bundle');
     const hasPlugin = args.includes('--plugin');
     const hasApi    = args.includes('--api');
-    const defaultMode = !hasExe && !hasBundle && !hasPlugin && !hasApi;
+    const defaultMode = !hasExe && !hasPlugin && !hasApi;
+
+    const verIdx = args.indexOf('--version');
+    const tag    = verIdx !== -1 ? args[verIdx + 1] : null;
 
     const cwd = process.cwd();
 
     if (hasPlugin) {
-        console.log('\nFetching plugin.hpp…');
+        ui.step('Fetching plugin.hpp…');
         fetchPlugin(cwd);
     }
 
     if (hasApi) {
-        console.log('\nFetching JS/TS API files…');
+        ui.step('Fetching JS/TS API files…');
         fetchApi(cwd);
-    }
-
-    if (hasBundle) {
-        const { os: tOs, arch: tArch } = detectTarget();
-        console.log(`\nFetching latest RenWeb bundle for ${tOs}-${tArch}…`);
-        const release = fetchLatestRelease();
-        if (!release) { console.error('Could not reach GitHub — aborting.'); process.exit(1); }
-        fetchBundle(release, cwd);
     }
 
     if (hasExe || defaultMode) {
         const { os: tOs, arch: tArch } = detectTarget();
-        console.log(`\nFetching latest RenWeb executable for ${tOs}-${tArch}…`);
-        const release = fetchLatestRelease();
+        const label = tag ? `v${tag}` : 'latest';
+        ui.step(`Fetching RenWeb executable (${label}) for ${tOs}-${tArch}…`);
+        const release = fetchRelease(tag);
         if (!release) { console.error('Could not reach GitHub — aborting.'); process.exit(1); }
         fetchExecutable(release, cwd);
     }
 
     if (hasPlugin || hasApi) {
-        console.log('\nDone.\n');
+        ui.ok('Done.');
     }
 }
 

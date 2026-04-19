@@ -1630,6 +1630,26 @@ await FS.rm("folder", { recursive: true });</code></pre>
                     </div>
                 </div>
 
+                <div id="config-getinfo" class="api-method">
+                    <h3>
+                        Config.getInfo()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getInfo(): Promise&lt;any&gt;</code></div>
+                    <p class="method-description">Gets the contents of the <code>info.json</code> file — application metadata including name, version, author, license, and permissions.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;any&gt;</span> - The parsed info.json object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const info = await Config.getInfo();
+await Log.debug(info.title, info.version);</code></pre>
+                    </div>
+                </div>
+
                 <div id="config-getdefaults" class="api-method">
                     <h3>
                         Config.getDefaults()
@@ -1823,6 +1843,26 @@ await FS.rm("folder", { recursive: true });</code></pre>
                     <div class="method-example">
                         <h4>Example</h4>
                         <pre><code class="language-javascript">const os = await System.getOS();</code></pre>
+                    </div>
+                </div>
+
+                <div id="system-getcpuarchitecture" class="api-method">
+                    <h3>
+                        System.getCPUArchitecture()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>getCPUArchitecture(): Promise&lt;string&gt;</code></div>
+                    <p class="method-description">Gets the CPU architecture of the host machine.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string&gt;</span> - CPU architecture (e.g., 'x86_64', 'arm64', 'riscv64')</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const arch = await System.getCPUArchitecture();
+await Log.debug(`Running on ${arch}`);</code></pre>
                     </div>
                 </div>
             </section>
@@ -2421,6 +2461,36 @@ await Log.debug(info.pid, info.name);</code></pre>
                         <pre><code class="language-javascript">if (await Network.isLoading()) { ... }</code></pre>
                     </div>
                 </div>
+
+                <div id="network-update" class="api-method">
+                    <h3>
+                        Network.update()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>update(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Updates the network status.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional: { update_app: boolean, update_engine: boolean, update_plugins: boolean }</span>
+                                <span class="param-default"> = <code class="language-javascript">{ update_app: true, update_engine: true, update_plugins: true }</code></span>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Network.update();</code></pre>
+                    </div>
+                </div>
             </section>
 
             <!-- Navigate Namespace -->
@@ -2557,16 +2627,58 @@ await Navigate.openURI("file:///path/to/file");</code></pre>
                 </div>
             </section>
 
-            <!-- Plugins Namespace -->
-            <section id="plugins" class="api-namespace-section">
-                <h2>Plugins</h2>
+            <!-- Application Namespace -->
+            <section id="application" class="api-namespace-section">
+                <h2>Application</h2>
                 <p class="namespace-description">
-                    The Plugins namespace provides access to information about loaded plugins and their metadata.
+                    The Application namespace provides read-only introspection of the running application's identity,
+                    including repository URLs and version strings for the app, engine, and plugins.
                 </p>
 
-                <div id="plugins-getpluginslist" class="api-method">
+                <div id="application-fetchrepositories" class="api-method">
                     <h3>
-                        Plugins.getPluginsList()
+                        Application.fetchRepositories()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>fetchRepositories(): Promise&lt;{ app: string, engine: string, plugins: string[] }&gt;</code></div>
+                    <p class="method-description">Reads <code>info.json</code> and returns the source repository URLs for the application, the RenWeb engine, and all registered plugin repositories.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ app: string, engine: string, plugins: string[] }&gt;</span> - Repository URLs object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const repos = await Application.fetchRepositories();
+console.log(repos.engine); // "https://github.com/spur27/RenWeb-Engine"
+console.log(repos.plugins); // ["https://github.com/..."]</code></pre>
+                    </div>
+                </div>
+
+                <div id="application-fetchversions" class="api-method">
+                    <h3>
+                        Application.fetchVersions()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>fetchVersions(): Promise&lt;{ app: string, engine: string, plugins: Record&lt;string, string&gt; }&gt;</code></div>
+                    <p class="method-description">Scans the application directory for the versioned executable filename and the <code>plugins/</code> directory, returning version strings for the app, the RenWeb engine, and each loaded plugin.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;{ app: string, engine: string, plugins: Record&lt;string, string&gt; }&gt;</span> - Version strings object</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const versions = await Application.fetchVersions();
+console.log(versions.engine); // "0.0.7"
+console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
+                    </div>
+                </div>
+                <div id="application-getpluginslist" class="api-method">
+                    <h3>
+                        Application.getPluginsList()
                         <span class="method-tags">
                             <span class="method-tag async">async</span>
                         </span>
@@ -2579,12 +2691,21 @@ await Navigate.openURI("file:///path/to/file");</code></pre>
                     </div>
                     <div class="method-example">
                         <h4>Example</h4>
-                        <pre><code class="language-javascript">const plugins = await Plugins.getPluginsList();
+                        <pre><code class="language-javascript">const plugins = await Application.getPluginsList();
 for (const p of plugins) {
     await Log.debug(p.name, p.version);
 }</code></pre>
                     </div>
                 </div>
+            </section>
+
+            <!-- Plugins Namespace -->
+            <section id="plugins" class="api-namespace-section">
+                <h2>Plugins</h2>
+                <p class="namespace-description">
+                    The Plugins namespace provides access to information about loaded plugins and their metadata.
+                </p>
+
             </section>
 
             <!-- Utils Namespace -->
@@ -2721,31 +2842,158 @@ Utils.serialize([1, 2, 3]); // Returns: "[1,2,3]"</code></pre>
                     These functions are particularly useful for managing communication between different parts of the application.
                 </p>
 
-                <div id="callbacks-onservermessage" class="api-method">
+                <div id="callbacks-window-renweb-onready" class="api-method">
                     <h3>
-                        window.onServerMessage
+                        window.renweb.onReady
                     </h3>
-                    <div class="method-signature"><code>window.onServerMessage = async (message: any) => { ... }</code></div>
+                    <div class="method-signature"><code>window.renweb.onReady = async () => { ... }</code></div>
                     <p class="method-description">
-                        Handles messages received from the server. This function is called whenever a message is received, and the message is passed as an argument.
+                        Called once the application is fully initialised and the window is ready for interaction.
+                        Assign this callback before or during <code>window.onload</code> — if it is assigned after the
+                        ready signal has already fired (e.g. deep inside an async <code>window.onload</code> after
+                        several awaits), the framework detects this and calls it immediately.
+                    </p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onReady = async () => {
+    await Window.show(true);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onterminate" class="api-method">
+                    <h3>
+                        window.renweb.onTerminate
+                    </h3>
+                    <div class="method-signature"><code>window.renweb.onTerminate = async () => { ... }</code></div>
+                    <p class="method-description">
+                        Called just before the window closes, whether triggered programmatically via
+                        <code>Window.terminate()</code>, by the user clicking the title-bar X button, or by
+                        <code>Ctrl+C</code> in the terminal. Use this to save state, flush logs, or perform
+                        any other cleanup before exit.
+                        <br><br>
+                        <strong>Note:</strong> When triggered by <code>Window.terminate()</code> the callback is
+                        fully <code>await</code>-ed before the window closes. When triggered by the OS close button
+                        or <code>Ctrl+C</code> the callback is best-effort — very long async operations may be
+                        cut short.
+                    </p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onTerminate = async () => {
+    await Config.saveConfig();
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onmove" class="api-method">
+                    <h3>window.renweb.onMove</h3>
+                    <div class="method-signature"><code>window.renweb.onMove = async (position: { x: number, y: number }) => { ... }</code></div>
+                    <p class="method-description">Called when the native window position changes.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onMove = async (position) => {
+    await Log.debug(`Moved to (${position.x}, ${position.y})`);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onwindowstatechanged" class="api-method">
+                    <h3>window.renweb.onWindowStateChanged</h3>
+                    <div class="method-signature"><code>window.renweb.onWindowStateChanged = async (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => { ... }</code></div>
+                    <p class="method-description">Called when native window state changes.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onWindowStateChanged = async ({ state }) => {
+    await Log.debug('Window state:', state);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onpermissionrequested" class="api-method">
+                    <h3>window.renweb.onPermissionRequested</h3>
+                    <div class="method-signature"><code>window.renweb.onPermissionRequested = async (event: { kind: string, origin: string }) => { ... }</code></div>
+                    <p class="method-description">Called when the native webview emits a permission request.
+                        <br><strong>Note:</strong> Permission kinds differ by engine; macOS currently reports authentication/credential challenge flows.
+                    </p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onPermissionRequested = async (event) => {
+    await Log.warn('Permission request:', event);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onnewwindowrequested" class="api-method">
+                    <h3>window.renweb.onNewWindowRequested</h3>
+                    <div class="method-signature"><code>window.renweb.onNewWindowRequested = async (event: { url: string }) => { ... }</code></div>
+                    <p class="method-description">Called when native webview requests opening a new window.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onNewWindowRequested = async ({ url }) => {
+    await Log.info('New window requested:', url);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onrenderprocessterminated" class="api-method">
+                    <h3>window.renweb.onRenderProcessTerminated</h3>
+                    <div class="method-signature"><code>window.renweb.onRenderProcessTerminated = async (event: { reason: string }) => { ... }</code></div>
+                    <p class="method-description">Called when the web renderer process exits/crashes/unresponds.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onRenderProcessTerminated = async ({ reason }) => {
+    await Log.error('Renderer terminated:', reason);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-oncertificateerror" class="api-method">
+                    <h3>window.renweb.onCertificateError</h3>
+                    <div class="method-signature"><code>window.renweb.onCertificateError = async (event: { url: string, error: string }) => { ... }</code></div>
+                    <p class="method-description">Called when native TLS/certificate validation errors are reported.</p>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">window.renweb.onCertificateError = async (event) => {
+    await Log.error('Certificate error:', event);
+};</code></pre>
+                    </div>
+                </div>
+
+                <div id="callbacks-window-renweb-onservermessage" class="api-method">
+                    <h3>
+                        window.renweb.onServerMessage
+                    </h3>
+                    <div class="method-signature"><code>window.renweb.onServerMessage = async (message: any) => { ... }</code></div>
+                    <p class="method-description">
+                        Called whenever another RenWeb process sends a message to this window via
+                        <code>Process.send()</code>. The <code>message</code> argument contains the decoded payload
+                        along with a <code>sender</code> property identifying the originating process.
                     </p>
                     <div class="method-params">
                         <h4>Parameters</h4>
                         <ul>
                             <li>
                                 <span class="param-name">message</span>
-                                <span class="param-type">any</span>
-                                <span class="param-description">- The message received from the server</span>
+                                <span class="param-type">{ sender: Process, message: any } | any</span>
+                                <span class="param-description">- The decoded message payload</span>
                             </li>
                         </ul>
                     </div>
                     <div class="method-returns">
                         <h4>Returns</h4>
-                        <p><span class="param-type">void</span> - This function does not return a value</p>
+                        <p><span class="param-type">void | Promise&lt;void&gt;</span> - May be async</p>
                     </div>
                     <div class="method-example">
                         <h4>Example</h4>
-                        <pre><code class="language-javascript">window.onServerMessage = async (message) => {
+                        <pre><code class="language-javascript">window.renweb.onServerMessage = async (message) => {
     await Log.debug("Received message:", message);
 };</code></pre>
                     </div>

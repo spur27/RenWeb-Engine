@@ -96,6 +96,15 @@ extern "C" {
 
 namespace RenWeb {
     namespace Locate {
+        /**
+         * Returns the filesystem path to the currently loaded shared module (`.so` / `.dll`).
+         *
+         * Uses `wai_getModulePath` from the embedded whereami library to resolve the
+         * real path of the module at runtime.
+         *
+         * @return Absolute path to the current module.
+         * @throws std::runtime_error if the module path cannot be determined.
+         */
         inline std::filesystem::path module() {
             const int length = wai_getModulePath(nullptr, 0, nullptr);
             if (length < 0) {
@@ -105,6 +114,15 @@ namespace RenWeb {
             wai_getModulePath(&module_path[0], length, nullptr);
             return std::filesystem::path(module_path);
         }
+        /**
+         * Returns the filesystem path to the current RenWeb executable.
+         *
+         * Uses `wai_getExecutablePath` from the embedded whereami library to
+         * resolve the real path of the executable at runtime.
+         *
+         * @return Absolute path to the current executable.
+         * @throws std::runtime_error if the executable path cannot be determined.
+         */
         inline std::filesystem::path executable() {
             const int length = wai_getExecutablePath(nullptr, 0, nullptr);
             if (length < 0) {
@@ -114,9 +132,25 @@ namespace RenWeb {
             wai_getExecutablePath(&executable_path[0], length, nullptr);
             return std::filesystem::path(executable_path);
         }
+        /**
+         * Returns the directory that contains the current RenWeb executable.
+         *
+         * Equivalent to `executable().parent_path()`. This is the root from which
+         * relative paths such as `content/`, `plugins/`, and `config.json` are resolved.
+         *
+         * @return Absolute path to the executable's parent directory.
+         */
         inline std::filesystem::path currentDirectory() {
             return executable().parent_path();
         }
+        /**
+         * Returns the platform-appropriate temporary directory.
+         *
+         * On Windows, reads the `TEMP` environment variable first, then `TMP`,
+         * falling back to `C:\Windows\Temp`. On all other platforms returns `/tmp`.
+         *
+         * @return Absolute path to the system temporary directory.
+         */
         inline std::filesystem::path tempDirectory() {
         #if defined(_WIN32)
           char* temp = nullptr;

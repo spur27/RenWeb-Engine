@@ -34,7 +34,7 @@
 
 const INFO_JSON = {
   "title": "RenWeb",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "author": "Spur27",
   "description": "Base RenWeb engine",
   "license": "BSL",
@@ -59,13 +59,7 @@ const INFO_JSON = {
     "https://example.one",
     "http://example.two/sequel"
   ],
-  "server": {
-    "ip": "127.0.0.1",
-    "port": 8270,
-    "https": false,
-    "ssl_cert_path": "/absolute/path/example",
-    "ssl_key_path": "./relative/path/example"
-  }
+  "port": 8270,
 };
 
 const INFO_MINIMUM_JSON = {

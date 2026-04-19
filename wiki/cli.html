@@ -43,26 +43,618 @@
 </head>
 <body class="iframe-page">
     <canvas id="starfield"></canvas>
-    
-    <div class="container" style="display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 0;">
-        <main class="main-content" style="width: 100%; max-width: 800px; padding: 2rem;">
-            <section id="overview" class="card" style="text-align: center; padding: 4rem 2rem;">
-                <h2 style="font-size: 3rem; margin-bottom: 1rem;">🚧 Under Development</h2>
-                <p style="font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 2rem;">
-                    The RenWeb CLI tool is currently under development and will be available soon.
+
+    <div class="container">
+        <main class="main-content">
+
+            <!-- ── Overview ─────────────────────────────────────────────── -->
+            <section id="overview" class="card">
+                <h2>RenWeb CLI Tool (<code>rw</code>)</h2>
+                <p class="intro-text">
+                    The <code>rw</code> command-line tool scaffolds, runs, builds, and packages
+                    RenWeb applications. It handles everything from project creation to
+                    cross-platform installer generation, without requiring you to touch
+                    makefiles or packaging scripts directly.
                 </p>
-                <p style="color: var(--text-muted);">
-                    This tool will provide command-line utilities for project scaffolding, building, and deployment.
-                </p>
+
+                <h3>Installation</h3>
+                <pre><code class="language-bash"># Install globally via npm
+npm install -g renweb-cli
+
+# Verify
+rw --help</code></pre>
+
+                <h3>Command Summary</h3>
+                <table aria-label="CLI command summary">
+                    <thead>
+                        <tr><th>Command</th><th>Purpose</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>rw create</code></td><td>Scaffold a new RenWeb project from a template</td></tr>
+                        <tr><td><code>rw init</code></td><td>Integrate RenWeb into an existing project (Angular, Vite, Deno, or vanilla)</td></tr>
+                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, plugin header, or JS API files</td></tr>
+                        <tr><td><code>rw run</code></td><td>Launch the engine — walks up from cwd to find <code>build/</code> and the host executable</td></tr>
+                        <tr><td><code>rw build</code></td><td>Prepare <code>build/</code> for launch — copy pages, fetch engine and plugins, then delegate to Vite or mirror <code>src/</code></td></tr>
+                        <tr><td><code>rw update</code></td><td>Update the engine, JS modules, npm/bun packages, and plugins in an existing project</td></tr>
+                        <tr><td><code>rw package</code></td><td>Generate installer packages for all platforms</td></tr>
+                        <tr><td><code>rw docker</code></td><td>Build, rebuild, or kill the renweb-cli Docker image</td></tr>
+                        <tr><td><code>rw doctor</code></td><td>Check environment health and tool availability</td></tr>
+                        <tr><td><code>rw doc</code></td><td>Open documentation pages: <code>rw doc js</code>, <code>rw doc usage</code>, etc.</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box">
+                    <h3><code>engine_repository</code> — Custom engine source</h3>
+                    <p>All commands that download engine files (executables, API
+                    modules, plugin headers) read the <code>engine_repository</code> field from
+                    the project's <code>info.json</code>. When set, it overrides the default
+                    <code>https://github.com/spur27/RenWeb-Engine</code> source for all
+                    GitHub queries in that project.</p>
+                    <pre><code class="language-json">{
+  "engine_repository": "https://github.com/my-org/my-renweb-fork"
+}</code></pre>
+                </div>
             </section>
+
+            <!-- ── create ───────────────────────────────────────────────── -->
+            <section id="create" class="card">
+                <h2><code>rw create</code></h2>
+                <p class="intro-text">
+                    Scaffolds a brand-new RenWeb project. Prompts for project metadata
+                    (<code>info.json</code> fields), downloads the engine executable for the
+                    host platform, and sets up the project structure. The type argument is
+                    optional — omitting it defaults to <code>vanilla</code>.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw create [type] [flags]</code></pre>
+
+                <h3>Project Types</h3>
+                <table aria-label="create project types">
+                    <thead>
+                        <tr><th>Type</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>vanilla</code> <em>(default)</em></td><td>Plain HTML/CSS/JS — no build step, no Node dependency</td></tr>
+                        <tr><td><code>react</code></td><td>Vite + React template</td></tr>
+                        <tr><td><code>vue</code></td><td>Vite + Vue template</td></tr>
+                        <tr><td><code>svelte</code></td><td>Vite + Svelte template</td></tr>
+                        <tr><td><code>preact</code></td><td>Vite + Preact template</td></tr>
+                        <tr><td><code>solid</code></td><td>Vite + Solid template</td></tr>
+                        <tr><td><code>lit</code></td><td>Vite + Lit template</td></tr>
+                        <tr><td><code>angular</code></td><td>Angular CLI scaffold (uses the Angular build pipeline)</td></tr>
+                        <tr><td><code>plugin</code></td><td>Scaffold a C++ plugin project</td></tr>
+                        <tr><td><code>engine</code></td><td>Clone the full RenWeb Engine repository (with submodules by default)</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Flags</h3>
+                <table aria-label="create flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>-y, --yes</code></td><td>Accept all defaults without prompting</td></tr>
+                        <tr><td><code>--dir &lt;path&gt;</code></td><td>Output directory (default: current working directory)</td></tr>
+                        <tr><td><code>--skip-submodules</code></td><td>Skip <code>--recurse-submodules</code> when cloning with <code>engine</code> type</td></tr>
+                        <tr><td><code>--node</code></td><td>Add <code>package.json</code> with <code>renweb</code> as an npm dependency (vanilla only)</td></tr>
+                        <tr><td><code>--deno</code></td><td>Add <code>deno.json</code> with <code>jsr:@renweb/api</code> as an import (vanilla only)</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Default vanilla project — no type required
+rw create
+
+# Vanilla project, accept all defaults
+rw create --yes
+
+# Vanilla project with npm renweb package (requires bundler for API imports)
+rw create --node
+
+# Vanilla project with Deno renweb package
+rw create --deno
+
+# React project in the current directory
+rw create react
+
+# Plugin project scaffold
+rw create plugin my-plugin
+
+# Clone the engine repository (includes submodules)
+rw create engine
+
+# Clone without recursing submodules
+rw create engine --skip-submodules</code></pre>
+
+                <div class="info-box">
+                    <h3>What gets created (vanilla)</h3>
+                    <ul>
+                        <li><code>info.json</code> / <code>config.json</code> — project metadata and window config</li>
+                        <li><code>build/</code> — engine executable, content directory, and starter page</li>
+                        <li><code>src/</code> — empty source directory for your application files</li>
+                        <li><code>licenses/</code>, <code>resource/</code>, <code>credentials/</code> — fetched from the engine repository</li>
+                        <li><code>.github/copilot-instructions.md</code> — AI context for the RenWeb JS API and project structure</li>
+                        <li><code>package.json</code> (with <code>--node</code>) or <code>deno.json</code> (with <code>--deno</code>)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- ── init ──────────────────────────────────────────────────── -->
+            <section id="init" class="card">
+                <h2><code>rw init</code></h2>
+                <p class="intro-text">
+                    Integrates RenWeb into an <em>existing</em> project directory. Detects the
+                    project type automatically (Angular, Vite-based framework, Deno, Bun, or
+                    vanilla) and patches the relevant config files — <code>vite.config.js</code>,
+                    <code>angular.json</code>, <code>deno.json</code>, <code>package.json</code> —
+                    to output into <code>build/content/&lt;page&gt;/</code> so the engine can
+                    serve the result.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw init [dir] [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="init flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>-y, --yes</code></td><td>Skip prompts and use defaults</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>What it does</h3>
+                <ol>
+                    <li>Detects the project type from existing config files (<code>angular.json</code>, <code>vite.config.*</code>, <code>deno.json</code>, <code>bun.lockb</code>, <code>package.json</code>)</li>
+                    <li>Patches the build output path to <code>build/content/&lt;page&gt;/</code></li>
+                    <li>Downloads the engine executable into <code>build/</code></li>
+                    <li>Downloads the RenWeb JS API into <code>src/modules/renweb/</code> (vanilla) or the appropriate location</li>
+                    <li>Adds <code>info.json</code>, <code>config.json</code>, <code>licenses/</code>, <code>resource/</code>, and <code>.github/copilot-instructions.md</code></li>
+                    <li>Adds <code>prebuild</code>, <code>start</code>, and <code>test</code> scripts to <code>package.json</code> / <code>deno.json</code></li>
+                    <li>Appends <code>.rw/</code> and <code>build/</code> to <code>.gitignore</code></li>
+                </ol>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Run in an existing Vite project
+cd my-vite-app
+rw init
+
+# Non-interactive
+rw init --yes
+
+# Point at a directory
+rw init ./my-project</code></pre>
+
+                <div class="info-box">
+                    <h3>Use <code>rw init</code> vs <code>rw create</code></h3>
+                    <p><code>rw create</code> scaffolds a fresh project from scratch.
+                    <code>rw init</code> adopts an existing codebase — run it in a repo that
+                    already has source files when you want to add the RenWeb engine to it.</p>
+                </div>
+            </section>
+
+            <!-- ── fetch ─────────────────────────────────────────────────── -->
+            <section id="fetch" class="card">
+                <h2><code>rw fetch</code></h2>
+                <p class="intro-text">
+                    Downloads engine assets from the latest GitHub release into the current
+                    working directory. Without any flags, downloads the bare engine executable
+                    for the host platform.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw fetch [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="fetch flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>--executable</code></td><td>Download the bare engine executable (default when no flag is given)</td></tr>
+                        <tr><td><code>--plugin</code></td><td>Download plugin assets into the current directory</td></tr>
+                        <tr><td><code>--api</code></td><td>Download the JS API type definitions and source files (<code>index.js</code>, <code>index.d.ts</code>, <code>index.ts</code>)</td></tr>
+                        <tr><td><code>--version &lt;tag&gt;</code></td><td>Pin to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
+                    </tbody>
+                </table>
+
+                <p>Flags can be combined. For example, <code>rw fetch --api --executable</code>
+                downloads both the engine and the API files in one call.</p>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Download the engine executable (host platform auto-detected)
+rw fetch
+
+# Download JS API type definitions
+rw fetch --api
+
+# Download engine and API together
+rw fetch --executable --api
+
+# Pin to a specific release version
+rw fetch --version 0.0.6</code></pre>
+            </section>
+
+            <!-- ── run ───────────────────────────────────────────────────── -->
+            <section id="run" class="card">
+                <h2><code>rw run</code></h2>
+                <p class="intro-text">
+                    Launches the RenWeb engine. Walks up the directory tree from the current
+                    working directory to locate the project root (identified by
+                    <code>info.json</code> next to a <code>build/</code> directory), then finds
+                    and executes the host-platform engine binary inside <code>build/</code>.
+                    The process runs in the foreground and exits with the engine's exit code.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw run</code></pre>
+
+                <p>No flags. The host OS and architecture are detected automatically.</p>
+
+                <h3>What it does</h3>
+                <ol>
+                    <li>Walks up from the current directory to find the project root (the directory containing <code>info.json</code> and <code>build/</code>). If already inside <code>build/</code>, uses that directly.</li>
+                    <li>Detects the host OS and architecture to select the correct executable (e.g. <code>renweb-0.0.7-linux-x86_64</code>)</li>
+                    <li>Ensures the executable is marked as executable (<code>chmod +x</code>)</li>
+                    <li>Launches the engine with <code>build/</code> as the working directory and exits with the same exit code</li>
+                </ol>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># From the project root, src/, or any subdirectory
+rw run
+
+# Build then run
+rw build &amp;&amp; rw run</code></pre>
+
+                <div class="highlight-box">
+                    <h3>Engine not found?</h3>
+                    <p>If no matching executable is present in <code>build/</code>, run
+                    <code>rw build</code> first — it fetches the engine for the host platform
+                    and caches it in <code>.rw/executables/</code>.</p>
+                </div>
+            </section>
+
+            <!-- ── build ─────────────────────────────────────────────────── -->
+            <section id="build" class="card">
+                <h2><code>rw build</code></h2>
+                <p class="intro-text">
+                    Prepares <code>build/</code> for launch. For <code>vanilla</code> projects,
+                    selectively rebuilds the output directory — copying pages, seeding JS modules,
+                    and ensuring the engine executable is present. For Vite-based projects
+                    (React, Vue, Svelte, Preact), delegates to <code>vite build</code> via the
+                    project's package manager.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw build [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="build flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>--meta-only</code></td><td>Run only the meta steps (copy manifests, fetch engine, fetch plugins) and skip the JS build. Designed for use as an npm <code>prebuild</code> hook.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>What vanilla build does</h3>
+                <ol>
+                    <li>Selectively clears <code>build/content/</code>, <code>build/licenses/</code>, <code>build/resource/</code>, <code>build/assets/</code>, <code>build/info.json</code>, and <code>build/config.json</code>. The engine executable, <code>lib/</code>, <code>lib-*/</code>, and <code>plugins/</code> are <strong>never</strong> removed.</li>
+                    <li>Copies <code>info.json</code> and <code>config.json</code> → <code>build/</code></li>
+                    <li>Copies each page directory from <code>src/content/</code> → <code>build/content/</code>, seeding <code>src/modules/</code> into each page's <code>modules/</code> subdirectory</li>
+                    <li>Copies <code>src/assets/</code> → <code>build/assets/</code>, <code>licenses/</code> → <code>build/licenses/</code>, <code>resource/</code> → <code>build/resource/</code></li>
+                    <li>Ensures the engine executable is present: checks <code>.rw/executables/</code> cache first, downloads from GitHub and caches on first use</li>
+                </ol>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Vanilla: copy pages + ensure engine
+rw build
+
+# Build then run
+rw build &amp;&amp; rw run</code></pre>
+
+                <div class="highlight-box">
+                    <h3>Vite projects</h3>
+                    <p>For framework projects (React, Vue, Svelte, etc.) <code>rw build</code>
+                    delegates to <code>vite build</code> after the meta steps. For a
+                    rebuild-and-launch workflow, use <code>rw build &amp;&amp; rw run</code>.
+                    The <code>prebuild</code> script added to <code>package.json</code> runs
+                    <code>rw build --meta-only</code> automatically before each Vite build.</p>
+                </div>
+            </section>
+
+            <!-- ── update ────────────────────────────────────────────────── -->
+            <section id="update" class="card">
+                <h2><code>rw update</code></h2>
+                <p class="intro-text">
+                    Updates the project to the latest engine release. Also runs the package
+                    manager install step (npm/bun/yarn/pnpm), re-downloads vanilla JS API
+                    modules from GitHub, and updates all plugins listed in
+                    <code>info.json["plugins"]</code>.
+                </p>
+
+                <h3>What it does</h3>
+                <ol>
+                    <li>Runs the project's package manager install (<code>npm install</code>, <code>bun install</code>, etc.) if a <code>package.json</code> or <code>deno.json</code> is present</li>
+                    <li>Re-downloads <code>src/modules/renweb/index.js</code> and <code>index.d.ts</code> from the engine repository (vanilla projects only)</li>
+                    <li>Downloads the engine executable from the specified or latest release, replacing the old version in <code>build/</code></li>
+                    <li>Updates plugins from their GitHub release assets: downloads to <code>.rw/plugins/</code> cache and copies the host-arch binary to <code>build/plugins/</code></li>
+                    <li>Syncs the <code>version</code> field in <code>info.json</code> to match the downloaded release</li>
+                </ol>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw update [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="update flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>--plugins-only</code></td><td>Only update plugins — skip the engine executable</td></tr>
+                        <tr><td><code>--version &lt;tag&gt;</code></td><td>Update to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Auto-detect and update everything
+rw update
+
+# Pin to a specific version
+rw update --version 0.0.6</code></pre>
+            </section>
+
+            <!-- ── package ───────────────────────────────────────────────── -->
+            <section id="package" class="card">
+                <h2><code>rw package</code></h2>
+                <p class="intro-text">
+                    Generates installer and distribution packages for Windows, macOS, and Linux
+                    from a staged RenWeb build. Supports every major packaging format on each
+                    platform.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw package [flags]</code></pre>
+
+                <h3>Flags</h3>
+                <table aria-label="package flags">
+                    <thead>
+                        <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>--os &lt;os&gt;</code></td><td>host OS</td><td>Target OS: <code>windows</code>, <code>macos</code>, <code>linux</code></td></tr>
+                        <tr><td><code>--arch &lt;arch&gt;</code></td><td>host arch</td><td>Target architecture: <code>x86_64</code>, <code>arm64</code>, <code>x86_32</code>, …</td></tr>
+                        <tr><td><code>--ext &lt;ext&gt;</code></td><td>all</td><td>Limit to a single package format (e.g. <code>deb</code>, <code>nsis</code>, <code>flatpak</code>)</td></tr>
+                        <tr><td><code>--cache &lt;dir&gt;</code></td><td>temp dir</td><td>Directory used to cache downloaded engine assets</td></tr>
+                        <tr><td><code>--executable-only</code></td><td>—</td><td>Stage the bare executable only</td></tr>
+                        <tr><td><code>--engine-repo &lt;url&gt;</code></td><td>GitHub releases</td><td>Override the source repository URL for engine downloads</td></tr>
+                        <tr><td><code>--plugin-repo &lt;url&gt;</code></td><td>—</td><td>Additional plugin repository to bundle with the package</td></tr>
+                        <tr><td><code>--gpg-sign &lt;key&gt;</code></td><td>—</td><td>GPG key ID to sign Linux packages (deb, rpm, Flatpak)</td></tr>
+                        <tr><td><code>--sign-identity &lt;id&gt;</code></td><td>—</td><td>macOS Developer identity for code-signing (<code>codesign</code>)</td></tr>
+                        <tr><td><code>--sign-cert &lt;path&gt;</code></td><td>—</td><td>Windows code-signing certificate (<code>.pfx</code>) path</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Supported Formats by Platform</h3>
+                <table aria-label="package formats">
+                    <thead>
+                        <tr><th>Platform</th><th>Format</th><th>Tool required</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td rowspan="4"><span class="os-windows">Windows</span></td><td>NSIS installer (<code>.exe</code>)</td><td><code>makensis</code></td></tr>
+                        <tr><td>MSI (<code>.msi</code>)</td><td><code>wix</code></td></tr>
+                        <tr><td>MSIX (<code>.msix</code>)</td><td><code>makeappx</code></td></tr>
+                        <tr><td>Chocolatey / NuGet / winget manifests</td><td>—</td></tr>
+                        <tr><td rowspan="2"><span class="os-macos">macOS</span></td><td>DMG disk image (<code>.dmg</code>)</td><td><code>create-dmg</code></td></tr>
+                        <tr><td>PKG installer (<code>.pkg</code>)</td><td><code>pkgbuild</code>, <code>productbuild</code></td></tr>
+                        <tr><td rowspan="5"><span class="os-linux">Linux</span></td><td>Debian package (<code>.deb</code>)</td><td><code>fpm</code></td></tr>
+                        <tr><td>RPM package (<code>.rpm</code>)</td><td><code>fpm</code></td></tr>
+                        <tr><td>Arch package (<code>.pkg.tar.zst</code>)</td><td><code>fpm</code></td></tr>
+                        <tr><td>AppImage (<code>.AppImage</code>)</td><td><code>appimagetool</code></td></tr>
+                        <tr><td>Flatpak (<code>.flatpak</code>)</td><td><code>flatpak-builder</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Package for the host platform (all formats)
+rw package
+
+# Build only a .deb for the current machine
+rw package --os linux --ext deb
+
+# Build a Windows NSIS installer (cross-platform where makensis is available)
+rw package --os windows --ext nsis</code></pre>
+            </section>
+
+            <!-- ── docker ────────────────────────────────────────────────── -->
+            <section id="docker" class="card">
+                <h2><code>rw docker</code></h2>
+                <p class="intro-text">
+                    Manages the <code>renweb-cli</code> Docker image used by the packaging
+                    pipeline. Use this to build the image for the first time, rebuild it after
+                    <code>cli/Dockerfile</code> changes, or kill stuck containers.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw docker &lt;action&gt;</code></pre>
+
+                <h3>Actions</h3>
+                <table aria-label="docker actions">
+                    <thead>
+                        <tr><th>Action</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>build</code></td><td>Build the <code>renweb-cli</code> image from <code>cli/Dockerfile</code></td></tr>
+                        <tr><td><code>rebuild</code></td><td>Rebuild the image with <code>--no-cache</code> (forces a full layer rebuild)</td></tr>
+                        <tr><td><code>kill</code></td><td>Kill all running containers based on the <code>renweb-cli</code> image</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Environment</h3>
+                <p>Set <code>RENWEB_IMAGE</code> to override the default image name
+                (<code>renweb-cli</code>):</p>
+                <pre><code class="language-bash">RENWEB_IMAGE=my-image rw docker build</code></pre>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Build the Docker image for the first time
+rw docker build
+
+# Rebuild after changing Dockerfile (clears layer cache)
+rw docker rebuild
+
+# Kill all running renweb-cli containers
+rw docker kill</code></pre>
+            </section>
+
+            <!-- ── doctor ────────────────────────────────────────────────── -->
+            <section id="doctor" class="card">
+                <h2><code>rw doctor</code></h2>
+                <p class="intro-text">
+                    Inspects the local environment and the current RenWeb project for common
+                    problems. Reports which required and optional tools are present, checks
+                    Node.js version compatibility, and verifies the project structure.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw doctor</code></pre>
+
+                <p>No flags. Exit code is <code>0</code> if all required checks pass;
+                <code>1</code> if any required item is missing or misconfigured.</p>
+
+                <h3>What is checked</h3>
+                <table aria-label="doctor checks">
+                    <thead>
+                        <tr><th>Check</th><th>Required / Optional</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Node.js ≥ 16</td><td>Required</td></tr>
+                        <tr><td><code>git</code></td><td>Required</td></tr>
+                        <tr><td><code>curl</code> or <code>wget</code></td><td>Required (one of them)</td></tr>
+                        <tr><td><code>make</code></td><td>Required for compilation</td></tr>
+                        <tr><td><code>g++</code> / <code>clang++</code></td><td>Required for compilation</td></tr>
+                        <tr><td><code>fpm</code></td><td>Optional — Linux packaging</td></tr>
+                        <tr><td><code>appimagetool</code></td><td>Optional — AppImage packaging</td></tr>
+                        <tr><td><code>flatpak</code> / <code>flatpak-builder</code></td><td>Optional — Flatpak packaging</td></tr>
+                        <tr><td><code>makensis</code></td><td>Optional — Windows NSIS packaging</td></tr>
+                        <tr><td>Project <code>info.json</code> present</td><td>Project check</td></tr>
+                        <tr><td>Engine executable present in <code>build/</code></td><td>Project check</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Example output</h3>
+                <pre><code class="language-bash">$ rw doctor
+
+Node / CLI
+  ✓ Node.js v20.11.0
+  ✓ git  (git version 2.43.0)
+  ✓ curl  (curl 8.5.0)
+
+Build tools
+  ✓ make  (GNU Make 4.3)
+  ✓ g++  (g++ (Ubuntu 13.2.0) 13.2.0)
+  ⚠ clang++ not found — optional
+
+Packaging tools
+  ✓ fpm  (1.15.1)
+  ⚠ appimagetool not found — optional
+  ⚠ flatpak not found — optional
+  ⚠ makensis not found — optional
+
+Project
+  ✓ info.json found
+  ✓ Engine: renweb-0.0.7-linux-x86_64</code></pre>
+            </section>
+
+            <!-- ── doc ───────────────────────────────────────────────────── -->
+            <section id="doc" class="card">
+                <h2><code>rw doc</code></h2>
+                <p class="intro-text">
+                    Opens RenWeb documentation pages in the system default browser.
+                    Without arguments, opens the home page. Pass one or more page names to jump
+                    directly to specific pages — multiple names open multiple tabs.
+                </p>
+
+                <h3>Usage</h3>
+                <pre><code class="language-bash">rw doc [page...]</code></pre>
+
+                <h3>Pages</h3>
+                <table aria-label="doc pages">
+                    <thead>
+                        <tr><th>Name</th><th>Opens</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>(none)</td><td>Home — <code>?page=home</code></td></tr>
+                        <tr><td><code>home</code></td><td>Home — <code>?page=home</code></td></tr>
+                        <tr><td><code>js</code>, <code>api</code></td><td>JS API reference — <code>?page=api</code></td></tr>
+                        <tr><td><code>usage</code></td><td>Usage guide (run / build / dev workflow) — <code>?page=usage</code></td></tr>
+                        <tr><td><code>cli</code></td><td>CLI command reference — <code>?page=cli</code></td></tr>
+                        <tr><td><code>compilation</code></td><td>Building the engine from source — <code>?page=compilation</code></td></tr>
+                        <tr><td><code>download</code>, <code>downloads</code></td><td>Downloads — <code>?page=downloads</code></td></tr>
+                        <tr><td><code>plugin</code>, <code>plugins</code></td><td>Plugin development reference — <code>?page=plugins</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Examples</h3>
+                <pre><code class="language-bash"># Open docs home
+rw doc
+
+# Open JS API reference
+rw doc js
+
+# Open multiple pages at once
+rw doc js usage cli</code></pre>
+            </section>
+
         </main>
     </div>
-    
-    <script src="script.js"></script>
+
     <script>
-        if (typeof hljs !== 'undefined') {
-            hljs.highlightAll();
-        }
+        document.addEventListener('DOMContentLoaded', () => {
+            // Syntax highlighting
+            if (typeof hljs !== 'undefined') hljs.highlightAll();
+
+            // Starfield
+            const canvas = document.getElementById('starfield');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            let stars = [];
+            function resize() {
+                canvas.width  = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            function initStars() {
+                stars = [];
+                for (let i = 0; i < 150; i++) {
+                    stars.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        r: Math.random() * 1.5 + 0.3,
+                        a: Math.random(),
+                        speed: Math.random() * 0.003 + 0.001,
+                    });
+                }
+            }
+            function drawStars() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                stars.forEach(s => {
+                    s.a += s.speed;
+                    ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(s.a));
+                    ctx.fillStyle   = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                ctx.globalAlpha = 1;
+                requestAnimationFrame(drawStars);
+            }
+            resize();
+            initStars();
+            drawStars();
+            window.addEventListener('resize', () => { resize(); initStars(); });
+        });
     </script>
 </body>
 </html>

@@ -84,11 +84,15 @@ JSON::JSON(std::shared_ptr<ILogger> logger, std::shared_ptr<File> file)
 
 /*virtual*/ json::value JSON::getProperty(const std::string& key) const {
     try {
-        return this->json_data.as_object().at(key);
+        if (this->json_data.as_object().contains(key)) {
+            return this->json_data.as_object().at(key);
+        } else {
+            this->logger->debug("[json] property '" + key + "' not found");
+        }
     } catch (const std::exception& e) {
-        this->logger->error("[json] property '" + key + "' not found: " + std::string(e.what()));
-        return json::value(nullptr);
+        this->logger->error("[json] " + std::string(e.what()));
     }
+    return json::value(nullptr);
 }
 
 /*virtual*/ void JSON::setProperty(const std::string& key, const json::value& value) {

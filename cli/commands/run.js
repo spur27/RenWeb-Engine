@@ -1,44 +1,47 @@
 'use strict';
-// rw run
-// Searches for a build/ directory (upward then bounded downward), finds the
-// RenWeb engine binary that matches the host OS and arch, and launches it.
 
 const fs   = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-const { detectTarget, findBuildDir, findProjectExecutable } = require('./shared');
+const { spawnSync } = require('child_process');
+const { detectTarget, findProjectExecutable } = require('../shared/utils');
+const ui = require('../shared/ui');
 
-// ─── Entry ────────────────────────────────────────────────────────────────────
+function findBuildDir(start) {
+    if (path.basename(start) === 'build') return start;
+    let cur = start;
+    while (true) {
+        const candidate = path.join(cur, 'build');
+        if (fs.existsSync(path.join(cur, 'info.json')) && fs.existsSync(candidate))
+            return candidate;
+        const parent = path.dirname(cur);
+        if (parent === cur) break;
+        cur = parent;
+    }
+    return null;
+}
 
-function run(args) {
+function run(_args) {
     const { os: targetOs, arch: targetArch } = detectTarget();
+    const buildDir = findBuildDir(process.cwd());
 
-    const buildDir = findBuildDir();
     if (!buildDir) {
-        console.error('Could not find a build/ directory from the current location.');
+        ui.error('Not inside a RenWeb project (no info.json / build/ found).');
         process.exit(1);
     }
 
     const exeName = findProjectExecutable(buildDir, targetOs, targetArch);
     if (!exeName) {
-        console.error(`No engine executable found in ${buildDir} for ${targetOs}-${targetArch}.`);
+        ui.error(`No engine executable found in ${buildDir} for ${targetOs}-${targetArch}.`);
+        ui.info('Run `rw build` first to fetch the engine.');
         process.exit(1);
     }
 
     const exePath = path.join(buildDir, exeName);
     try { fs.chmodSync(exePath, 0o755); } catch (_) {}
 
-    console.log(`Launching: ${exeName}`);
-    const engineProc = spawn(exePath, [], {
-        cwd: buildDir, stdio: 'inherit', detached: false,
-    });
-    console.log(`Engine running (PID ${engineProc.pid}). Press Ctrl+C to stop.`);
-
-    const cleanup = (code) => { process.exit(code ?? 0); };
-
-    process.on('SIGINT',  () => { try { engineProc.kill('SIGTERM'); } catch (_) {} cleanup(0); });
-    process.on('SIGTERM', () => { try { engineProc.kill('SIGTERM'); } catch (_) {} cleanup(0); });
-    engineProc.on('exit', code => cleanup(code));
+    ui.step(`Launching: ${exeName}`);
+    const r = spawnSync(exePath, [], { cwd: buildDir, stdio: 'inherit' });
+    process.exit(r.status ?? 0);
 }
 
 module.exports = { run };

@@ -577,9 +577,33 @@ private:
       m_com_init = {COINIT_APARTMENTTHREADED};
       enable_dpi_awareness();
 
-      HICON icon = (HICON)LoadImage(
-          hInstance, IDI_APPLICATION, IMAGE_ICON, GetSystemMetrics(SM_CXICON),
-          GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+      HICON icon = (HICON)LoadImageW(
+          hInstance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+          GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED);
+      if (!icon) {
+        icon = (HICON)LoadImageW(
+            hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+            LR_DEFAULTCOLOR | LR_SHARED);
+      }
+      if (!icon) {
+        icon = (HICON)LoadImage(
+            nullptr, IDI_APPLICATION, IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR | LR_SHARED);
+      }
+
+      HICON small_icon = (HICON)LoadImageW(
+          hInstance, L"IDI_ICON1", IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+          GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR | LR_SHARED);
+      if (!small_icon) {
+        small_icon = (HICON)LoadImageW(
+            hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR | LR_SHARED);
+      }
+      if (!small_icon) {
+        small_icon = icon;
+      }
 
       // Create a top-level window.
       WNDCLASSEXW wc;
@@ -588,6 +612,7 @@ private:
       wc.hInstance = hInstance;
       wc.lpszClassName = L"webview";
       wc.hIcon = icon;
+      wc.hIconSm = small_icon;
       wc.lpfnWndProc = (WNDPROC)(+[](HWND hwnd, UINT msg, WPARAM wp,
                                      LPARAM lp) -> LRESULT {
         win32_edge_engine *w{};
@@ -653,9 +678,35 @@ private:
         }
         case WM_ACTIVATE:
           if (LOWORD(wp) != WA_INACTIVE) {
+            if (w->m_skip_next_activate_focus) {
+              w->m_skip_next_activate_focus = false;
+              break;
+            }
             w->focus_webview();
           }
           break;
+        case WM_SHOWWINDOW:
+          // RENWEB PATCH: Some initialization paths may issue ShowWindow
+          // without SWP_SHOWWINDOW, so block premature reveals here too.
+          if (!w->m_allow_show && wp == TRUE) {
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+          }
+          return DefWindowProcW(hwnd, msg, wp, lp);
+        case WM_WINDOWPOSCHANGING: {
+          // RENWEB PATCH: Strip SWP_SHOWWINDOW during WebView2 initialization.
+          // ICoreWebView2Controller creation and focus calls internally invoke
+          // SetWindowPos with SWP_SHOWWINDOW on the host HWND, causing a brief
+          // flash. m_allow_show is false only during embed(); it is set true
+          // once init is complete so all subsequent show calls go through.
+          auto *pos = reinterpret_cast<WINDOWPOS *>(lp);
+          if (!w->m_allow_show) {
+            if (pos) {
+              pos->flags &= ~static_cast<UINT>(SWP_SHOWWINDOW);
+            }
+          }
+          return DefWindowProcW(hwnd, msg, wp, lp);
+        }
         default:
           return DefWindowProcW(hwnd, msg, wp, lp);
         }
@@ -668,6 +719,10 @@ private:
       if (!m_window) {
         throw exception{WEBVIEW_ERROR_INVALID_STATE, "Window is null"};
       }
+      SendMessageW(m_window, WM_SETICON, ICON_BIG,
+                   reinterpret_cast<LPARAM>(icon));
+      SendMessageW(m_window, WM_SETICON, ICON_SMALL,
+                   reinterpret_cast<LPARAM>(small_icon));
       // Start hidden; visibility is controlled by higher-level logic.
       ShowWindow(m_window, SW_HIDE);
       on_window_created();
@@ -772,12 +827,22 @@ private:
   void window_settings(bool debug) {
     auto cb =
         std::bind(&win32_edge_engine::on_message, this, std::placeholders::_1);
+    m_allow_show = false;
     embed(m_widget, debug, cb).ensure_ok();
+    // RENWEB PATCH: Re-apply hidden state after WebView2 initialization
+    // (belt-and-suspenders — WM_WINDOWPOSCHANGING already blocked the flash).
+    if (owns_window()) {
+      ShowWindow(m_window, SW_HIDE);
+    }
+    // Allow user-initiated ShowWindow calls from this point on.
+    // The WM_WINDOWPOSCHANGING handler only suppresses SWP_SHOWWINDOW while
+    // this is false (i.e., during embed() initialization).
+    m_allow_show = true;
   }
 
   noresult window_show() {
     if (owns_window() && !m_is_window_shown) {
-      ShowWindow(m_widget, SW_SHOW);  // Show widget first
+      ShowWindow(m_widget, SW_SHOW);
       ShowWindow(m_window, SW_SHOW);
       UpdateWindow(m_window);
       SetFocus(m_window);
@@ -879,9 +944,7 @@ private:
     // so content renders when the host window is shown externally.
     ShowWindow(m_widget, SW_SHOW);
     UpdateWindow(m_widget);
-    if (owns_window()) {
-      focus_webview();
-    }
+    // Do not force focus during hidden startup; focus is handled on activation.
     return {};
   }
 
@@ -976,6 +1039,8 @@ private:
   mswebview2::loader m_webview2_loader;
   int m_dpi{};
   bool m_is_window_shown{};
+  bool m_allow_show{};
+  bool m_skip_next_activate_focus{true};
   std::function<bool(const std::string&)> m_navigation_callback;
 };
 

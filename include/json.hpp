@@ -29,10 +29,19 @@
 #pragma once
 
 #include <memory>
+#include <boost/version.hpp>
 #include <boost/json.hpp>
-// #include <nlohmann/json.hpp>
 #include "file.hpp"
 #include "interfaces/Ilogger.hpp"
+
+#ifndef RENWEB_EXPECTED_BOOST_VERSION
+#define RENWEB_EXPECTED_BOOST_VERSION 109000
+#endif
+
+static_assert(
+    BOOST_VERSION == RENWEB_EXPECTED_BOOST_VERSION,
+    "Boost version mismatch: RenWeb expects Boost 1.90.0 (BOOST_VERSION=109000)."
+);
 
 using File = RenWeb::File;
 using ILogger = RenWeb::ILogger;

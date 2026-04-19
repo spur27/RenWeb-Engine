@@ -30,7 +30,7 @@
 
 // Modified to include patched backends that start windows hidden
 #include "detail/backends/cocoa_webkit.hh"  // Our patched version for macOS
-#include "../../external/webview/core/include/webview/detail/backends/gtk_webkitgtk.hh"  // GTK already starts hidden
+#include "detail/backends/gtk_webkitgtk.hh"  // Our patched version for Linux
 #include "detail/backends/win32_edge.hh"  // Our patched version for Windows
 
 namespace webview {

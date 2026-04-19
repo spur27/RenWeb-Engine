@@ -110,84 +110,12 @@ xattr -d com.apple.quarantine renweb-macos-*
                 </div>
             </section>
 
-            <!-- Bundles Section -->
-            <section id="bundles" class="card">
-                <h2>Bundles</h2>
-                <p class="intro-text">
-                    Bundles include the RenWeb executable as well as all runtime libraries and dependencies.
-                    To use them, simply merge the bundle directory with a RenWeb directory to produce a directory with
-                    <a href="../?page=usage#file-structure">this structure</a>.
-                </p>
-
-                <div class="version-selector-container">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <label for="bundle-version-select">Version:</label>
-                        <select id="bundle-version-select" class="version-select-input">
-                            <option value="">Loading versions...</option>
-                        </select>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <label for="archive-ext-select">Archive:</label>
-                        <select id="archive-ext-select" class="version-select-input">
-                            <option value="zip">zip</option>
-                            <option value="tar.gz">tar.gz</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="os-tabs">
-                    <button class="tab-btn active" data-target="bundle-linux"><span
-                            class="os-linux">Linux</span></button>
-                    <button class="tab-btn" data-target="bundle-windows"><span
-                            class="os-windows">Windows</span></button>
-                    <button class="tab-btn" data-target="bundle-macos"><span class="os-macos">macOS</span></button>
-                </div>
-
-                <!-- Linux Bundles -->
-                <div id="bundle-linux" class="tab-content active">
-                    <div class="subsection">
-                        <div id="linux-bundles" class="loading">Loading bundles...</div>
-                    </div>
-                    <div class="highlight-box" style="margin-top: 1.5rem;">
-                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
-                        <code>bundle-exec.sh</code> script:
-                        <pre><code class="language-bash">chmod +x bundle-exec.sh
-./bundle-exec.sh</code></pre>
-                    </div>
-                </div>
-
-                <!-- Windows Bundles -->
-                <div id="bundle-windows" class="tab-content">
-                    <div class="subsection">
-                        <div id="windows-bundles" class="loading">Loading bundles...</div>
-                    </div>
-                    <div class="highlight-box" style="margin-top: 1.5rem;">
-                        <strong>NOTE:</strong> When running the program, make sure you launch it from the
-                        <code>bundle-exec.bat</code> script:
-                        <pre><code class="language-bash">bundle-exec.bat</code></pre>
-                    </div>
-                </div>
-
-                <!-- macOS Bundles -->
-                <div id="bundle-macos" class="tab-content">
-                    <div class="subsection">
-                        <div class="loading">MacOS has no dependencies and doesn't need bundles. You can run it with
-                            just the executable!</div>
-                    </div>
-                </div>
-
-            </section>
-
             <!-- Examples Section -->
             <section id="examples" class="card">
                 <h2>Examples</h2>
                 <p class="intro-text">
                     These examples contain the test pages for RenWeb. All you need to do is download an example, extract
-                    it, download an executable,
-                    place it in the example directory, and run it. You can fill the <code>lib</code> directory with the
-                    libs from a bundle if you
-                    are running dependencyless (run the <code>bundle-exec</code> script instead of the RenWeb executable
-                    when doing this).
+                    it, download an executable, place it in the example directory, and run it.
                 </p>
 
                 <div class="version-selector-container">
@@ -209,6 +137,58 @@ xattr -d com.apple.quarantine renweb-macos-*
                 <div id="example-all" class="tab-content active">
                     <div class="subsection">
                         <div id="all-examples" class="loading">Loading examples...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Plugins Section -->
+            <section id="plugins" class="card">
+                <h2>Plugins</h2>
+                <p class="intro-text">
+                    Pre-built plugin binaries for use with RenWeb applications. The example plugin below demonstrates
+                    the RenWeb plugin API and can be used as a reference for building your own plugins. Place any
+                    downloaded <code>.so</code> / <code>.dll</code> / <code>.dylib</code> file into your application's
+                    <code>build/plugins/</code> directory.
+                </p>
+
+                <div class="subsection">
+                    <h3>Example Plugin
+                        <a href="https://github.com/spur27/renweb-example-plugin"
+                           target="_blank" rel="noopener noreferrer"
+                           style="font-size: 0.75rem; font-weight: normal; margin-left: 0.75rem;">
+                            View source
+                        </a>
+                    </h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                        A reference plugin that demonstrates the full plugin API — input/output encoding,
+                        logging, and multiple function exports.
+                    </p>
+
+                    <div class="version-selector-container">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <label for="example-plugin-version-selector">Version:</label>
+                            <select id="example-plugin-version-selector" class="version-select-input">
+                                <option value="">Loading versions...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="os-tabs-wrapper">
+                        <div class="os-tabs">
+                            <button class="tab-btn active" data-target="plugin-linux"><span class="os-linux">Linux</span></button>
+                            <button class="tab-btn" data-target="plugin-windows"><span class="os-windows">Windows</span></button>
+                            <button class="tab-btn" data-target="plugin-macos"><span class="os-macos">macOS</span></button>
+                        </div>
+
+                        <div id="plugin-linux" class="tab-content active">
+                            <div id="plugin-linux-downloads" class="loading">Loading...</div>
+                        </div>
+                        <div id="plugin-windows" class="tab-content">
+                            <div id="plugin-windows-downloads" class="loading">Loading...</div>
+                        </div>
+                        <div id="plugin-macos" class="tab-content">
+                            <div id="plugin-macos-downloads" class="loading">Loading...</div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -253,6 +233,64 @@ xattr -d com.apple.quarantine renweb-macos-*
                     <a href="../?page=usage#configuration" class="download-btn secondary">View Documentation</a>
                 </div>
 
+            </section>
+
+            <!-- CLI Tool Section -->
+            <section id="cli-tool" class="card">
+                <h2>CLI Tool</h2>
+                <p class="intro-text">
+                    The <code>renweb-cli</code> package provides the <code>rw</code> command for scaffolding, building,
+                    running, and packaging RenWeb applications. Requires
+                    <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer">Node.js</a> 16 or later.
+                </p>
+
+                <div class="subsection">
+                    <h3>Install globally via npm</h3>
+                    <pre><code class="language-bash">npm install -g renweb-cli</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>Install from source</h3>
+                    <p>Clone the repository and link the CLI globally using the npm workspace script:</p>
+                    <pre><code class="language-bash">git clone https://github.com/spur27/RenWeb-Engine
+cd RenWeb-Engine
+npm run link:cli</code></pre>
+                </div>
+
+                <p>See the <a href="../?page=cli">CLI Tool documentation</a> for all available commands.</p>
+            </section>
+
+            <!-- JS API Section -->
+            <section id="api" class="card">
+                <h2>JS / TS API</h2>
+                <p class="intro-text">
+                    The RenWeb API package that allows you to interact with the RenWeb engine from your JavaScript or TypeScript code.
+                </p>
+
+                <div class="subsection">
+                    <h3>npm</h3>
+                    <pre><code class="language-bash">npm install renweb-api</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>JSR (Deno / Bun)</h3>
+                    <pre><code class="language-bash"># Deno
+deno add jsr:@spur27/renweb-api
+
+# Bun
+bunx jsr add @spur27/renweb-api</code></pre>
+                </div>
+
+                <div class="subsection">
+                    <h3>Usage</h3>
+                    <pre><code class="language-javascript">const { System } = require('renweb-api');
+
+const os = await System.getOS();
+const arch = await System.getCPUArchitecture();
+console.log(`OS: ${os}, Architecture: ${arch}`);</code></pre>
+                </div>
+
+                <p>See the <a href="../?page=api">JS API documentation</a> for the full API reference.</p>
             </section>
 
         </main>

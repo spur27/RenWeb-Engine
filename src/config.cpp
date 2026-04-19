@@ -70,7 +70,7 @@ json::value Config::getProperty(const std::string& key) const /*override*/ {
         }
         return page.at(key);
     } catch (const std::exception& e) {
-        this->logger->error("[config] property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
+        this->logger->debug("[config] property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
         return json::value(nullptr);
     }
 }
@@ -84,7 +84,7 @@ json::value Config::getDefaultProperty(const std::string& key) const {
         }
         return defaults.at(key);
     } catch (const std::exception& e) {
-        this->logger->error("[config] default property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
+        this->logger->debug("[config] default property '" + key + "' not found in page '" + this->current_page + "': " + std::string(e.what()));
         return json::value(nullptr);
     }
 }

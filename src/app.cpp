@@ -43,6 +43,11 @@
 #if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
+#elif defined(__APPLE__)
+#  import <AppKit/AppKit.h>
+#  import <Foundation/Foundation.h>
+#elif defined(__linux__) || defined(__CYGWIN__)
+#  include <gtk/gtk.h>
 #endif
 
 using namespace RenWeb;
@@ -55,24 +60,37 @@ void App::showErrorPopup(const std::string& message) {
     MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, wmsg.data(), len);
     MessageBoxW(nullptr, wmsg.c_str(), L"RenWeb \u2013 Error", MB_OK | MB_ICONERROR);
 #elif defined(__APPLE__)
-    std::string escaped = message;
-    size_t pos = 0;
-    while ((pos = escaped.find('\'', pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "'\\'' ");
-        pos += 4;
+    @autoreleasepool {
+        NSString* title = @"RenWeb - Error";
+        NSString* msg = [NSString stringWithUTF8String:message.c_str()];
+        NSAlert* alert = [[NSAlert alloc] init];
+        [alert setAlertStyle:NSAlertStyleCritical];
+        [alert setMessageText:title];
+        [alert setInformativeText:msg ? msg : @"Unknown error"];
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
     }
-    std::string cmd = "osascript -e 'display alert \"RenWeb \xe2\x80\x93 Error\" message \"" + escaped + "\" as critical'";
-    std::system(cmd.c_str());
 #elif defined(__linux__) || defined(__CYGWIN__)
-    std::string escaped = message;
-    size_t pos = 0;
-    while ((pos = escaped.find('"', pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\\"");
-        pos += 2;
+    if (!gtk_init_check(nullptr, nullptr)) {
+        std::fprintf(stderr, "RenWeb - Error: %s\n", message.c_str());
+        return;
     }
-    std::string cmd = "zenity --error --title='RenWeb \xe2\x80\x93 Error' --text=\"" + escaped + "\" 2>/dev/null"
-                      " || xmessage -center \"" + escaped + "\" 2>/dev/null";
-    std::system(cmd.c_str());
+
+    GtkWidget* dialog = gtk_message_dialog_new(
+        nullptr,
+        GTK_DIALOG_MODAL,
+        GTK_MESSAGE_ERROR,
+        GTK_BUTTONS_OK,
+        "%s",
+        message.c_str()
+    );
+    gtk_window_set_title(GTK_WINDOW(dialog), "RenWeb - Error");
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+
+    while (gtk_events_pending()) {
+        gtk_main_iteration();
+    }
 #endif
 }
 
@@ -166,7 +184,18 @@ std::unique_ptr<App> AppBuilder::build() {
     app->config = std::move(this->config);
     
     if (this->w == nullptr) {
-        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr));
+        std::string app_id;
+        if (app->info) {
+            try {
+                const auto& jv = app->info->getJson();
+                if (jv.is_object()) {
+                    const auto& obj = jv.as_object();
+                    if (obj.contains("app_id") && obj.at("app_id").is_string())
+                        app_id = std::string(obj.at("app_id").as_string());
+                }
+            } catch (...) {}
+        }
+        this->withWebview(std::make_unique<RenWeb::Webview>(false, nullptr, app_id, this->logger));
     }
     app->w = std::move(this->w);
 
@@ -210,15 +239,14 @@ void App::run() {
             json::object defaults = this->config->getDefaultsJson().is_object() 
                 ? this->config->getDefaultsJson().as_object() : json::object{};
             auto merged_state = JSON::merge(defaults, current_state);
-            this->fns->setup(merged_state);
             this->fns->setState(merged_state);
+            this->fns->setup(merged_state);
         } else {
-            this->fns->setup(current_state);
             this->fns->setState(current_state);
+            this->fns->setup(current_state);
         }
+        this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     });
-
-    this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));
     this->w->run();
     this->fns->teardown();
 }

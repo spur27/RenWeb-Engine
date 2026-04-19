@@ -30,7 +30,7 @@
 # =============================================================================
 # build_for_release.sh - Automated release build script for RenWeb
 # =============================================================================
-# Creates a complete release with example archives, executables, and bundles
+# Creates a complete release with example archives and executables
 # =============================================================================
 
 set -e
@@ -71,6 +71,26 @@ print_warning() {
 
 print_step() {
     echo "${BLUE}${BOLD}[STEP]${RESET} $1"
+}
+
+# Normalize an arch name (alias or canonical) to the canonical makefile ARCH value.
+normalize_arch() {
+    case "$1" in
+        x86_64|x64|amd64)              echo "x86_64"    ;;
+        x86_32|x86|i686|i386|ia32)     echo "x86_32"    ;;
+        arm64|aarch64)                  echo "arm64"     ;;
+        arm32|armhf|armv7|armv7l)       echo "arm32"     ;;
+        mips32|mips)                    echo "mips32"    ;;
+        mips32el|mipsel)                echo "mips32el"  ;;
+        mips64)                         echo "mips64"    ;;
+        mips64el)                       echo "mips64el"  ;;
+        powerpc32|ppc|ppc32)            echo "powerpc32" ;;
+        powerpc64|ppc64)                echo "powerpc64" ;;
+        riscv64)                        echo "riscv64"   ;;
+        s390x)                          echo "s390x"     ;;
+        sparc64)                        echo "sparc64"   ;;
+        *)                              echo "$1"        ;;
+    esac
 }
 
 # Detect operating system
@@ -170,208 +190,76 @@ get_exe_name() {
     sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' ./info.json | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]_]/-/g' | xargs
 }
 
-# Generate bundle_exec script for a specific executable
-generate_bundle_exec() {
-    local exe_name=$1
-    local version=$2
-    local os_name=$3
-    local output_file=$4
-    local bundle_type=${5:-bootstrap}  # bootstrap | full
-
-    if [ "$os_name" = "windows" ]; then
-        if [ "$bundle_type" = "bootstrap" ]; then
-            # Bootstrap bat: check registry for WebView2, run installer if missing,
-            # then delete the installer once installation is confirmed via registry.
-            cat > "$output_file" <<'EOF'
-@echo off
-setlocal enabledelayedexpansion
-
-set "SCRIPT_DIR=%~dp0"
-
-:: Add lib folder to PATH
-if exist "%SCRIPT_DIR%lib" (
-    set "PATH=%SCRIPT_DIR%lib;%PATH%"
-)
-
-:: Check if WebView2 runtime is installed (system-wide or per-user)
-set "WV2_INSTALLED=0"
-for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-    if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
-)
-if "!WV2_INSTALLED!"=="0" (
-    for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-        if not "%%v"=="0.0.0.0" set "WV2_INSTALLED=1"
-    )
-)
-
-:: If not installed, run the bootstrapper
-if "!WV2_INSTALLED!"=="0" (
-    echo WebView2 runtime not found. Installing...
-    set "INSTALLER_PATH="
-    for %%f in ("!SCRIPT_DIR!lib\MicrosoftEdgeWebView2RuntimeInstaller*.exe") do (
-        set "INSTALLER_PATH=%%f"
-        "%%f" /silent /install
-    )
-    :: Re-check registry to confirm the runtime is now present
-    set "WV2_NOW_INSTALLED=0"
-    for /f "tokens=3" %%v in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-        if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
-    )
-    if "!WV2_NOW_INSTALLED!"=="0" (
-        for /f "tokens=3" %%v in ('reg query "HKCU\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" /v "pv" 2^>nul') do (
-            if not "%%v"=="0.0.0.0" set "WV2_NOW_INSTALLED=1"
-        )
-    )
-    if "!WV2_NOW_INSTALLED!"=="1" (
-        echo Installation verified. Removing installer to free space...
-        if defined INSTALLER_PATH del /f /q "!INSTALLER_PATH!" 2>nul
-    ) else (
-        echo Warning: WebView2 installation could not be verified. Installer kept.
-    )
-    echo Installation complete.
-)
-
-"%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
-
-endlocal
-EOF
-        else
-            # Standard bat: just add lib to PATH and launch
-            cat > "$output_file" <<'EOF'
-@echo off
-setlocal
-
-set "SCRIPT_DIR=%~dp0"
-
-if exist "%SCRIPT_DIR%lib" (
-    set "PATH=%SCRIPT_DIR%lib;%PATH%"
-)
-
-"%SCRIPT_DIR%@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-*.exe" %*
-
-endlocal
-EOF
-        fi
-    else
-        if [ -f "./script_templates/bundle_exec.template.sh" ]; then
-            cp "./script_templates/bundle_exec.template.sh" "$output_file"
-        else
-            # Fallback if the template is not present alongside the script
-            cat > "$output_file" <<'TMPLEOF'
-#!/bin/sh
-set -e
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXE=$(ls "$SCRIPT_DIR/@EXE_NAME@-@EXE_VERSION@-@OS_NAME@-"* 2>/dev/null | head -n1)
-[ -z "$EXE" ] && echo "Error: executable not found" >&2 && exit 1
-LIB_DIR="$SCRIPT_DIR/lib"
-[ ! -d "$LIB_DIR" ] && echo "Error: lib/ directory not found" >&2 && exit 1
-case "$(uname -s)" in
-    Darwin) export DYLD_LIBRARY_PATH="$LIB_DIR:${DYLD_LIBRARY_PATH:-}" ;;
-    *)      export LD_LIBRARY_PATH="$LIB_DIR:${LD_LIBRARY_PATH:-}" ;;
-esac
-BUNDLED_LD=""
-for _ld in "$LIB_DIR"/ld-*.so*; do
-    [ -f "$_ld" ] && [ -x "$_ld" ] && { BUNDLED_LD="$_ld"; break; }
-done
-[ -n "$BUNDLED_LD" ] && exec "$BUNDLED_LD" --library-path "$LIB_DIR" "$EXE" "$@"
-exec "$EXE" "$@"
-TMPLEOF
-        fi
-        chmod +x "$output_file"
-    fi
-    
-    sed -i.bak "s/@EXE_NAME@/$exe_name/g" "$output_file"
-    sed -i.bak "s/@EXE_VERSION@/$version/g" "$output_file"
-    sed -i.bak "s/@OS_NAME@/$os_name/g" "$output_file"
-    rm -f "${output_file}.bak"
-}
-
-# Copy WebView2 loader DLL into a bundle lib directory
-copy_webview2_loader() {
-    local arch=$1
-    local lib_dir=$2
-
-    local runtime_dir=""
-    case "$arch" in
-        x86_64|x64) runtime_dir="win-x64" ;;
-        x86|x86_32) runtime_dir="win-x86" ;;
-        arm64) runtime_dir="win-arm64" ;;
-        arm) runtime_dir="win-arm" ;;
-        *) runtime_dir="" ;;
-    esac
-
-    local dll_src=""
-    if [ -n "$runtime_dir" ]; then
-        if [ -f "./external/webview2_sdk/runtimes/$runtime_dir/native/WebView2Loader.dll" ]; then
-            dll_src="./external/webview2_sdk/runtimes/$runtime_dir/native/WebView2Loader.dll"
-        elif [ -f "./external/webview2_sdk/runtimes/$runtime_dir/native_uap/WebView2Loader.dll" ]; then
-            dll_src="./external/webview2_sdk/runtimes/$runtime_dir/native_uap/WebView2Loader.dll"
-        fi
-    fi
-
-    if [ -z "$dll_src" ] && [ -f "./external/webview2_sdk/build/native/x64/WebView2Loader.dll" ]; then
-        dll_src="./external/webview2_sdk/build/native/x64/WebView2Loader.dll"
-    fi
-
-    if [ -n "$dll_src" ]; then
-        mkdir -p "$lib_dir"
-        cp "$dll_src" "$lib_dir/"
-        print_info "  ✓ Bundled WebView2Loader.dll"
-        return 0
-    fi
-
-    print_warning "  ⚠ WebView2Loader.dll not found to bundle"
-    return 1
-}
-
-# Copy pre-extracted WebView2 fixed runtime from external/webview2_runtimes into lib-<arch>/WebView2Runtime
-copy_webview2_fixed_runtime() {
-    local arch=$1
-    local lib_dir=$2
-
-    local local_root="./external/webview2_runtimes/lib-${arch}"
-    if [ ! -d "$local_root" ]; then
-        print_warning "  ⚠ No local WebView2 runtime found at $local_root"
-        return 1
-    fi
-
-    mkdir -p "$lib_dir/WebView2Runtime"
-    cp -r "$local_root/." "$lib_dir/WebView2Runtime/"
-    print_info "  ✓ Copied WebView2Runtime for $arch from external/webview2_runtimes"
-    return 0
-}
-
-# Copy evergreen WebView2 bootstrapper installer into the bundle lib directory.
-# The bootstrapper (~1.5 MB) installs the evergreen runtime on the end-user machine
-# when run. Sourced from external/webview2_bootstraps/lib-<arch>/.
-copy_webview2_bootstrapper() {
-    local arch=$1
-    local lib_dir=$2
-
-    local local_root="./external/webview2_bootstraps/lib-${arch}"
-    if [ ! -d "$local_root" ]; then
-        print_warning "  ⚠ No WebView2 bootstrapper found at $local_root"
-        return 1
-    fi
-
-    local installer
-    installer=$(ls "$local_root"/*.exe 2>/dev/null | head -n1 || true)
-    if [ -z "$installer" ]; then
-        print_warning "  ⚠ No .exe found in $local_root"
-        return 1
-    fi
-
-    mkdir -p "$lib_dir"
-    cp "$installer" "$lib_dir/"
-    print_info "  ✓ Copied WebView2 bootstrapper ($(basename "$installer")) for $arch"
-    return 0
-}
 
 # =============================================================================
 # Main Script
 # =============================================================================
 
 main() {
+    # Parse arguments
+    ARCH_FLAGS=""
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --arch|-a)
+                if [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+                    print_error "--arch requires an architecture name"
+                    exit 1
+                fi
+                _fa=$(normalize_arch "$2")
+                ARCH_FLAGS="${ARCH_FLAGS:+$ARCH_FLAGS }--arch $_fa"
+                shift 2
+                ;;
+            --help|-h)
+                echo "Usage: $0 [--arch <arch>] ..."
+                echo ""
+                echo "Description:"
+                echo "  Automated release build script for RenWeb that creates:"
+                echo "  - Example content archives (zip + tar.gz)"
+                echo "  - Executables for the specified (or all) architectures"
+                echo ""
+                echo "Options:"
+                echo "  --arch <arch>, -a    Build only the specified architecture (repeatable)."
+                echo "                       Accepts canonical names or common aliases."
+                echo "                       Default: all architectures."
+                echo ""
+                echo "Supported architectures:"
+                echo "  x86_64     (x64, amd64)"
+                echo "  x86_32     (x86, i686, i386, ia32)"
+                echo "  arm64      (aarch64)"
+                echo "  arm32      (armhf, armv7, armv7l)"
+                echo "  mips32     (mips)"
+                echo "  mips32el   (mipsel)"
+                echo "  mips64"
+                echo "  mips64el"
+                echo "  powerpc32  (ppc, ppc32)"
+                echo "  powerpc64  (ppc64)"
+                echo "  riscv64"
+                echo "  s390x"
+                echo "  sparc64"
+                echo ""
+                echo "Requirements:"
+                echo "  - build_all_archs.sh script"
+                echo "  - zip and tar utilities"
+                echo "  - Cross-compilers for target architectures"
+                echo ""
+                echo "Output:"
+                echo "  All release artifacts are placed in ./release/"
+                echo ""
+                echo "Examples:"
+                echo "  $0                            # Build everything"
+                echo "  $0 --arch arm64               # Build only arm64"
+                echo "  $0 --arch arm64 --arch x86_64 # Build arm64 and x86_64"
+                echo "  $0 -a aarch64 -a armhf        # Using aliases"
+                exit 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+
     print_header "RenWeb Release Build Script"
 
     detect_os
@@ -522,8 +410,7 @@ main() {
     mkdir -p ./build/custom
     mkdir -p ./build/backup
     mkdir -p ./build/plugins
-    mkdir -p ./build/lib
-    print_info "Created: custom, backup, plugins, lib"
+    print_info "Created: custom, backup, plugins"
     echo ""
     
     # ==========================================================================
@@ -541,23 +428,24 @@ main() {
     echo ""
     
     # ==========================================================================
-    # Step 9: Build all architectures with bundling
+    # Step 9: Build all architectures
     # ==========================================================================
     print_step "9. Building all architectures (this may take a while)"
-    print_warning "Running: ./build_all_archs.sh --bundle"
+    print_warning "Running: ./build_all_archs.sh${ARCH_FLAGS:+ $ARCH_FLAGS}"
     echo ""
     
     if [ ! -f "./build_all_archs.sh" ]; then
         print_error "build_all_archs.sh not found"
         exit 1
     fi
-    
+
+    # shellcheck disable=SC2086  # word-splits intentionally into --arch tokens
     if [ "$OS_NAME" = "Windows" ]; then
-        if ! bash ./build_all_archs.sh --bundle; then
+        if ! bash ./build_all_archs.sh $ARCH_FLAGS; then
             print_error "Build failed - check output above"
             exit 1
         fi
-    elif ! ./build_all_archs.sh --bundle; then
+    elif ! ./build_all_archs.sh $ARCH_FLAGS; then
         print_error "Build failed - check output above"
         exit 1
     fi
@@ -596,104 +484,6 @@ main() {
     echo ""
     
     # ==========================================================================
-    # Step 11: Create bundle archives for each executable
-    # Windows: generates two bundles per arch:
-    #   bundle-<v>-windows-<arch>           full fixed WebView2 runtime (~280 MB)
-    #   bundle-bootstrap-<v>-windows-<arch> bootstrapper installer (~3 MB)
-    # Other platforms: one bundle per arch.
-    # ==========================================================================
-    print_step "11. Creating bundle archives for each executable"
-    echo ""
-
-    # Internal helper: build one archive pair from ./build/tmp
-    _make_bundle() {
-        local bname=$1
-        print_info "  → ${bname}.zip / .tar.gz"
-        zip_dir "./build/tmp" "./release/${bname}.zip"
-        tar_dir "./build/tmp" "./release/${bname}.tar.gz"
-        bundle_count=$((bundle_count + 1))
-    }
-
-    bundle_count=0
-    for exe in ./build/${EXE_NAME}-*; do
-        if [ -f "$exe" ] && [ ! -d "$exe" ]; then
-            exe_name=$(basename "$exe")
-            case "$exe_name" in
-                "${EXE_NAME}-"*) ;;
-                *) continue ;;
-            esac
-
-            print_info "Processing: $exe_name"
-
-            name_without_prefix="${exe_name#${EXE_NAME}-}"
-            name_without_prefix="${name_without_prefix#${VERSION}-}"
-            name_without_ext="${name_without_prefix%.exe}"
-            os="${name_without_ext%%-*}"
-            arch="${name_without_ext##*-}"
-            print_info "  Detected: OS=$os, Arch=$arch"
-
-            if [ "$os" = "macos" ]; then
-                print_info "  ⊘ Skipping bundle for macOS (not needed)"
-                echo ""
-                continue
-            fi
-
-            if [ "$os" = "windows" ]; then
-
-                # ------------------------------------------------------------------
-                # bundle-bootstrap: bootstrapper installer
-                # ------------------------------------------------------------------
-                print_info "  [bundle-bootstrap]"
-                mkdir -p ./build/tmp
-                cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "bootstrap"
-                copy_webview2_loader "$arch" "./build/tmp/lib"
-                copy_webview2_bootstrapper "$arch" "./build/tmp/lib"
-                _make_bundle "bundle-bootstrap-${VERSION}-${os}-${arch}"
-                rm -rf ./build/tmp
-
-                # ------------------------------------------------------------------
-                # bundle: full fixed WebView2 runtime
-                # ------------------------------------------------------------------
-                print_info "  [bundle]"
-                mkdir -p ./build/tmp
-                cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.bat" "full"
-                copy_webview2_fixed_runtime "$arch" "./build/tmp/lib"
-                _make_bundle "bundle-${VERSION}-${os}-${arch}"
-                rm -rf ./build/tmp
-
-            else
-                # Non-Windows: single bundle
-                mkdir -p ./build/tmp
-                cp "$exe" "./build/tmp/$exe_name"
-                generate_bundle_exec "$EXE_NAME" "$VERSION" "$os" "./build/tmp/bundle_exec.sh"
-                # Copy bundled .so libraries produced by make BUNDLE=true
-                if [ -d "./build/lib-${arch}" ]; then
-                    mkdir -p "./build/tmp/lib"
-                    cp -r "./build/lib-${arch}/." "./build/tmp/lib/"
-                    lib_count=$(ls -1 "./build/tmp/lib/"*.so* 2>/dev/null | wc -l || echo 0)
-                    print_info "  ✓ Bundled $lib_count .so files from ./build/lib-${arch}"
-                else
-                    print_warning "  ⚠ No bundled libraries found at ./build/lib-${arch} (was BUNDLE=true used?)"
-                fi
-                _make_bundle "bundle-${VERSION}-${os}-${arch}"
-                rm -rf ./build/tmp
-            fi
-
-            print_info "  ✓ Done"
-            echo ""
-        fi
-    done
-
-    if [ $bundle_count -eq 0 ]; then
-        print_warning "No bundle archives created"
-    else
-        print_info "Created $bundle_count bundle archives (each as .zip and .tar.gz)"
-    fi
-    echo ""
-    
-    # ==========================================================================
     # Summary
     # ==========================================================================
     print_header "Release Build Complete!"
@@ -703,7 +493,6 @@ main() {
     print_info "Contents:"
     print_info "  • Example archives: example-${VERSION}.zip and example-${VERSION}.tar.gz"
     print_info "  • Executables: ${exe_count} files"
-    print_info "  • Bundle archives: ${bundle_count} bundles × 2 formats (zip + tar.gz) = $((bundle_count * 2)) files"
     echo ""
     
     # Display release directory size
@@ -721,25 +510,4 @@ main() {
 # Script Entry Point
 # =============================================================================
 
-# Handle help flag
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "Usage: $0"
-    echo ""
-    echo "Description:"
-    echo "  Automated release build script for RenWeb that creates:"
-    echo "  - Example content archives (zip + tar.gz)"
-    echo "  - Executables for all supported architectures"
-    echo "  - Bundle archives with libraries for each architecture"
-    echo ""
-    echo "Requirements:"
-    echo "  - build_all_archs.sh script"
-    echo "  - zip and tar utilities"
-    echo "  - Cross-compilers for target architectures"
-    echo ""
-    echo "Output:"
-    echo "  All release artifacts are placed in ./release/"
-    exit 0
-fi
-
-# Run main function
 main "$@"

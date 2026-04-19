@@ -49,15 +49,14 @@ namespace RenWeb {
           
         public:
           ~App() = default;
-          
           std::vector<std::string> orig_args;
           std::unique_ptr<JSON> info = nullptr;
           std::unique_ptr<Config> config = nullptr;
           std::unique_ptr<RenWeb::IProcessManager> procm = nullptr;
-          std::unique_ptr<RenWeb::IWebview> w = nullptr;
           std::unique_ptr<RenWeb::IWebServer> ws = nullptr;
-          std::unique_ptr<RenWeb::WindowFunctions> fns = nullptr;
           std::unique_ptr<RenWeb::PluginManager> pm = nullptr;
+          std::unique_ptr<RenWeb::IWebview> w = nullptr;
+          std::unique_ptr<RenWeb::WindowFunctions> fns = nullptr;
           
           void run();
           static void showErrorPopup(const std::string& message);

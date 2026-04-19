@@ -38,6 +38,8 @@
 #include <sstream>
 #include <string>
 #include <fstream>
+#include <algorithm>
+#include <cctype>
 #include <regex>
 #include "../include/web_server.hpp"
 #include "../include/app.hpp"
@@ -76,6 +78,39 @@
 
 using WF = RenWeb::WindowFunctions;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
+
+static bool startsWith(const std::string& value, const std::string& prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+static std::string toLowerAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+static bool isSafeOpenUriScheme(const std::string& uri) {
+    const std::string lower = toLowerAscii(uri);
+    return startsWith(lower, "http://") ||
+           startsWith(lower, "https://") ||
+           startsWith(lower, "mailto:") ||
+           startsWith(lower, "file://");
+}
+
+static bool isTrustedExecutionContext(RenWeb::App* app) {
+    if (!app || !app->config || !app->ws) {
+        return false;
+    }
+
+    static const std::regex uri_regex(R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)");
+    const std::string current_page = app->config->current_page;
+    if (!std::regex_match(current_page, uri_regex)) {
+        return true;
+    }
+
+    const std::string ws_url = app->ws->getURL();
+    return startsWith(current_page, ws_url);
+}
 
 #if defined(_WIN32)
 namespace WebView2Helper {
@@ -140,7 +175,8 @@ namespace WindowHelper {
             exStyle &= ~bit;
         }
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
     
     static void SetStyleBit(HWND hwnd, DWORD bit, bool set) {
@@ -152,7 +188,8 @@ namespace WindowHelper {
             style &= ~bit;
         }
         SetWindowLongPtr(hwnd, GWL_STYLE, style);
-        SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
     
     static float GetDpiScale(HWND hwnd) {
@@ -230,7 +267,7 @@ json::value WF::processInput(const std::string& input) {
 json::value WF::processInput(const json::value& input) {
     switch (input.kind()) {
         case json::kind::string:
-            this->logger->warn("[function] Received string in processInput(std::string)");
+            this->logger->trace("[function] Received string in processInput(std::string)");
             [[fallthrough]];
         case json::kind::int64:
         case json::kind::uint64:
@@ -326,10 +363,10 @@ json::value WF::formatOutput(const T& output) {
 json::value WF::getSingleParameter(const json::value& param) {
     if (param.is_array()) {
         if (param.as_array().size() > 1) {
-            this->logger->warn("[function] Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
+            this->logger->debug("[function] Expected single parameter but received array of size " + std::to_string(param.as_array().size()) + ". Using first element.");
             return param.as_array()[0];
         } else if (param.as_array().size() == 0) {
-            this->logger->warn("[function] Expected single parameter but received empty array. Using null.");
+            this->logger->debug("[function] Expected single parameter but received empty array. Using null.");
             return json::value(nullptr);
         } else {
             return param.as_array()[0];
@@ -340,7 +377,15 @@ json::value WF::getSingleParameter(const json::value& param) {
 }
 
 WF* WF::bindFunction(const std::string& fn_name, std::function<std::string(std::string)> fn) {
-    this->app->w->bind(fn_name, fn);
+    this->app->w->bind(fn_name, [this, fn_name, fn](const std::string& req) -> std::string {
+        if (startsWith(fn_name, "BIND_") && !startsWith(fn_name, "BIND_log_")) {
+            if (!isTrustedExecutionContext(this->app)) {
+                this->logger->warn("[security] Blocked native binding call from untrusted context: " + fn_name);
+                return json::serialize(this->formatOutput(nullptr));
+            }
+        }
+        return fn(req);
+    });
     this->logger->trace("[function] Bound " + fn_name);
     return this;
 }
@@ -410,7 +455,7 @@ json::object WF::getState() {
     json::object state = json::object();
     for (const auto& [key, getset] : this->getsets->getMap()) {
         try {
-            this->logger->info("[function] Getting for " + key);
+            this->logger->trace("[function] Getting for " + key);
             state[key] = this->get(key);
         } catch (...) { }
     }
@@ -419,7 +464,7 @@ json::object WF::getState() {
 void WF::setState(const json::object& json) {
     for (const auto& property : json) {
         try {
-            this->logger->info("[function] Setting for " + std::string(property.key()));
+            this->logger->trace("[function] Setting for " + std::string(property.key()));
             this->set(property.key(), property.value());
         } catch (...) { }
     }
@@ -506,7 +551,8 @@ WF* WF::setGetSets() {
             if (hwnd) {
                 int physical_x = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(x));
                 int physical_y = WindowHelper::LogicalToPhysical(hwnd, static_cast<int>(y));
-                SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                SetWindowPos(hwnd, NULL, physical_x, physical_y, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -533,8 +579,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskTitled) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            GtkWidget* titlebar = gtk_window_get_titlebar(GTK_WINDOW(window_widget));
-            return json::value(titlebar == NULL); // Null means has titlebar
+            return json::value(gtk_window_get_titlebar(GTK_WINDOW(window_widget)) == NULL);
         #endif
         }),
     // -----------------------------------------
@@ -553,7 +598,7 @@ WF* WF::setGetSets() {
                 }
                 SetWindowLongPtr(hwnd, GWL_STYLE, style);
                 SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -563,14 +608,36 @@ WF* WF::setGetSets() {
             } else {
                 styleMask &= ~NSWindowStyleMaskTitled;
             }
+            BOOL was_visible = [nsWindow isVisible];
             [nsWindow setStyleMask:styleMask];
+            if (!was_visible) {
+                [nsWindow orderOut:nil];
+            }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            if (has_titlebar) {
-                gtk_window_set_titlebar(GTK_WINDOW(window_widget), NULL);
+            auto apply_titlebar = [&](GtkWidget* w) {
+                if (has_titlebar) {
+                    gtk_window_set_titlebar(GTK_WINDOW(w), NULL);
+                } else {
+                    GtkWidget* empty = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+                    gtk_widget_set_size_request(empty, 0, 0);
+                    gtk_window_set_titlebar(GTK_WINDOW(w), empty);
+                }
+            };
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                apply_titlebar(GTK_WIDGET(window_widget));
             } else {
-                GtkWidget* empty_titlebar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-                gtk_window_set_titlebar(GTK_WINDOW(window_widget), empty_titlebar);
+                int saved_w = 0, saved_h = 0;
+                gtk_window_get_size(GTK_WINDOW(window_widget), &saved_w, &saved_h);
+                gtk_widget_unrealize(GTK_WIDGET(window_widget));
+                apply_titlebar(GTK_WIDGET(window_widget));
+                GtkWidget* tb = gtk_window_get_titlebar(GTK_WINDOW(window_widget));
+                if (tb) gtk_widget_show(GTK_WIDGET(tb));
+                gtk_widget_hide(GTK_WIDGET(window_widget));
+                gtk_widget_show(GTK_WIDGET(window_widget));
+                if (saved_w > 0 && saved_h > 0) {
+                    gtk_window_resize(GTK_WINDOW(window_widget), saved_w, saved_h);
+                }
             }
         #endif
         })
@@ -610,7 +677,11 @@ WF* WF::setGetSets() {
             } else {
                 styleMask &= ~NSWindowStyleMaskResizable;
             }
+            BOOL was_visible = [nsWindow isVisible];
             [nsWindow setStyleMask:styleMask];
+            if (!was_visible) {
+                [nsWindow orderOut:nil];
+            }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             
@@ -633,7 +704,9 @@ WF* WF::setGetSets() {
             }
             gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), NULL, &hints, 
                 (GdkWindowHints)(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
-            gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
+            if (gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                gtk_window_resize(GTK_WINDOW(window_widget), current_width, current_height);
+            }
         #endif
         })
     ))
@@ -690,6 +763,7 @@ WF* WF::setGetSets() {
                 return json::value([nsWindow isMiniaturized]);
             #elif defined(__linux__)
                 auto window_widget = this->app->w->window().value();
+                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
                 return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget)))
                     & GDK_WINDOW_STATE_ICONIFIED) != 0);
             #endif
@@ -706,18 +780,23 @@ WF* WF::setGetSets() {
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
-                ShowWindow(hwnd, minimize ? SW_MINIMIZE : SW_RESTORE);
+                if (minimize) {
+                    ShowWindow(hwnd, SW_MINIMIZE);
+                } else if (IsIconic(hwnd)) {
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             if (minimize) {
                 [nsWindow miniaturize:nil];
-            } else {
+            } else if ([nsWindow isVisible]) {
                 [nsWindow deminiaturize:nil];
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_minimize = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_ICONIFIED) != 0);
+            bool is_currently_minimize = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_ICONIFIED) != 0);
             if (minimize && !is_currently_minimize) {
                 gtk_window_iconify(GTK_WINDOW(window_widget));
             } else if (!minimize && is_currently_minimize) {
@@ -741,6 +820,7 @@ WF* WF::setGetSets() {
             return json::value([nsWindow isZoomed]);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
             return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget)))
                 & GDK_WINDOW_STATE_MAXIMIZED) != 0);
         #endif
@@ -757,16 +837,21 @@ WF* WF::setGetSets() {
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
-                ShowWindow(hwnd, maximize ? SW_MAXIMIZE : SW_RESTORE);
+                if (maximize) {
+                    ShowWindow(hwnd, SW_MAXIMIZE);
+                } else if (IsZoomed(hwnd)) {
+                    ShowWindow(hwnd, SW_RESTORE);
+                }
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-            if (maximize != [nsWindow isZoomed]) {
+            if (maximize != [nsWindow isZoomed] && [nsWindow isVisible]) {
                 [nsWindow zoom:nil];
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_maximize = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_MAXIMIZED) != 0);
+            bool is_currently_maximize = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_MAXIMIZED) != 0);
             if (maximize && !is_currently_maximize) {
                 gtk_window_maximize(GTK_WINDOW(window_widget));
             } else if (!maximize && is_currently_maximize) {
@@ -791,6 +876,7 @@ WF* WF::setGetSets() {
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) return json::value(false);
             return json::value((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) 
                 & GDK_WINDOW_STATE_FULLSCREEN) != 0);
         #endif
@@ -808,23 +894,29 @@ WF* WF::setGetSets() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 if (fullscreen) {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-                    ShowWindow(hwnd, SW_MAXIMIZE);
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP);
+                    if (IsWindowVisible(hwnd)) {
+                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    }
                 } else {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
-                    ShowWindow(hwnd, SW_RESTORE);
+                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+                    if (IsWindowVisible(hwnd) && (IsZoomed(hwnd) || IsIconic(hwnd))) {
+                        ShowWindow(hwnd, SW_RESTORE);
+                    }
                 }
-                SetWindowPos(hwnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             BOOL isCurrentlyFullscreen = ([nsWindow styleMask] & NSWindowStyleMaskFullScreen) != 0;
-            if (fullscreen != isCurrentlyFullscreen) {
+            if (fullscreen != isCurrentlyFullscreen && [nsWindow isVisible]) {
                 [nsWindow toggleFullScreen:nil];
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            bool is_currently_fullscreen = ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_FULLSCREEN) != 0);
+            bool is_currently_fullscreen = gtk_widget_get_realized(GTK_WIDGET(window_widget)) &&
+                ((gdk_window_get_state(gtk_widget_get_window(GTK_WIDGET(window_widget))) & GDK_WINDOW_STATE_FULLSCREEN) != 0);
             if (fullscreen && !is_currently_fullscreen) {
                 gtk_window_fullscreen(GTK_WINDOW(window_widget));
             } else if (!fullscreen && is_currently_fullscreen) {
@@ -843,7 +935,7 @@ WF* WF::setGetSets() {
             }
             return json::value(true);
         #elif defined(__APPLE__)
-            this->logger->warn("[function] getTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->debug("[function] getTaskbarShow can't be set via RenWeb on Apple");
             return json::value(true); 
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
@@ -860,7 +952,7 @@ WF* WF::setGetSets() {
             }
         #elif defined(__APPLE__)
             (void)req; 
-            this->logger->warn("[function] setTaskbarShow can't be set via RenWeb on Apple");
+            this->logger->debug("[function] setTaskbarShow can't be set via RenWeb on Apple");
         #elif defined(__linux__)
             const bool taskbar_show = this->getSingleParameter(req).as_bool();
             auto window_widget = this->app->w->window().value();
@@ -883,8 +975,18 @@ WF* WF::setGetSets() {
             }
             return json::value(1.0f); // Default fully opaque
         #elif defined(__APPLE__)
+            __block float alpha = 1.0f;
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-            return json::value(static_cast<float>([nsWindow alphaValue]));
+            if (nsWindow) {
+                if ([NSThread isMainThread]) {
+                    alpha = static_cast<float>([nsWindow alphaValue]);
+                } else {
+                    dispatch_sync(dispatch_get_main_queue(), ^{
+                        alpha = static_cast<float>([nsWindow alphaValue]);
+                    });
+                }
+            }
+            return json::value(alpha);
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
             return json::value(gtk_widget_get_opacity(GTK_WIDGET(window_widget)));
@@ -908,9 +1010,16 @@ WF* WF::setGetSets() {
                 }
         #elif defined(__APPLE__)
                 NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
-                [nsWindow setAlphaValue:opacity_amt];
+                if (nsWindow) {
+                    if ([NSThread isMainThread]) {
+                        [nsWindow setAlphaValue:opacity_amt];
+                    } else {
+                        dispatch_sync(dispatch_get_main_queue(), ^{
+                            [nsWindow setAlphaValue:opacity_amt];
+                        });
+                    }
+                }
         #elif defined(__linux__)
-                this->logger->warn("[function] setOpacity has not been tested for Linux");
                 auto window_window = this->app->w->window().value();
                 gtk_widget_set_opacity(GTK_WIDGET(window_window), opacity_amt);
         #endif
@@ -949,9 +1058,53 @@ WF* WF::setWindowCallbacks() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 if (hwnd) {
-                    ShowWindow(hwnd, show_window ? SW_SHOW : SW_HIDE);
+                    auto controller_result = this->app->w->get_controller();
+                    ICoreWebView2Controller* controller = nullptr;
+                    if (controller_result.has_value() && controller_result.value()) {
+                        controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
+                    }
+
                     if (show_window) {
-                        SetForegroundWindow(hwnd);
+                        if (controller) {
+                            controller->put_IsVisible(TRUE);
+                        }
+                        const BOOL was_visible = IsWindowVisible(hwnd);
+                        const int cmd = was_visible ? SW_SHOW : SW_SHOWNOACTIVATE;
+                        ShowWindow(hwnd, cmd);
+                        // Only force backend resize when widget/client geometry is out of sync.
+                        RECT client_rect{};
+                        if (GetClientRect(hwnd, &client_rect)) {
+                            bool needs_sync = false;
+                            auto widget_result = this->app->w->widget();
+                            if (widget_result.has_value() && widget_result.value()) {
+                                RECT widget_rect{};
+                                HWND widget_hwnd = static_cast<HWND>(widget_result.value());
+                                if (GetClientRect(widget_hwnd, &widget_rect)) {
+                                    const int cw = client_rect.right - client_rect.left;
+                                    const int ch = client_rect.bottom - client_rect.top;
+                                    const int ww = widget_rect.right - widget_rect.left;
+                                    const int wh = widget_rect.bottom - widget_rect.top;
+                                    needs_sync = (cw != ww) || (ch != wh);
+                                } else {
+                                    needs_sync = true;
+                                }
+                            } else {
+                                needs_sync = true;
+                            }
+
+                            if (needs_sync) {
+                                const int logical_w = WindowHelper::PhysicalToLogical(hwnd, client_rect.right - client_rect.left);
+                                const int logical_h = WindowHelper::PhysicalToLogical(hwnd, client_rect.bottom - client_rect.top);
+                                this->app->w->set_size(logical_w, logical_h);
+                            }
+                        }
+                    } else {
+                        const bool is_startup_hide =
+                            this->saved_states.find("setup_complete") == this->saved_states.end();
+                        if (controller && !is_startup_hide) {
+                            controller->put_IsVisible(FALSE);
+                        }
+                        ShowWindow(hwnd, SW_HIDE);
                     }
                 }
             }
@@ -969,12 +1122,13 @@ WF* WF::setWindowCallbacks() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            auto webview_widget = this->app->w->widget().value();
             if (show_window) {
                 gtk_widget_show_all(GTK_WIDGET(window_widget));
             } else {
+                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
+                    gtk_widget_realize(GTK_WIDGET(window_widget));
+                }
                 gtk_widget_hide(GTK_WIDGET(window_widget));
-                gtk_widget_hide(GTK_WIDGET(webview_widget));
             }
         #endif
             return json::value(nullptr);
@@ -1005,7 +1159,7 @@ WF* WF::setWindowCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             if (this->saved_states.find("current_title") == this->saved_states.end()) {
-                this->logger->warn("[function] Title has not been set yet, returning empty string");
+                this->logger->debug("[function] Title not yet set, returning executable name");
                 return json::value(Locate::executable().filename().string());
             }
             return this->saved_states["current_title"];
@@ -1030,10 +1184,10 @@ WF* WF::setWindowCallbacks() {
                 R"(^[a-zA-Z][a-zA-Z0-9+.-]*://[^\s]+$)"
             );
             if (std::regex_match(this->app->config->current_page, uri_regex)) {
-                this->logger->warn("[function] Reloading URI " + this->app->config->current_page);
+                this->logger->info("[function] Reloading URI " + this->app->config->current_page);
                 this->app->w->navigate(this->app->config->current_page);
             } else {
-                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + this->app->config->current_page);
+                this->logger->info("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + this->app->config->current_page);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);
@@ -1045,7 +1199,7 @@ WF* WF::setWindowCallbacks() {
             );
             if (uri != "_") this->app->config->current_page = uri;
             if (std::regex_match(uri, uri_regex)) {
-                this->logger->warn("[function] Navigating to page " + uri);
+                this->logger->info("[function] Navigating to page " + uri);
                 const auto csp = this->app->info->getProperty("origins");
                 if (csp.is_array()) {
                     std::string origin_str;
@@ -1060,7 +1214,7 @@ WF* WF::setWindowCallbacks() {
                             return json::value(nullptr);
                         }
                     }
-                    this->logger->warn("[function] Blocked: " + uri);
+                    this->logger->warn("[function] Navigation blocked (origin not in allowlist): " + uri);
                     this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
                 } else if (csp.is_string()) {
                     std::string origin_str = std::string(csp.as_string().c_str());
@@ -1070,11 +1224,11 @@ WF* WF::setWindowCallbacks() {
                 } else if (uri == this->app->ws->getURL()) {
                     this->app->w->navigate(this->app->ws->getURL());
                 } else {
-                    this->logger->warn("[function] Blocked: " + uri);
+                    this->logger->warn("[function] Navigation blocked (no origins configured): " + uri);
                     this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + uri + "</p>"));
                 }
             } else {
-                this->logger->warn("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
+                this->logger->info("[function] Navigating to " + this->app->ws->getURL() + " to display page of name " + uri);
                 this->app->w->navigate(this->app->ws->getURL());
             }
             return json::value(nullptr);
@@ -1107,7 +1261,7 @@ WF* WF::setWindowCallbacks() {
             gint root_x, root_y;
             gdk_device_get_position(device, NULL, &root_x, &root_y);
 
-            this->logger->info("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
+            this->logger->trace("[function] Attempting window drag from position: " + std::to_string(root_x) + ", " + std::to_string(root_y));
 
             gdk_window_begin_move_drag(gdk_window, 1, root_x, root_y, GDK_CURRENT_TIME);
         #endif
@@ -1374,7 +1528,7 @@ WF* WF::setWindowCallbacks() {
             std::string js = "window.find('', false, false, false, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->warn("[function] apple doesn't have bindings for this findNext");
+            this->logger->debug("[function] apple doesn't have bindings for this findNext");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1389,7 +1543,7 @@ WF* WF::setWindowCallbacks() {
             std::string js = "window.find('', false, true, false, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->warn("apple doesn't have bindings for this findPrevious");
+            this->logger->debug("[function] apple doesn't have bindings for this findPrevious");
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1514,7 +1668,7 @@ WF* WF::setFileSystemCallbacks() {
                 return json::value(false);
             }
             if (contents.empty()) {
-                this->logger->debug("Input content empty. Attempting empty write");
+                this->logger->debug("[function] Input content empty. Attempting empty write.");
             }
             file.write(contents.data(), contents.size());
             file.close();
@@ -1726,6 +1880,10 @@ WF* WF::setConfigCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
             return this->app->config->getJson();
+    }))->add("get_info",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            (void)req;
+            return this->app->info->getJson();
     }))->add("get_defaults",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
@@ -1785,9 +1943,41 @@ WF* WF::setSystemCallbacks() {
             #if defined(_WIN32)
                 return json::string("Windows");
             #elif defined(__APPLE__)
-                return json::string("Apple");
+                return json::string("MacOS");
             #elif defined(__linux__)
                 return json::string("Linux");
+            #endif
+    }))->add("get_cpu_architecture",
+        std::function<json::value(const json::value&)>([](const json::value& req) -> json::value {
+            (void)req;
+            #if defined(_WIN32)
+                SYSTEM_INFO sysInfo;
+                GetSystemInfo(&sysInfo);
+                switch (sysInfo.wProcessorArchitecture) {
+                    case PROCESSOR_ARCHITECTURE_AMD64:  return json::string("x86_64");
+                    case PROCESSOR_ARCHITECTURE_INTEL:  return json::string("x86_32");
+                    case PROCESSOR_ARCHITECTURE_ARM:    return json::string("arm32");
+                    case PROCESSOR_ARCHITECTURE_ARM64:  return json::string("arm64");
+                    default:                            return json::string("unknown");
+                }
+            #else
+                struct utsname buf;
+                if (uname(&buf) != 0) return json::string("unknown");
+                const std::string machine(buf.machine);
+                if (machine == "x86_64")                                           return json::string("x86_64");
+                if (machine == "i686" || machine == "i386")                        return json::string("x86_32");
+                if (machine == "aarch64")                                          return json::string("arm64");
+                if (machine.rfind("armv", 0) == 0 || machine == "armhf")    return json::string("arm32");
+                if (machine == "mips")                                             return json::string("mips32");
+                if (machine == "mipsel")                                           return json::string("mips32el");
+                if (machine == "mips64")                                           return json::string("mips64");
+                if (machine == "mips64el")                                         return json::string("mips64el");
+                if (machine == "ppc" || machine == "powerpc")                      return json::string("powerpc32");
+                if (machine == "ppc64" || machine == "powerpc64")                  return json::string("powerpc64");
+                if (machine == "riscv64")                                          return json::string("riscv64");
+                if (machine == "s390x")                                            return json::string("s390x");
+                if (machine == "sparc64")                                          return json::string("sparc64");
+                return json::string(machine);
             #endif
     }));
     return this;
@@ -1989,7 +2179,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] get_load_progress not yet implemented for Windows");
+            this->logger->debug("[function] get_load_progress not yet implemented for Windows");
             return json::value(0.0);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -2010,7 +2200,7 @@ WF* WF::setNetworkCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->warn("[function] is_loading not yet implemented for Windows");
+            this->logger->debug("[function] is_loading not yet implemented for Windows");
             return json::value(false);
         #elif defined(__APPLE__)
             auto window_result = this->app->w->window();
@@ -2025,381 +2215,6 @@ WF* WF::setNetworkCallbacks() {
             gboolean loading = webkit_web_view_is_loading(WEBKIT_WEB_VIEW(webview_widget));
             return json::value(static_cast<bool>(loading));
         #endif
-    }))->add("update",
-        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            json::object settings = this->getSingleParameter(req).as_object();
-            bool include_ui      = settings.contains("include_ui")      ? settings.at("include_ui").as_bool()      : true;
-            bool include_engine  = settings.contains("include_engine")  ? settings.at("include_engine").as_bool()  : true;
-            bool include_plugins = settings.contains("include_plugins") ? settings.at("include_plugins").as_bool() : true;
-
-            json::object updates = {};
-
-            // ── helpers ──────────────────────────────────────────────────────
-
-            // Parse "https://github.com/owner/repo" → {owner, repo}
-            auto parseGitHubRepo = [](const std::string& url) -> std::pair<std::string, std::string> {
-                std::string s = url;
-                while (!s.empty() && s.back() == '/') s.pop_back();
-                size_t last = s.rfind('/');
-                if (last == std::string::npos) return {"", ""};
-                std::string repo  = s.substr(last + 1);
-                size_t prev = s.rfind('/', last - 1);
-                if (prev == std::string::npos) return {"", ""};
-                std::string owner = s.substr(prev + 1, last - prev - 1);
-                return {owner, repo};
-            };
-
-            // Fetch /repos/{owner}/{repo}/releases/latest from GitHub API
-            auto fetchLatestRelease = [&](const std::string& owner, const std::string& repo) -> json::value {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                httplib::SSLClient client("api.github.com");
-                client.set_follow_location(true);
-                client.enable_server_certificate_verification(false);
-                auto res = client.Get(
-                    "/repos/" + owner + "/" + repo + "/releases/latest",
-                    httplib::Headers{{"User-Agent", "RenWeb-Engine"}, {"Accept", "application/vnd.github+json"}});
-                if (!res || res->status != 200) {
-                    this->logger->error("[update] Failed to fetch release for " + owner + "/" + repo + (res ? " (HTTP " + std::to_string(res->status) + ")" : " (no response)"));
-                    return json::value(nullptr);
-                }
-                try { return json::parse(res->body); }
-                catch (...) {
-                    this->logger->error("[update] Failed to parse release JSON for " + owner + "/" + repo);
-                    return json::value(nullptr);
-                }
-#else
-                this->logger->error("[update] HTTPS (OpenSSL) support is required to fetch GitHub releases");
-                return json::value(nullptr);
-#endif
-            };
-
-            // Download a URL to a local path; returns true on success
-            auto downloadFile = [&](const std::string& url, const std::filesystem::path& dest) -> bool {
-                std::string stripped = url;
-                bool is_https = (stripped.find("https://") == 0);
-                stripped = stripped.substr(is_https ? 8 : 7);
-                size_t slash = stripped.find('/');
-                if (slash == std::string::npos) return false;
-                std::string host     = stripped.substr(0, slash);
-                std::string path_str = stripped.substr(slash);
-
-                std::error_code ec;
-                std::filesystem::create_directories(dest.parent_path(), ec);
-
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-                if (is_https) {
-                    httplib::SSLClient client(host.c_str());
-                    client.set_follow_location(true);
-                    client.enable_server_certificate_verification(false);
-                    auto res = client.Get(path_str.c_str(), httplib::Headers{{"User-Agent", "RenWeb-Engine"}});
-                    if (!res || res->status != 200) return false;
-                    std::ofstream out(dest, std::ios::binary);
-                    out.write(res->body.data(), static_cast<std::streamsize>(res->body.size()));
-                    return out.good();
-                }
-#endif
-                {
-                    httplib::Client client(host.c_str());
-                    client.set_follow_location(true);
-                    auto res = client.Get(path_str.c_str(), httplib::Headers{{"User-Agent", "RenWeb-Engine"}});
-                    if (!res || res->status != 200) return false;
-                    std::ofstream out(dest, std::ios::binary);
-                    out.write(res->body.data(), static_cast<std::streamsize>(res->body.size()));
-                    return out.good();
-                }
-            };
-
-            // Returns true if semver b is strictly newer than a
-            auto isNewer = [](const std::string& a, const std::string& b) -> bool {
-                auto parse = [](const std::string& v) -> std::tuple<int,int,int> {
-                    std::string s = v;
-                    if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s = s.substr(1);
-                    int ma = 0, mi = 0, pa = 0;
-                    std::sscanf(s.c_str(), "%d.%d.%d", &ma, &mi, &pa);
-                    return {ma, mi, pa};
-                };
-                return parse(b) > parse(a);
-            };
-
-            // Strip leading 'v'/'V' from a tag name
-            auto stripV = [](const std::string& tag) -> std::string {
-                if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) return tag.substr(1);
-                return tag;
-            };
-
-            // Get the runtime CPU architecture string normalised to match
-            // the makefile ARCH values used in executable/plugin filenames:
-            //   x86_64, x86_32, arm64, arm32, mips32, mips32el, mips64,
-            //   mips64el, powerpc32, powerpc64, riscv64, s390x, sparc64
-            auto getRuntimeArch = []() -> std::string {
-#if defined(_WIN32)
-                SYSTEM_INFO si;
-                GetNativeSystemInfo(&si);
-                switch (si.wProcessorArchitecture) {
-                    case PROCESSOR_ARCHITECTURE_AMD64: return "x86_64";
-                    case PROCESSOR_ARCHITECTURE_ARM64: return "arm64";
-                    case PROCESSOR_ARCHITECTURE_INTEL: return "x86_32";
-                    default:                           return "";
-                }
-#else
-                struct utsname info;
-                if (::uname(&info) != 0) return "";
-                std::string m = info.machine;
-                // Normalise uname -m → makefile ARCH
-                if (m == "x86_64")                              return "x86_64";
-                if (m == "i386" || m == "i486" ||
-                    m == "i586" || m == "i686")                 return "x86_32";
-                if (m == "aarch64" || m == "arm64")             return "arm64";
-                if (m.rfind("arm", 0) == 0)                     return "arm32";   // armv7l, armv6l …
-                if (m == "mips64el" || m == "mips64le")         return "mips64el";
-                if (m == "mips64")                              return "mips64";
-                if (m == "mipsel" || m == "mipsle")             return "mips32el";
-                if (m == "mips")                                return "mips32";
-                if (m == "ppc64le" || m == "ppc64el" ||
-                    m == "powerpc64le")                         return "powerpc64"; // makefile has no LE variant
-                if (m == "ppc64" || m == "powerpc64")           return "powerpc64";
-                if (m == "ppc"   || m == "powerpc")             return "powerpc32";
-                if (m == "riscv64")                             return "riscv64";
-                if (m == "s390x")                               return "s390x";
-                if (m == "sparc64")                             return "sparc64";
-                return m; // unknown — return as-is rather than an empty string
-#endif
-            };
-
-            // ── UI update ────────────────────────────────────────────────────
-            if (include_ui) {
-                json::value repo_val = this->app->info->getProperty("repository");
-                if (!repo_val.is_string()) {
-                    this->logger->info("[update] No 'repository' in info.json — skipping UI update");
-                } else {
-                    auto [owner, repo] = parseGitHubRepo(repo_val.as_string().c_str());
-                    if (owner.empty() || repo.empty()) {
-                        this->logger->error("[update] Could not parse repository URL: " + std::string(repo_val.as_string().c_str()));
-                    } else {
-                        json::value release = fetchLatestRelease(owner, repo);
-                        if (release.is_object() && release.as_object().contains("tag_name")) {
-                            std::string latest  = stripV(release.as_object().at("tag_name").as_string().c_str());
-                            json::value cur_val = this->app->info->getProperty("version");
-                            std::string current = cur_val.is_string() ? cur_val.as_string().c_str() : "0.0.0";
-
-                            if (isNewer(current, latest)) {
-                                this->logger->info("[update] UI update available: " + current + " → " + latest);
-                                bool any = false;
-                                if (release.as_object().contains("assets")) {
-                                    for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                        if (!asset.is_object()) continue;
-                                        std::string name = asset.as_object().at("name").as_string().c_str();
-                                        std::string dl   = asset.as_object().at("browser_download_url").as_string().c_str();
-                                        std::filesystem::path dest = Locate::currentDirectory() / "content" / name;
-                                        this->logger->info("[update] Downloading UI asset: " + name);
-                                        if (downloadFile(dl, dest)) {
-                                            any = true;
-                                            this->logger->info("[update] Saved: " + dest.string());
-                                        } else {
-                                            this->logger->error("[update] Failed to download UI asset: " + name);
-                                        }
-                                    }
-                                }
-                                if (any) updates["ui"] = json::object{{"from", current}, {"to", latest}};
-                            } else {
-                                this->logger->info("[update] UI is up to date (" + current + ")");
-                                updates["ui"] = json::object{{"status", "up_to_date"}, {"version", current}};
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Engine update ─────────────────────────────────────────────────
-            if (include_engine) {
-                json::value eng_repo_val = this->app->info->getProperty("engine_repository");
-                std::string eng_repo_url = eng_repo_val.is_string()
-                    ? eng_repo_val.as_string().c_str()
-                    : "https://github.com/spur27/RenWeb-Engine";
-
-                auto [owner, repo] = parseGitHubRepo(eng_repo_url);
-                if (owner.empty() || repo.empty()) {
-                    this->logger->error("[update] Could not parse engine_repository URL: " + eng_repo_url);
-                } else {
-                    // Determine current version from the executable filename
-                    std::filesystem::path exec_path = Locate::executable();
-                    std::string exec_stem = exec_path.stem().string(); // strips .exe on Windows
-
-                    std::string current_version, current_os, current_arch;
-                    static const std::regex exec_re(R"(^.+-(\d+[\w.]*)-(\w+)-([\w]+?)$)");
-                    std::smatch em;
-                    if (std::regex_match(exec_stem, em, exec_re)) {
-                        current_version = em[1].str();
-                        current_os      = em[2].str();
-                        current_arch    = em[3].str();
-                    }
-
-                    json::value release = fetchLatestRelease(owner, repo);
-                    if (release.is_object() && release.as_object().contains("tag_name")) {
-                        std::string latest = stripV(release.as_object().at("tag_name").as_string().c_str());
-                        bool should_update = current_version.empty() ? true : isNewer(current_version, latest);
-
-                        if (should_update) {
-                            this->logger->info("[update] Engine update available: " +
-                                (current_version.empty() ? "unknown" : current_version) + " → " + latest);
-
-                            // Determine OS and arch identifiers for asset matching
-                            #if defined(_WIN32)
-                                std::string os_id = "windows";
-                            #elif defined(__APPLE__)
-                                std::string os_id = "macos";
-                            #else
-                                std::string os_id = "linux";
-                            #endif
-
-                            std::string arch_id = current_arch.empty() ? getRuntimeArch() : current_arch;
-
-                            std::string best_name, best_url;
-                            if (release.as_object().contains("assets")) {
-                                static const std::regex asset_re(R"(^.+-(\d+[\w.]*)-(\w+)-([\w]+?)(?:\.exe)?$)");
-                                for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                    if (!asset.is_object()) continue;
-                                    std::string aname = asset.as_object().at("name").as_string().c_str();
-                                    std::smatch am;
-                                    if (std::regex_match(aname, am, asset_re)) {
-                                        if (am[2].str() == os_id &&
-                                            (arch_id.empty() || am[3].str() == arch_id)) {
-                                            best_name = aname;
-                                            best_url  = asset.as_object().at("browser_download_url").as_string().c_str();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (best_url.empty()) {
-                                this->logger->error("[update] No matching engine asset found for this platform");
-                            } else {
-                                std::filesystem::path dest = exec_path.parent_path() / best_name;
-                                this->logger->info("[update] Downloading engine: " + best_name);
-                                if (downloadFile(best_url, dest)) {
-                                    #if !defined(_WIN32)
-                                        std::filesystem::permissions(dest,
-                                            std::filesystem::perms::owner_exec |
-                                            std::filesystem::perms::group_exec |
-                                            std::filesystem::perms::others_exec,
-                                            std::filesystem::perm_options::add);
-                                    #endif
-                                    this->logger->info("[update] Engine saved to: " + dest.string());
-                                    updates["engine"] = json::object{
-                                        {"from", current_version.empty() ? "unknown" : current_version},
-                                        {"to",   latest},
-                                        {"path", dest.string()}
-                                    };
-                                } else {
-                                    this->logger->error("[update] Failed to download engine: " + best_name);
-                                }
-                            }
-                        } else {
-                            this->logger->info("[update] Engine is up to date (" +
-                                (current_version.empty() ? "unknown" : current_version) + ")");
-                            updates["engine"] = json::object{
-                                {"status",  "up_to_date"},
-                                {"version", current_version.empty() ? "unknown" : current_version}
-                            };
-                        }
-                    }
-                }
-            }
-
-            // ── Plugin updates ────────────────────────────────────────────────
-            if (include_plugins) {
-                json::object plugin_updates = {};
-                const std::filesystem::path plugin_dir = Locate::currentDirectory() / "plugins";
-
-                for (const auto& [plugin_name, plugin] : this->app->pm->getPlugins()) {
-                    std::string repo_url = plugin->getRepositoryUrl();
-                    if (repo_url.empty()) {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' has no repository URL — skipping");
-                        continue;
-                    }
-
-                    auto [owner, repo] = parseGitHubRepo(repo_url);
-                    if (owner.empty() || repo.empty()) {
-                        this->logger->error("[update] Could not parse repo URL for plugin '" + plugin_name + "': " + repo_url);
-                        continue;
-                    }
-
-                    std::string current_version = plugin->getVersion();
-
-                    json::value release = fetchLatestRelease(owner, repo);
-                    if (!release.is_object() || !release.as_object().contains("tag_name")) continue;
-
-                    std::string latest = stripV(release.as_object().at("tag_name").as_string().c_str());
-                    bool should_update = current_version.empty() ? true : isNewer(current_version, latest);
-
-                    if (should_update) {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' update available: " +
-                            current_version + " → " + latest);
-
-                        #if defined(_WIN32)
-                            std::string plugin_ext = ".dll";
-                            std::string os_id      = "windows";
-                        #elif defined(__APPLE__)
-                            std::string plugin_ext = ".dylib";
-                            std::string os_id      = "macos";
-                        #else
-                            std::string plugin_ext = ".so";
-                            std::string os_id      = "linux";
-                        #endif
-
-                        std::string arch_id = getRuntimeArch();
-
-                        std::string best_name, best_url;
-                        if (release.as_object().contains("assets")) {
-                            for (const auto& asset : release.as_object().at("assets").as_array()) {
-                                if (!asset.is_object()) continue;
-                                std::string aname = asset.as_object().at("name").as_string().c_str();
-                                std::string aname_lc = aname;
-                                std::transform(aname_lc.begin(), aname_lc.end(), aname_lc.begin(), ::tolower);
-                                if (aname.find(plugin_ext) != std::string::npos &&
-                                    aname_lc.find(os_id)    != std::string::npos &&
-                                    (arch_id.empty() || aname_lc.find(arch_id) != std::string::npos)) {
-                                    best_name = aname;
-                                    best_url  = asset.as_object().at("browser_download_url").as_string().c_str();
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (best_url.empty()) {
-                            this->logger->error("[update] No matching asset for plugin '" + plugin_name + "'");
-                        } else {
-                            std::filesystem::path dest = plugin_dir / best_name;
-                            this->logger->info("[update] Downloading plugin '" + plugin_name + "': " + best_name);
-                            if (downloadFile(best_url, dest)) {
-                                #if !defined(_WIN32)
-                                    std::filesystem::permissions(dest,
-                                        std::filesystem::perms::owner_exec |
-                                        std::filesystem::perms::group_exec |
-                                        std::filesystem::perms::others_exec,
-                                        std::filesystem::perm_options::add);
-                                #endif
-                                this->logger->info("[update] Plugin saved to: " + dest.string());
-                                plugin_updates[plugin_name] = json::object{
-                                    {"from", current_version},
-                                    {"to",   latest},
-                                    {"path", dest.string()}
-                                };
-                            } else {
-                                this->logger->error("[update] Failed to download plugin '" + plugin_name + "'");
-                            }
-                        }
-                    } else {
-                        this->logger->info("[update] Plugin '" + plugin_name + "' is up to date (" + current_version + ")");
-                        plugin_updates[plugin_name] = json::object{{"status", "up_to_date"}, {"version", current_version}};
-                    }
-                }
-
-                if (!plugin_updates.empty()) updates["plugins"] = plugin_updates;
-            }
-
-            return json::value(updates);
     }));
     return this;
 }
@@ -2533,16 +2348,27 @@ WF* WF::setNavigateCallbacks() {
             for (size_t i = 0; i < resource.length(); i++) {
                 if (resource[i] == '\\') resource[i] = '/';
             }
+
+            if (!isSafeOpenUriScheme(resource)) {
+                this->logger->warn("[security] Blocked open_uri with unsupported scheme: " + resource);
+                return json::value(nullptr);
+            }
             
         #if defined(_WIN32)
-            system(("start " + resource).c_str());
-            this->logger->warn("[function] open_uri has not been tested for Windows");
+            ShellExecuteA(nullptr, "open", resource.c_str(), nullptr, nullptr, SW_SHOW);
         #elif defined(__APPLE__)
-            system(("open " + resource).c_str());
-            this->logger->warn("[function] open_uri has not been tested for Apple");
+            NSString* urlStr = [NSString stringWithUTF8String:resource.c_str()];
+            NSURL* url = [NSURL URLWithString:urlStr];
+            if (url) {
+                [[NSWorkspace sharedWorkspace] openURL:url];
+            }
         #elif defined(__linux__)
-            int res = system(("xdg-open " + resource).c_str());
-            (void)res;
+            GError* open_err = nullptr;
+            g_app_info_launch_default_for_uri(resource.c_str(), nullptr, &open_err);
+            if (open_err) {
+                this->logger->warn("[function] open_uri: " + std::string(open_err->message));
+                g_error_free(open_err);
+            }
         #endif
             return json::value(nullptr);
     }));
@@ -3527,7 +3353,7 @@ WF* WF::setInternalCallbacks() {
             #if defined(__linux__)
                 auto widget_result = this->app->w->widget();
                 if (!widget_result.has_value()) {
-                    this->logger->warn("[function] Webview widget not ready yet - skipping performance settings");
+                    this->logger->debug("[function] Webview widget not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 WebKitWebView* webview = WEBKIT_WEB_VIEW(widget_result.value());
@@ -3565,13 +3391,13 @@ WF* WF::setInternalCallbacks() {
                 
                 auto webview2_opt = this->app->w->widget();
                 if (!webview2_opt.has_value()) {
-                    this->logger->warn("[function] WebView2 not yet initialized - skipping performance settings");
+                    this->logger->debug("[function] WebView2 not yet initialized - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
                 ICoreWebView2* webview2 = static_cast<ICoreWebView2*>(webview2_opt.value());
                 if (!webview2) {
-                    this->logger->warn("[function] WebView2 pointer invalid - skipping performance settings");
+                    this->logger->debug("[function] WebView2 pointer invalid - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3645,7 +3471,7 @@ WF* WF::setInternalCallbacks() {
             #elif defined(__APPLE__)
                 auto window_result = this->app->w->window();
                 if (!window_result.has_value()) {
-                    this->logger->warn("[function] Window not ready yet - skipping performance settings");
+                    this->logger->debug("[function] Window not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3659,7 +3485,7 @@ WF* WF::setInternalCallbacks() {
                 }
                 
                 if (!webview) {
-                    this->logger->warn("[function] WKWebView not ready yet - skipping performance settings");
+                    this->logger->debug("[function] WKWebView not ready yet - skipping performance settings");
                     return json::value(nullptr);
                 }
                 
@@ -3722,7 +3548,6 @@ WF* WF::setInternalCallbacks() {
 
 WF* WF::setup(const json::object& setup_state) {
     const json::value req = json::value(nullptr);
-    std::cout << setup_state << std::endl;
     bool initially_shown = (setup_state.contains("initially_shown") && setup_state.at("initially_shown").is_bool())
         ? setup_state.at("initially_shown").as_bool()
         : true;

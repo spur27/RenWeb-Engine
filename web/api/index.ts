@@ -164,24 +164,72 @@ export const Utils = {
 declare global {
     interface Window {
         /**
-         * Callback invoked when a message is received from another RenWeb process.
-         * @param msg - The message object received. \
-         * The `msg` param will already be decoded when it's passed. \
-         * Messages should automatically be encoded as an object with `sender` and `message` properties, \
-         * but this is not guaranteed.
-         * @example
-         * window.onServerMessage = async (msg) => {
-         *     if (msg?.sender != null) {
-         *        await Log.info(`Received message from PID ${msg.sender?.pid}:`, msg?.message);
-         *    } else {
-         *        await Log.info(`Received unformatted message:`, msg?.message);
-         *    }
-         * };
+         * The `window.renweb` object holds RenWeb lifecycle callbacks. Assign these
+         * before page content renders to ensure they are invoked at the right time.
          */
-        onServerMessage: (msg: ({sender: Process, message: any}) | any) => Promise<void>;
+        renweb: {
+            /**
+             * Called after the browser's first painted frame on every page navigation.
+             * More reliable than `window.onload` for avoiding the white flash when using
+             * `initially_shown: false`. Use this to show the window once ready.
+             * @example
+             * window.renweb.onReady = async () => { await Window.show(true); };
+             */
+            onReady?: () => void | Promise<void>;
+            /**
+             * Called when the window is about to close. Use for cleanup before exit.
+             * @example
+             * window.renweb.onTerminate = async () => { await Config.saveConfig(); };
+             */
+            onTerminate?: () => void | Promise<void>;
+            /**
+             * Called when the native window position changes.
+             * @example
+             * window.renweb.onMove = ({ x, y }) => {
+             *     console.log(`Window moved to (${x}, ${y})`);
+             * };
+             */
+            onMove?: (position: { x: number, y: number }) => void | Promise<void>;
+            /**
+             * Called when the native window state changes.
+             * @example
+             * window.renweb.onWindowStateChanged = ({ state }) => {
+             *     console.log(`Window state: ${state}`);
+             * };
+             */
+            onWindowStateChanged?: (state: { state: "normal" | "minimized" | "maximized" | "fullscreen" }) => void | Promise<void>;
+            /**
+             * Called when the web engine asks for protected permissions.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onPermissionRequested?: (event: { kind: string, origin: string }) => void | Promise<void>;
+            /**
+             * Called when the engine requests opening a new browser window.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onNewWindowRequested?: (event: { url: string }) => void | Promise<void>;
+            /**
+             * Called when the web render process crashes/exits/unresponds.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onRenderProcessTerminated?: (event: { reason: string }) => void | Promise<void>;
+            /**
+             * Called when TLS/certificate validation errors occur during load.
+             * This is emitted from native engine callbacks where supported.
+             */
+            onCertificateError?: (event: { url: string, error: string }) => void | Promise<void>;
+            /**
+             * Called when a message is received from another RenWeb process via `proc.send()`.
+             * The `msg` parameter will already be decoded.
+             * @example
+             * window.renweb.onServerMessage = async (msg) => {
+             *     await Log.info(`Received from PID ${msg?.sender?.pid}:`, msg?.message);
+             * };
+             */
+            onServerMessage?: (msg: ({sender: Process, message: any}) | any) => void | Promise<void>;
+        };
     }
 }
-window.onServerMessage = async (msg: any) => { };
 
 /**
  * Window property getters and setters.
@@ -421,8 +469,10 @@ export namespace Window {
      * Terminates the current window/process.
      * @returns Promise that resolves when termination starts
      */
-    export async function terminate(): Promise<void> 
-        { await BIND_terminate(null); }
+    export async function terminate(): Promise<void> {
+        await window.renweb?.onTerminate?.();
+        await BIND_terminate(null);
+    }
     
     /**
      * Starts a window drag operation (allows moving the window).
@@ -677,6 +727,13 @@ export namespace Config {
      */
     export async function getConfig(): Promise<any> 
         {  return decode(await BIND_get_config(null)); }
+    
+        /**
+     * Gets the info json file.
+     * @returns Promise that resolves to the info object
+     */
+    export async function getInfo(): Promise<any> 
+        {  return decode(await BIND_get_info(null)); }
 
     /**
      * Gets the config set for \_\_defaults\_\_.
@@ -738,10 +795,17 @@ export namespace System {
     
     /**
      * Gets the operating system name.
-     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "Darwin")
+     * @returns Promise that resolves to the OS name (e.g., "Linux", "Windows", "MacOS")
      */
-    export async function getOS(): Promise<string> 
+    export async function getOS(): Promise<'Linux' | 'Windows' | 'MacOS'> 
         { return decode(await BIND_get_OS(null)); }
+
+    /**
+     * Gets the CPU architecture of the current system.
+     * @returns Promise that resolves to the architecture string
+     */
+    export async function getCPUArchitecture(): Promise<"x86_64" | "x86_32" | "arm64" | "arm32" | "mips32" | "mips32el" | "mips64" | "mips64el" | "powerpc32" | "powerpc64" | "riscv64" | "s390x" | "sparc64"> 
+        { return decode(await BIND_get_cpu_architecture(null)); }
 }
 
 
@@ -1298,6 +1362,96 @@ export namespace Network {
         { return await BIND_is_loading(null); }
 }
 
+
+/**
+ * Application information functions, including repository URLs and version strings for the app, engine, and plugins.
+ */
+export namespace Application {
+    const DEFAULT_ENGINE_REPOSITORY = "https://github.com/spur27/RenWeb-Engine";
+    /**
+     * Fetches the repository URLs for the app, engine, and plugins from info.json.
+     * @returns Promise that resolves to an object with app, engine, and plugins repository URLs
+     */
+    export async function fetchRepositories(): Promise<{ app: string, engine: string, plugins: string[] }> {
+        const app_dir = await FS.getApplicationDirPath();
+        try {
+            const infoText = await FS.readFile(app_dir + "/info.json");
+            if (infoText) {
+                const info = JSON.parse(infoText);
+                return {
+                    app: info.repository ?? "none",
+                    engine: info.engine_repository ?? DEFAULT_ENGINE_REPOSITORY,
+                    plugins: Array.isArray(info.plugin_repositories) ? info.plugin_repositories : []
+                };
+            }
+        } catch { }
+        return { app: "none", engine: DEFAULT_ENGINE_REPOSITORY, plugins: [] };
+    }
+
+    /**
+     * Fetches the current version strings for the app, engine, and loaded plugins.
+     * - App version is read from info.json.
+     * - Engine version is extracted from the executable filename in the application directory.
+     * - Plugin versions are extracted from plugin filenames in the plugins/ directory.
+     * @returns Promise that resolves to an object with app, engine, and plugins version strings
+     */
+    export async function fetchVersions(): Promise<{ app: string, engine: string, plugins: Record<string, string> }> {
+        const app_dir = await FS.getApplicationDirPath();
+        const version_regex = /\d+\.\d+\.\d+/;
+        const unknown = "unknown";
+
+        let app_version = unknown;
+        try {
+            const info = JSON.parse(await FS.readFile(app_dir + "/info.json") ?? "{}");
+            app_version = info.version ?? unknown;
+        } catch { }
+
+        let engine_version = unknown;
+        try {
+            const os = (await System.getOS()).toLocaleLowerCase();
+            const arch = (await System.getCPUArchitecture()).toLocaleLowerCase();
+            const files = await FS.ls(app_dir);
+            if (files) {
+                for (const file of files) {
+                    if (await FS.isDir(file)) continue;
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const is_exe = os === "windows" ? filename.endsWith(`${os}-${arch}.exe`) : filename.endsWith(`${os}-${arch}`);
+                    const match = filename.match(version_regex);
+                    if (is_exe && match) {
+                        engine_version = match[0];
+                        break;
+                    }
+                }
+            }
+        } catch { }
+
+        const plugin_versions: Record<string, string> = {};
+        try {
+            const plugins_dir = app_dir + "/plugins";
+            const plugin_files = await FS.ls(plugins_dir);
+            if (plugin_files) {
+                for (const file of plugin_files) {
+                    const filename = file.split(/[\\/]/).pop() ?? "";
+                    const match = filename.match(version_regex);
+                    if (match) {
+                        const plugin_name = filename.match(/^(.*?)-\d/)?.[1] ?? filename;
+                        plugin_versions[plugin_name] = match[0];
+                    }
+                }
+            }
+        } catch { }
+
+        return { app: app_version, engine: engine_version, plugins: plugin_versions };
+    }
+    
+    /**
+     * Gets list of plugins data
+     * @returns Promise that resolves to an array of plugin data
+     */
+    export async function getPluginsList(): Promise<any[]> 
+        { return decode(await BIND_get_plugins_list(null)); }
+}
+
 /**
  * Page navigation functions.
  */
@@ -1344,18 +1498,6 @@ export namespace Navigate {
      */
     export async function openURI(uri: string): Promise<void> 
         { await BIND_open_uri(encode(uri)); }
-}
-
-/**
- * Plugins
- */
-export namespace Plugins {
-    /**
-     * Gets list of plugins data
-     * @returns Promise that resolves to an array of plugin data
-     */
-    export async function getPluginsList(): Promise<any[]> 
-        { return decode(await BIND_get_plugins_list(null)); }
 }
 
 /* 
@@ -1429,6 +1571,7 @@ declare const BIND_get_tmp_dir_path: (...args: any[]) => Promise<any>;
 declare const BIND_download_uri: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_config: (...args: any[]) => Promise<any>;
+declare const BIND_get_info: (...args: any[]) => Promise<any>;
 declare const BIND_get_defaults: (...args: any[]) => Promise<any>;
 declare const BIND_get_state: (...args: any[]) => Promise<any>;
 declare const BIND_load_state: (...args: any[]) => Promise<any>;
@@ -1438,6 +1581,7 @@ declare const BIND_reset_to_defaults: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_pid: (...args: any[]) => Promise<any>;
 declare const BIND_get_OS: (...args: any[]) => Promise<any>;
+declare const BIND_get_cpu_architecture: (...args: any[]) => Promise<any>;
 
 declare const BIND_create_window: (...args: any[]) => Promise<any>;
 declare const BIND_create_process: (...args: any[]) => Promise<any>;

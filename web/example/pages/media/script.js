@@ -29,22 +29,33 @@
 /// <reference path="./index.d.ts" />
 import {
     Log, 
-    FS,
     Window,
-    System,
     Config,
-    Properties,
-    Process,
     Debug,
-    Network,
-    Navigate,
-    Utils
+    System,
+    Properties
  } from './index.js';
 
-window.onload = async () => {
+window.renweb.onReady = async () => {
+    const os = String(await System.getOS()).toLowerCase();
+    let targetOpacity = 1;
+    if (os === "macos") {
+        targetOpacity = await Properties.getOpacity();
+        await Properties.setOpacity(0);
+    }
+
     await Window.show(true);
-    await Log.info("Window has loaded");
-};
+
+    if (os === "macos") {
+        const fadeSteps = 5;
+        const stepDelayMs = 10;
+        for (let i = 1; i <= fadeSteps; i++) {
+            await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+            await Properties.setOpacity((targetOpacity * i) / fadeSteps);
+        }
+    }
+}
+
 // Web Audio API Setup
 let audioContext;
 let oscillator;
@@ -1279,8 +1290,6 @@ window.addEventListener("touchmove", (e) => {
 
 // Show window on load
 window.addEventListener('load', async () => {
-    await Window.show(true);
-    
     // Initialize canvas backgrounds (exclude WebGL canvas)
     const canvases = ['canvas-2d', 'canvas-image'];
     canvases.forEach(id => {

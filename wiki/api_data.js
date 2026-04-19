@@ -126,6 +126,7 @@ window.apiData = {
     ],
     'Config': [
         {name: 'getConfig', signature: 'getConfig()', description: 'Returns: Promise<any>'},
+        {name: 'getInfo', signature: 'getInfo()', description: 'Returns: Promise<any> - Gets the info.json application metadata'},
         {name: 'getDefaults', signature: 'getDefaults()', description: 'Returns: Promise<any>'},
         {name: 'getState', signature: 'getState()', description: 'Returns: Promise<any>'},
         {name: 'loadState', signature: 'loadState(state)', description: 'Returns: Promise<void>'},
@@ -135,7 +136,8 @@ window.apiData = {
     ],
     'System': [
         {name: 'getPID', signature: 'getPID()', description: 'Returns: Promise<number>'},
-        {name: 'getOS', signature: 'getOS()', description: 'Returns: Promise<string>'}
+        {name: 'getOS', signature: 'getOS()', description: 'Returns: Promise<string>'},
+        {name: 'getCPUArchitecture', signature: 'getCPUArchitecture()', description: 'Returns: Promise<string>'}
     ],
     'Process': [
         {name: 'createProcess', signature: 'createProcess(args, options = { is_detachable: false, share_stdio: false })', description: 'Returns: Promise<Process | null>'},
@@ -170,7 +172,9 @@ window.apiData = {
         {name: 'canGoForward', signature: 'canGoForward()', description: 'Returns: Promise<boolean>'},
         {name: 'openURI', signature: 'openURI(uri)', description: 'Returns: Promise<void>'}
     ],
-    'Plugins': [
+    'Application': [
+        {name: 'fetchRepositories', signature: 'fetchRepositories()', description: 'Returns: Promise<{app: string, engine: string, plugins: string[]}>'},
+        {name: 'fetchVersions', signature: 'fetchVersions()', description: 'Returns: Promise<{app: string, engine: string, plugins: Record<string, string>}>'},
         {name: 'getPluginsList', signature: 'getPluginsList()', description: 'Returns: Promise<any[]>'}
     ],
     'Utils': [
@@ -179,7 +183,15 @@ window.apiData = {
         {name: 'serialize', signature: 'serialize(obj)', description: 'Serialize an object to JSON'}
     ],
     'Callbacks': [
-        {name: 'onServerMessage', signature: 'window.onServerMessage = async (message) => {...}', description: 'Handles messages received from the server.'},
+        {name: 'window.renweb.onReady', signature: 'window.renweb.onReady = async () => {...}', description: 'Called once the application is fully initialised and ready for interaction.'},
+        {name: 'window.renweb.onTerminate', signature: 'window.renweb.onTerminate = async () => {...}', description: 'Called just before the window closes. Use for cleanup, saving state, or flushing logs.'},
+        {name: 'window.renweb.onMove', signature: 'window.renweb.onMove = async (position) => {...}', description: 'Called when the native window position changes.'},
+        {name: 'window.renweb.onWindowStateChanged', signature: 'window.renweb.onWindowStateChanged = async (state) => {...}', description: 'Called when native window state changes (normal, minimized, maximized, fullscreen).'},
+        {name: 'window.renweb.onPermissionRequested', signature: 'window.renweb.onPermissionRequested = async (event) => {...}', description: 'Called when native webview permission/authentication requests are raised.'},
+        {name: 'window.renweb.onNewWindowRequested', signature: 'window.renweb.onNewWindowRequested = async (event) => {...}', description: 'Called when native webview requests opening a new window.'},
+        {name: 'window.renweb.onRenderProcessTerminated', signature: 'window.renweb.onRenderProcessTerminated = async (event) => {...}', description: 'Called when the web render process crashes/exits/unresponds.'},
+        {name: 'window.renweb.onCertificateError', signature: 'window.renweb.onCertificateError = async (event) => {...}', description: 'Called on TLS/certificate validation failures exposed by the native webview.'},
+        {name: 'window.renweb.onServerMessage', signature: 'window.renweb.onServerMessage = async (message) => {...}', description: 'Called when another process sends a message to this window via Process.send().'},
     ],
     'Plugin': [
         // Constructor

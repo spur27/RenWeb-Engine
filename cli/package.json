@@ -1,12 +1,34 @@
 {
   "name": "renweb-cli",
   "version": "0.0.1",
-  "description": "RenWeb CLI tool — Docker-only Node.js CLI",
+  "description": "CLI tool for creating, building, running, and packaging RenWeb desktop applications.",
   "bin": {
     "rw": "index.js"
   },
-  "private": true,
+  "files": [
+    "index.js",
+    "commands/",
+    "project/"
+  ],
+  "keywords": [
+    "renweb",
+    "webview",
+    "desktop",
+    "cli",
+    "scaffold"
+  ],
+  "author": "spur27",
+  "license": "BSL-1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spur27/RenWeb-Engine"
+  },
+  "homepage": "https://spur27.github.io/RenWeb-Engine/?page=cli",
+  "engines": {
+    "node": ">=16"
+  },
   "dependencies": {
+    "chalk": "^4.1.2",
     "commander": "^11.0.0"
   },
   "scripts": {

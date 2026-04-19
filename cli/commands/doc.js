@@ -1,14 +1,21 @@
 'use strict';
-// rw doc [--js | --plugin]
-// Opens the RenWeb documentation in the system default browser.
-//   (no flag)  → https://spur27.github.io/RenWeb-Engine/?page=home
-//   --js       → ?page=api
-//   --plugin   → ?page=plugins
 
 const { spawnSync } = require('child_process');
+const ui = require('../shared/ui');
 
-const BASE = 'https://spur27.github.io/RenWeb-Engine/';
-const PAGES = { '--js': 'api', '--plugin': 'plugins' };
+const BASE  = 'https://spur27.github.io/RenWeb-Engine/';
+const PAGES = {
+    'home':        'home',
+    'js':          'api',
+    'api':         'api',
+    'usage':       'usage',
+    'cli':         'cli',
+    'compilation': 'compilation',
+    'download':    'downloads',
+    'downloads':   'downloads',
+    'plugin':      'plugins',
+    'plugins':     'plugins',
+};
 
 function openBrowser(url) {
     const plat = process.platform;
@@ -19,21 +26,32 @@ function openBrowser(url) {
 
     const r = spawnSync(cmd, args, { stdio: 'ignore' });
     if (r.error) {
-        console.error(`Could not open browser: ${r.error.message}`);
-        console.log(`Visit: ${url}`);
+        ui.error(`Could not open browser: ${r.error.message}`);
+        ui.info(`Visit: ${url}`);
     } else {
-        console.log(`Opening: ${url}`);
+        ui.step(`Opening: ${url}`);
     }
 }
 
 function run(args) {
-    const flag = (args || []).find(a => a.startsWith('-'));
-    if (flag && !PAGES[flag]) {
-        console.error(`Unknown flag '${flag}'. Usage: rw doc [--js | --plugin]`);
+    const tokens = (args || []).filter(a => !a.startsWith('-'));
+    if (tokens.length === 0) {
+        openBrowser(`${BASE}?page=home`);
+        return;
+    }
+    const unknown = tokens.filter(t => !PAGES[t.toLowerCase()]);
+    if (unknown.length > 0) {
+        ui.error(`Unknown page(s): ${unknown.join(', ')}`);
+        ui.info(`Valid pages: ${[...new Set(Object.keys(PAGES))].join(' | ')}`);
         process.exit(1);
     }
-    const page = flag ? PAGES[flag] : 'home';
-    openBrowser(`${BASE}?page=${page}`);
+    const seen = new Set();
+    for (const token of tokens) {
+        const page = PAGES[token.toLowerCase()];
+        if (seen.has(page)) continue;
+        seen.add(page);
+        openBrowser(`${BASE}?page=${page}`);
+    }
 }
 
 module.exports = { run };

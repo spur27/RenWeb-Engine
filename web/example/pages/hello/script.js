@@ -29,23 +29,30 @@
 /// <reference path="./index.d.ts" />
 import {
     Log, 
-    FS,
     Window,
     System,
-    Config,
-    Properties,
-    Process,
-    Debug,
-    Network,
-    Navigate,
-    Utils
+    Properties
  } from './index.js';
 
+window.renweb.onReady = async () => {
+    const os = String(await System.getOS()).toLowerCase();
+    let targetOpacity = 1;
+    if (os === "macos") {
+        targetOpacity = await Properties.getOpacity();
+        await Properties.setOpacity(0);
+    }
 
-window.onload = async () => {
     await Window.show(true);
-    await Log.info("Hello World!");
-};
+
+    if (os === "macos") {
+        const fadeSteps = 5;
+        const stepDelayMs = 10;
+        for (let i = 1; i <= fadeSteps; i++) {
+            await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+            await Properties.setOpacity((targetOpacity * i) / fadeSteps);
+        }
+    }
+}
 
 // Back button
 document.querySelector('.back-button')?.addEventListener('click', async () => {

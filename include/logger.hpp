@@ -38,6 +38,8 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/stdout_sinks.h"
+#include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <filesystem>
 
@@ -64,6 +66,7 @@ namespace RenWeb {
             std::unique_ptr<struct RenWeb::LogFlags> flags;
             std::unique_ptr<spdlog::logger> logger;
             std::shared_ptr<File> file;
+            bool unable_to_log_msg = false;
         public:
             Logger(
                 std::unique_ptr<LogFlags> flags = std::make_unique<LogFlags>()
@@ -141,15 +144,39 @@ namespace RenWeb {
                 console_sink->set_level(this->flags->log_level);
                 console_sink->set_pattern(console_pattern);
 
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
-                file_sink->set_level(spdlog::level::trace);
-                file_sink->set_pattern(boring_log_str.str());
+                spdlog::sink_ptr file_sink;
+                try {
+                    file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(this->file->getPath().string(), false);
+                } catch (const spdlog::spdlog_ex&) {
+                    if (!this->unable_to_log_msg) {
+                        if (this->flags->log_boring) {
+                            std::cerr
+                                << "[ERROR] [logger] Cannot write to: "
+                                << this->file->getPath().string() << "\n"
+                                << "[ERROR] [logger] RenWeb requires write access to its installation directory.\n"
+                                << "[ERROR] [logger] Please reinstall RenWeb to a location where your user has write permissions\n"
+                                << "[ERROR] [logger] (e.g. ~/renweb or /usr/local/renweb instead of a read-only /opt).\n";
+                        } else if (!this->flags->log_silent) {
+                            std::cerr
+                                << "\033[31m[ERROR]\033[0m [logger] Cannot write to: "
+                                << this->file->getPath().string() << "\n"
+                                << "\033[31m[ERROR]\033[0m [logger] RenWeb requires write access to its installation directory.\n"
+                                << "\033[31m[ERROR]\033[0m [logger] Please reinstall RenWeb to a location where your user has write permissions\n"
+                                << "\033[31m[ERROR]\033[0m [logger] (e.g. ~/renweb or /usr/local/renweb instead of a read-only /opt).\n";
+                        }
+                        this->unable_to_log_msg = true;
+                    }
+                }
                 std::vector<spdlog::sink_ptr> log_sinks;
                 if (!this->flags->log_silent) {
                     log_sinks.push_back(console_sink);
                 }
-                log_sinks.push_back(file_sink);
-                
+                if (file_sink) {
+                    file_sink->set_level(spdlog::level::trace);
+                    file_sink->set_pattern(boring_log_str.str());
+                    log_sinks.push_back(file_sink);
+                }
+
                 this->logger.reset(new spdlog::logger("default", begin(log_sinks), end(log_sinks)));
                 this->logger->set_level(spdlog::level::trace);
                 if (this->flags->log_level < spdlog::level::info) {
