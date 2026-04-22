@@ -1,6 +1,6 @@
 {
   "name": "renweb-cli",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "CLI tool for creating, building, running, and packaging RenWeb desktop applications.",
   "bin": {
     "rw": "index.js"

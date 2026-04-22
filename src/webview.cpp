@@ -28,6 +28,7 @@
 // DEALINGS IN THE SOFTWARE.
 #include "../include/webview.hpp"
 #include "../include/interfaces/Ilogger.hpp"
+#include "../include/locate.hpp"
 
 #if defined(__linux__)
     #include <gtk/gtk.h>
@@ -441,6 +442,26 @@ void Webview::addWindowCallbacks() {
         auto win_opt = webview_impl->window();
         if (win_opt.has_value()) {
             GtkWidget* gtk_win = static_cast<GtkWidget*>(win_opt.value());
+
+            {
+                std::filesystem::path icon_path;
+                try {
+                    auto base = Locate::currentDirectory() / "resource";
+                    for (const char* name : { "app.png", "icon.png" }) {
+                        auto candidate = base / name;
+                        if (std::filesystem::exists(candidate)) {
+                            icon_path = candidate;
+                            break;
+                        }
+                    }
+                } catch (...) {}
+                if (!icon_path.empty()) {
+                    GError* err = nullptr;
+                    gtk_window_set_icon_from_file(GTK_WINDOW(gtk_win), icon_path.c_str(), &err);
+                    if (err) g_error_free(err);
+                }
+            }
+
             auto widget_opt = webview_impl->widget();
             if (widget_opt.has_value()) {
                 WebKitWebView* wk_webview = WEBKIT_WEB_VIEW(widget_opt.value());

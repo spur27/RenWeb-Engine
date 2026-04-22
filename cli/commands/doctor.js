@@ -80,11 +80,20 @@ function run() {
             fail('No engine executable found in build/ — run `rw fetch` to download it');
         }
 
-        const pages  = (state.info && state.info.starting_pages) || [];
-        const layout = state.layout();
-        for (const page of pages.slice(0, 3)) {
-            if (layout.pageExists(page)) ok(`content: ${page}/index.html`);
-            else                         warn(`content: ${page}/index.html not found`);
+        const layout    = state.layout();
+        const existing  = layout.listPages();
+        const declared  = (state.info && state.info.starting_pages) || [];
+
+        if (existing.length === 0 && !fs.existsSync(layout.content_root)) {
+            if (declared.length > 0)
+                warn(`content: ${path.relative(state.root, layout.content_root)} not found (declared pages: ${declared.join(', ')})`);
+        } else {
+            const preview = existing.slice(0, 5).join(', ') + (existing.length > 5 ? ', …' : '');
+            ok(`content: ${existing.length} page(s)  (${preview})`);
+            for (const page of declared) {
+                if (!existing.includes(page))
+                    warn(`content: declared starting page "${page}" not found`);
+            }
         }
 
         const plug_dir = path.join(state.root, 'build', 'plugins');

@@ -66,13 +66,10 @@ const LINUX_DEPS = {
     },
 };
 
-// Asset filename patterns produced by the engine's build system:
-//   bare executable : {name}-{version}-{os}-{arch}[.exe]
 const RE_EXEC   = /^(.+)-(\d+[\w.]*)-(\w+)-([\w]+?)(?:\.exe)?$/;
 
-// Build files that must never be included in the packaged output
-const BUILD_EXCLUDES        = new Set(['log.txt', 'plugins', 'lib']);
-const BUILD_EXCLUDE_PREFIXES = ['lib-']; // e.g. lib-x86_64
+const BUILD_EXCLUDES         = new Set(['log.txt', 'plugins', 'lib']);
+const BUILD_EXCLUDE_PREFIXES = ['lib-'];
 
 // fpm native Linux package formats
 const FPM_FORMATS = [
@@ -112,10 +109,7 @@ const FPM_ARCH_MAP = {
     sparc64  : 'sparcv9',
 };
 
-// Maps engine arch names → Alpine APK arch strings (passed verbatim to nfpm).
-// Alpine uses its own canonical names; nfpm only transforms standard Go arch
-// names (amd64, arm64, 386, arm) so passing Alpine names directly avoids any
-// unwanted remapping.
+// Maps engine arch names → Alpine APK arch strings (passed verbatim; nfpm remaps standard Go names so we use Alpine names directly).
 const NFPM_APK_ARCH_MAP = {
     x86_64   : 'x86_64',
     x86_32   : 'x86',
@@ -166,7 +160,6 @@ const FREEBSD_PKG_ORIGINS = {
     'gstreamer1-plugins-good':     { origin: 'multimedia/gstreamer1-plugins-good', version: '0' },
 };
 
-// WebView2 runtime bootstrapper URL — required by bare Windows executables
 const WEBVIEW2_BOOTSTRAPPER_URL = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
 
 // appimagetool static binary path inside the Docker image
@@ -181,12 +174,8 @@ const APPIMAGE_RUNTIME_FOR_ARCH = {
     armhf  : 'appimage-runtime-armhf',
 };
 
-// ELF e_machine values for architectures we package.
 const ELF_MACHINE_FOR_APPIMAGE_ARCH = { x86_64: 0x3E, i686: 0x03, aarch64: 0xB7, armhf: 0x28 };
 
-/**
- * Returns the ELF e_machine uint16 for a file, or null if it is not an ELF.
- */
 function readElfMachine(filePath) {
     try {
         const buf = Buffer.alloc(20);
@@ -199,11 +188,6 @@ function readElfMachine(filePath) {
     return null;
 }
 
-/**
- * Recursively remove every ELF file inside dir whose e_machine does not match
- * wantMachine.  Prevents appimagetool from aborting with
- * "More than one architectures were found".
- */
 function purgeForeignElfs(dir, wantMachine) {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
@@ -217,7 +201,6 @@ function purgeForeignElfs(dir, wantMachine) {
     }
 }
 
-// rcedit path inside the Docker image
 const RCEDIT_EXE = '/opt/rcedit-x64.exe';
 
 // ─── Low-level utils ─────────────────────────────────────────────────────────
@@ -234,10 +217,7 @@ function toSnake(str) {
     return str.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
-/**
- * Stable package identifier for Windows packaging metadata.
- * Prefers info.app_id when present to avoid renaming drift across releases.
- */
+/** Stable Windows package ID; prefers info.app_id to avoid renaming drift. */
 function windowsPackageId(info) {
     const raw = (info && typeof info.app_id === 'string' && info.app_id.trim())
         ? info.app_id.trim().toLowerCase()
@@ -294,12 +274,7 @@ function getDirSizeKb(dirPath) {
     return Math.ceil(bytes / 1024);
 }
 
-/**
- * Parse info.json `categories` into a valid freedesktop.org `Categories=` value.
- * Handles arrays, semicolon-separated strings, and space-separated strings.
- * Falls back to 'Utility;' when empty.
- * Ensures only one main category appears (freedesktop spec requirement).
- */
+/** Parse info.json `categories` into a valid freedesktop.org `Categories=` value (falls back to 'Utility;'). */
 const FREEDESKTOP_MAIN_CATS = new Set([
     'AudioVideo','Audio','Video','Development','Education','Game','Graphics',
     'Network','Office','Science','Settings','System','Utility',
@@ -322,8 +297,7 @@ function parseCats(raw) {
 }
 
 /**
- * Download a URL to a local file using curl or wget.
- * Returns true on success.
+ * Download a URL to a local file using curl or wget. Returns true on success.
  */
 function download(url, dest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -378,12 +352,7 @@ function makeZip(srcDir, destArchive) {
     return r.status === 0;
 }
 
-/**
- * Find the first available executable from a list of candidate names.
- * Falls back to searching PATH directories manually when `which` is absent
- * (e.g. minimal Docker environments).
- * Returns the resolved command name/path, or null if none found.
- */
+/** Find the first available binary in the PATH from a candidate list. */
 function findBin(...names) {
     for (const name of names) {
         // 1. Try `which` (most UNIX systems)
@@ -435,11 +404,7 @@ function findAncestorDir(name) {
 const findBuildDir       = () => findAncestorDir('build');
 const findCredentialsDir = () => findAncestorDir('credentials');
 
-/**
- * Find the first available app icon in the staging directory.
- * Checks resource/ and resources/ sub-directories for common icon filenames.
- * Returns { src, ext } or null if no icon is found.
- */
+/** Find the first app icon under resource/ or resources/ in stagingDir. Returns { src, ext } or null. */
 function findAppIcon(stagingDir) {
     for (const ext of ['png', 'svg', 'jpg']) {
         for (const cand of [
@@ -454,18 +419,7 @@ function findAppIcon(stagingDir) {
     return null;
 }
 
-/**
- * Write post-install and post-remove shell scripts to temporary files.
- * Both scripts are made executable before being returned.
- * Returns { postInstall, postRemove } — paths to the created script files.
- *
- * Post-install is a no-op: the seed lives in /usr/share/<pkgId>/ (root-owned,
- * read-only by design) and the mutable user copy is bootstrapped by the wrapper
- * script on first launch — no chmod hacks required.
- *
- * Post-remove removes the seed but intentionally leaves each user's
- * ~/.local/share/<pkgId>/ in place (they own that directory).
- */
+/** Write no-op post-install and seed-removing post-remove scripts to temp files. Returns { postInstall, postRemove }. */
 function makeLinuxPostScripts(pkgId, tmpOutDir, suffix) {
     const postInstall = path.join(tmpOutDir, `_renweb-postinstall-${suffix}.sh`);
     const postRemove  = path.join(tmpOutDir, `_renweb-postremove-${suffix}.sh`);
@@ -522,14 +476,6 @@ function normalizeArch(raw) {
     }
 }
 
-/**
- * Parse CLI args passed to run().
- *   --executable-only    Only process bare executables
- *   -e<ext> / --ext <ext>   Output format filter (repeatable); empty = all
- *   -o<os>  / --os  <os>    Target OS filter (repeatable); empty = all
- *   -a<arch>/ --arch <arch> Target arch filter (repeatable); empty = all. Aliases accepted.
- *   -c / --cache         Reuse cached downloads in ./.package
- */
 function parseArgs(args) {
     const opts = {
         exts           : new Set(),   // empty = all formats
@@ -554,21 +500,13 @@ function parseArgs(args) {
 
 // ─── Asset name parsing ───────────────────────────────────────────────────────
 
-/**
- * Parse a bare-executable release asset filename.
- * Returns { name, version, os, arch } or null.
- */
 function parseExecAsset(filename) {
     const m = RE_EXEC.exec(filename);
     if (!m) return null;
     return { name: m[1], version: m[2], os: m[3], arch: m[4] };
 }
 
-/**
- * Group a release's assets by {os}-{arch}.
- * Each group gets: { bare? }
- *   bare — plain executable
- */
+/** Group release assets by {os}-{arch}; each group has a `bare` executable. */
 function groupAssets(assets) {
     const groups = new Map();
     for (const asset of (assets || [])) {
@@ -589,28 +527,7 @@ function groupAssets(assets) {
 
 // ─── Staging / package builder ────────────────────────────────────────────────
 
-/**
- * Generate the bootstrap wrapper script content for a Linux system package.
- *
- * The wrapper is installed at /usr/bin/<pkgId> (root-owned, read-only).
- * On first launch it copies the read-only seed from /usr/share/<pkgId>/ into
- * the user's ~/.local/share/<pkgId>/ (XDG_DATA_HOME), then execs the real
- * binary from there.  All subsequent launches skip the copy and exec directly.
- *
- * Launcher resolution (version-agnostic, rename-safe):
- *   Any non-.sh executable is picked as the launch target;
- *   RENWEB_EXECUTABLE_PATH is set so the engine finds its data dir.
- *
- * sudo / polkit handling:
- *   When invoked as root (e.g. via pkexec or sudo), the real user is read from
- *   $SUDO_USER or $PKEXEC_UID and the copy + exec are dropped to that user's
- *   identity so the data dir lands in their home, not root's.
- *
- * Upgrade handling:
- *   A .renweb-version stamp file is written into the data dir after each copy.
- *   If the stamp is absent or contains a different version string the data dir
- *   is refreshed from the seed (preserving the upgrade path without manual steps).
- */
+/** Generate /usr/bin/<pkgId> bootstrap wrapper: seeds ~/.local/share/<pkgId>/ from /usr/share/<pkgId>/ on first launch, handles sudo/pkexec, and refreshes on version change. */
 function generateLinuxWrapperScript(pkgId, version) {
     return [
         '#!/bin/sh',
@@ -724,23 +641,7 @@ function generateLinuxWrapperScript(pkgId, version) {
     ].join('\n');
 }
 
-/**
- * Build a system-layout staging tree under destRoot for Linux package formats.
- * Populates:
- *   /usr/share/<pkgId>/                         — read-only seed (app files)
- *   /usr/bin/<pkgId>                            — bootstrap wrapper script
- *   /usr/share/applications/<pkgId>.desktop     — freedesktop .desktop entry
- *   /usr/share/icons/hicolor/256x256/apps/…    — app icon (if found via findAppIcon)
- *
- * The wrapper at /usr/bin/<pkgId> bootstraps ~/.local/share/<pkgId>/ from the
- * seed on first launch, then execs the real binary from the mutable user copy.
- * This avoids the /opt world-writable anti-pattern and mirrors the approach used
- * by macOS (.app bundle → ~/Library/Application Support/) and Windows (NSIS →
- * %LOCALAPPDATA%).
- *
- * Shared by buildFpmPackages and buildXbpsPackage so their system-layout logic
- * stays in one place (SRP / DRY).
- */
+/** Build system-layout staging tree under destRoot: seed at /usr/share/<pkgId>/, wrapper at /usr/bin/<pkgId>, .desktop file, and icon. Shared by buildFpmPackages and buildXbpsPackage. */
 function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, destRoot) {
     const seedDir  = path.join(destRoot, 'usr', 'share', pkgId);
     const appsDir  = path.join(destRoot, 'usr', 'share', 'applications');
@@ -795,11 +696,7 @@ function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info,
     fs.writeFileSync(path.join(appsDir, `${appId}.desktop`), desktopLines.join('\n'), 'utf8');
 }
 
-/**
- * Build one staging tree for (os, arch), package it, and write outputs.
- *
- * All outputs → ./package/{os}/{stem}.tar.gz, .zip, plus native packages
- */
+/** Build packaging outputs (tar.gz, zip, native packages) for one (os, arch) target. */
 function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pkgDir, tmpDir, homebrewBottles) {
     const { os: targetOs, arch: targetArch } = engineAsset;
     const pkgId      = toKebab(info.title || 'app');
@@ -810,15 +707,12 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     ui.section(`Building ${stem}`);
 
-    // 1. Fresh staging tree
     if (fs.existsSync(stagingDir)) fs.rmSync(stagingDir, { recursive: true, force: true });
     fs.mkdirSync(stagingDir, { recursive: true });
 
-    // 2. Copy sanitised build/ content
     ui.step('Copying build files…');
     copyDir(buildSrc, stagingDir);
 
-    // 3. Copy matching plugins → staging/plugins/
     if (pluginDirs.length > 0) {
         ui.step(`Copying ${pluginDirs.length} plugin bundle(s)…`);
         const stagingPlugins = path.join(stagingDir, 'plugins');
@@ -826,20 +720,17 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
         for (const pDir of pluginDirs) copyDir(pDir, stagingPlugins);
     }
 
-    // 4. Place the engine executable
     const exeDest = path.join(stagingDir, engineAsset.filename);
     fs.copyFileSync(engineAsset.localPath, exeDest);
     makeExecutable(exeDest);
 
-    // 4a. Patch Windows PE version info + icon immediately after the exe lands in
-    //     staging so that ALL outputs (tar.gz, zip, NSIS, MSI, MSIX, choco) contain
-    //     the patched binary.  Must happen before the step-5 archiving below.
+    // Patch Windows PE resources before archiving so all outputs include the patched binary.
     if (targetOs === 'windows' || targetOs === 'win') {
         const winExe = path.join(stagingDir, engineAsset.filename);
         if (fs.existsSync(winExe)) patchWindowsExe(winExe, info);
     }
 
-    // 5. Archive outputs (tar.gz / zip) — raw files only, no wrapper scripts
+    // Archive outputs
     fs.mkdirSync(outDir, { recursive: true });
     const wantTarGz = opts.exts.size === 0 || opts.exts.has('tar.gz');
     const wantZip   = opts.exts.size === 0 || opts.exts.has('zip');
@@ -857,43 +748,29 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
            else if (targetOs === 'linux') gpgSign(opts, dest);
     }
 
-    // 6. OS-specific native packages
     if (targetOs === 'linux') {
-        // deb / rpm / pacman / apk / freebsd via fpm
         buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.filename);
-        // Void Linux binary package (.xbps via xbps-create)
         buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, engineAsset.filename);
-        // AppImage (portable, no install needed)
         buildAppImage(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
-        // Snap package (squashfs-based, built inline)
         buildSnapPackage(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
-        // Flatpak bundle (.flatpak single-file, built via flatpak-builder --disable-sandbox)
         buildFlatpakBundle(opts, info, stagingDir, targetArch, outDir, engineAsset.filename);
     }
 
     if (targetOs === 'windows' || targetOs === 'win') {
-        // Windows native installers/packages
-        // NSIS installer
         const nsisOut = path.join(outDir, `${stem}-setup.exe`);
         buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut);
-        // MSI installer via wixl
         buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`));
-        // MSIX / Windows Store package via makemsix
         const msixExeFile = engineAsset.filename;
         buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), msixExeFile);
-        // Chocolatey nupkg (single file, root of windows output dir)
         buildChocoPackage(opts, info, targetArch, nsisOut, outDir);
-        // NuGet nupkg (single file, root of windows output dir)
         buildNugetPackage(opts, info, targetArch, outDir, nsisOut);
-        // winget manifests (for submission to microsoft/winget-pkgs)
         buildWingetManifest(opts, info, targetArch, nsisOut, outDir);
     }
 
     if (targetOs === 'macos' || targetOs === 'darwin') {
-        // DMG disk image — proper .app bundle built inside via buildMacAppBundle
         const dmgOut = path.join(outDir, `${stem}.dmg`);
         buildMacDmg(opts, info, stagingDir, targetArch, dmgOut, engineAsset.filename);
-        // macOS .pkg installer via pkgbuild (macOS-only binary, always at /usr/bin/pkgbuild)
+        // macOS .pkg via pkgbuild (macOS-only)
         if (opts.exts.size === 0 || opts.exts.has('osxpkg') || opts.exts.has('pkg')) {
             if (!findBin('pkgbuild')) {
                 ui.dim('[osxpkg] skipped — pkgbuild not available (macOS only)');
@@ -908,7 +785,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                     || ('com.' + toKebab(info.author || 'app').replace(/-/g, '.') + '.' + toKebab(info.title || 'app'));
                 const pkgVersion = (info.version || '0.0.1').trim();
 
-                // Step 1: build flat component pkg
+                // Build flat component pkg, then wrap with productbuild
                 const componentPkg = pkgOut.replace(/\.pkg$/, '-component.pkg');
                 const pkgR = spawnSync('pkgbuild', [
                     '--component',        appBundle,
@@ -919,7 +796,6 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                 ], { stdio: 'inherit' });
 
                 if (pkgR.status === 0) {
-                    // Step 2: wrap with productbuild to add license screen
                     const licSrc = path.join(stagingDir, 'licenses', 'LICENSE');
                     const bgPkgSrc = ['bk_pkg.png', 'bk-pkg.png'].map(n => path.join(stagingDir, 'resource', n)).find(p => fs.existsSync(p)) || null;
                     const distXmlPath = path.join(pkgTmp, 'distribution.xml');
@@ -990,11 +866,7 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Post-process an fpm-generated FreeBSD .txz to inject the deps field into
- * +MANIFEST and +COMPACT_MANIFEST.  fpm's FreeBSD backend silently omits deps
- * (open bug since 2016); this works around it without requiring pkg on Linux.
- */
+/** Post-process a FreeBSD .txz to inject deps into +MANIFEST (fpm silently omits them, open bug since 2016). */
 function injectFreebsdDeps(txzPath, depNames) {
     if (!depNames || depNames.length === 0 || !fs.existsSync(txzPath)) return;
     const depsObj = {};
@@ -1022,11 +894,7 @@ function injectFreebsdDeps(txzPath, depNames) {
     }
 }
 
-/**
- * Build Linux native packages (deb, rpm, pacman, apk, freebsd) using fpm.
- * Creates a system-layout staging tree (/usr/share, /usr/bin, etc.) then
- * invokes fpm for each requested format.
- */
+/** Build Linux native packages (deb, rpm, pacman, apk, freebsd) via fpm/nfpm. */
 function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, exeFilename = '') {
     const pkgId   = toKebab(info.title || 'app');
     const version = (info.version || '0.0.1').trim();
@@ -1034,30 +902,23 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
     const license = info.license     || 'BSL-1.0';
     const website = info.repository  || '';
 
-    // Which fpm formats to produce (filtered by -e flag)
     const formats = FPM_FORMATS.filter(fmt => opts.exts.size === 0 || opts.exts.has(fmt));
     if (formats.length === 0) return;
 
-    // Require fpm
     const fpmCheck = spawnSync('fpm', ['--version'], { encoding: 'utf8' });
     if (fpmCheck.status !== 0) {
         ui.warn('fpm not found — skipping native Linux packages');
         return;
     }
 
-    // Build system-layout staging tree (shared base; each format gets its own isolated copy).
     const fpmRoot = path.join(tmpDir, 'fpm-staging', `${pkgId}-${version}-${targetOs}-${targetArch}`);
     if (fs.existsSync(fpmRoot)) fs.rmSync(fpmRoot, { recursive: true, force: true });
     buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, fpmRoot);
 
-    // Run fpm (deb/rpm/pacman/freebsd) or nfpm (apk) for each format.
-    // nfpm natively produces correct 3-stream APKv2; fpm 1.17 does not.
     for (const fmt of formats) {
         const stem       = `${pkgId}-${version}-${targetOs}-${targetArch}`;
         const outputFile = path.join(outDir, `${stem}${FPM_EXT[fmt]}`);
-        // Give each fpm invocation its own isolated copy of the staging tree.
-        // Some fpm backend/format combinations delete or rename the source
-        // directory after packaging, which would break subsequent format runs.
+        // Some fpm backends delete/rename the source dir after packaging; give each format its own copy.
         const fmtRoot = fpmRoot + '-' + fmt;
         if (fs.existsSync(fmtRoot)) fs.rmSync(fmtRoot, { recursive: true, force: true });
         copyDir(fpmRoot, fmtRoot);
@@ -1108,8 +969,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
         if (r.status !== 0) {
             ui.warn(`fpm failed for format: ${fmt}`);
         } else if (fmt === 'freebsd') {
-            // fpm's FreeBSD backend never writes deps into +MANIFEST (open bug
-            // jordansissel/fpm#1156).  Post-process the archive to inject them.
+            // fpm's FreeBSD backend silently omits deps (jordansissel/fpm#1156); post-process to inject them.
             injectFreebsdDeps(outputFile, LINUX_DEPS.freebsd.required);
         }
     }
@@ -1117,10 +977,7 @@ function buildFpmPackages(opts, info, stagingDir, targetOs, targetArch, outDir, 
     try { fs.rmSync(fpmRoot, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Recursively walk a staging directory and return nfpm YAML content entries.
- * Handles regular files (with executable-bit detection) and relative symlinks.
- */
+/** Recursively walk a staging directory and return nfpm YAML content entries. */
 function walkStagingDir(dir, mountAt) {
     const items = [];
     for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -1139,11 +996,7 @@ function walkStagingDir(dir, mountAt) {
     return items;
 }
 
-/**
- * Build an Alpine APK using nfpm, which correctly produces the 3-stream APKv2
- * format that fpm 1.17 gets wrong.  Returns an object with a .status property
- * (0 on success) so call-sites can treat it the same as spawnSync's return.
- */
+/** Build an Alpine APK using nfpm (correct 3-stream APKv2 format; fpm 1.17 produces a broken APK). Returns spawnSync-compatible { status }. */
 function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
                       fmtRoot, outputFile, postInstallScript, postRemoveScript }) {
     const nfpmArch    = NFPM_APK_ARCH_MAP[targetArch] || targetArch;
@@ -1173,10 +1026,7 @@ function runNfpmApk({ pkgId, version, targetArch, desc, website, license,
     return r;
 }
 
-/**
- * Patch version info + icon into a Windows .exe using rcedit (via Wine64).
- * Does nothing if rcedit or wine64 are absent (non-Docker environments).
- */
+/** Patch version info and icon into a Windows .exe via rcedit/wine64. No-op if rcedit or wine64 is absent. */
 function patchWindowsExe(exePath, info) {
     // Accept wine64 or wine64-stable (Debian bullseye installs the latter).
     const wineBin  = findBin('wine64', 'wine64-stable');
@@ -1217,10 +1067,7 @@ function patchWindowsExe(exePath, info) {
         ui.warn('No .ico found — executable icon will not be changed');
     }
 
-    // Use the pre-initialised Wine prefix from /opt/wine.
-    // Wine refuses to use a prefix not owned by the current user, so when
-    // running as --user in Docker (where /opt/wine is root-owned), copy the
-    // prefix to a user-owned tmpdir and point WINEPREFIX there.
+    // Wine refuses to use a prefix owned by another user; copy to a user-owned tmpdir when Docker runs as --user.
     ui.step('Patching Windows PE resources (rcedit via wine64)…');
     const BASE_WINE_PREFIX = '/opt/wine';
     let winePrefix = BASE_WINE_PREFIX;
@@ -1301,11 +1148,7 @@ function readPass(credDir, prefix, envVar) {
     return process.env[envVar] || null;
 }
 
-/**
- * Sign a file with Authenticode using osslsigncode (cross-platform).
- * Credential: credentials/windows.authenticode.pfx
- * Passphrase:  credentials/windows.authenticode.pass  or  RENWEB_WIN_PFX_PASS
- */
+/** Sign a file with Authenticode via osslsigncode. Uses credentials/windows.authenticode.pfx and .pass (or RENWEB_WIN_PFX_PASS). */
 function authenticodeSign(opts, filePath) {
     if (!opts.credDir) return false;
     const pfx = path.join(opts.credDir, 'windows.authenticode.pfx');
@@ -1334,11 +1177,7 @@ function authenticodeSign(opts, filePath) {
     return false;
 }
 
-/**
- * Sign a macOS artifact (DMG / .app) using codesign.  macOS only.
- * Credential: credentials/macos.developer-id-app.p12
- * Passphrase:  credentials/macos.certs.pass  or  RENWEB_MACOS_CERTS_PASS
- */
+/** Sign a macOS artifact (DMG/.app) via codesign. Uses credentials/macos.developer-id-app.p12 and .pass (or RENWEB_MACOS_CERTS_PASS). macOS only. */
 function macosCodesign(opts, filePath) {
     if (!opts.credDir || process.platform !== 'darwin') return false;
     const p12 = path.join(opts.credDir, 'macos.developer-id-app.p12');
@@ -1366,12 +1205,7 @@ function macosCodesign(opts, filePath) {
     }
 }
 
-/**
- * Sign a macOS .pkg using productsign.  macOS only.
- * certType 'osxpkg' uses macos.developer-id-installer.p12
- * certType 'mas'    uses macos.app-distribution.p12
- * Passphrase:  credentials/macos.certs.pass  or  RENWEB_MACOS_CERTS_PASS
- */
+/** Sign a macOS .pkg via productsign. certType 'osxpkg' → developer-id-installer.p12; 'mas' → app-distribution.p12. macOS only. */
 function macosProductsign(opts, filePath, certType) {
     if (!opts.credDir || process.platform !== 'darwin') return false;
     const p12Name = certType === 'mas' ? 'macos.app-distribution.p12' : 'macos.developer-id-installer.p12';
@@ -1407,12 +1241,7 @@ function macosProductsign(opts, filePath, certType) {
     }
 }
 
-/**
- * Create a GPG detached ASCII-armoured signature (.asc) alongside a file.
- * Credential: credentials/linux.gpg.asc  (ASCII-armoured private key)
- * Passphrase:  credentials/linux.gpg.pass  or  RENWEB_GPG_PASS
- * Imports the key into a temporary isolated GNUPGHOME to avoid polluting the user's keyring.
- */
+/** Create a GPG detached .asc signature. Uses credentials/linux.gpg.asc and .pass (or RENWEB_GPG_PASS). Key is imported into a temp GNUPGHOME. */
 function gpgSign(opts, filePath) {
     if (!opts.credDir) return false;
     const keyFile = path.join(opts.credDir, 'linux.gpg.asc');
@@ -1460,11 +1289,8 @@ function xbpsSign(opts, filePath) {
 // ─── Windows package builders ─────────────────────────────────────────────────
 
 /**
- * Generate a .nsi script and compile it with makensis (native Linux binary — no Wine).
- * Non-bundle packages silently download + install the WebView2 Bootstrapper if absent.
- *
- * Escaping note: string concatenation is used for NSIS lines to avoid any
- * ambiguity between JS template-literal ${} and NSIS $VAR / registry paths.
+ * Build a .nsi NSIS installer via makensis. String concatenation is used for NSIS lines to avoid
+ * ambiguity between JS template-literal ${} and NSIS $VAR syntax.
  */
 function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
@@ -1630,10 +1456,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     if (nsisBgBmp) { try { fs.unlinkSync(nsisBgBmp); } catch (_) {} }
 }
 
-/**
- * Build a Windows .msi installer via wixl (msitools) — native Linux binary, no Wine.
- * Uses wixl-heat to harvest staging dir files automatically.
- */
+/** Build a .msi installer via wixl (msitools). No Wine needed. */
 function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     if (opts.exts.size > 0 && !opts.exts.has('msi')) return;
     if (!findBin('wixl')) {
@@ -1662,24 +1485,17 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     const iconPath    = findWindowsIconPath(stagingDir, info);
     const sizeKb      = getDirSizeKb(stagingDir);
 
-    // ── Walk staging dir and generate a WXS fragment with every file ───────
-    // wixl-heat v0.101 (Debian bullseye) has a bug where it produces empty
-    // ComponentGroup output. Generate the fragment manually instead.
-    // wixl v0.101 also does not support the Directory attribute on <Component>
-    // — components must be nested *inside* their parent <Directory> element,
-    // with a separate <ComponentRef> list in the <ComponentGroup>.
+    // wixl-heat v0.101 produces empty ComponentGroup output and lacks Directory attr on <Component>;
+    // generate the WXS fragment manually instead.
     function xmlEscape(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
     let idCounter   = 0;
     const compIds   = [];  // collected component IDs for ComponentGroup
 
-    // Recursively builds the body XML (lines) to nest inside a <DirectoryRef>
-    // or <Directory> element. Returns an array of XML line strings.
     function buildDirBody(dirPath, indent) {
         const lines   = [];
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        // Files first: one <Component><File/></Component> per file
         for (const e of entries.filter(e => e.isFile())) {
             const n    = ++idCounter;
             const cid  = 'COMP' + n;
@@ -1692,7 +1508,6 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
                 indent + '</Component>',
             );
         }
-        // Then subdirectories, each with its own nested body
         for (const e of entries.filter(e => e.isDirectory())) {
             const did      = 'DIR' + (++idCounter);
             const body     = buildDirBody(path.join(dirPath, e.name), indent + '  ');
@@ -1770,11 +1585,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
         website ? '    <Property Id="ARPURLINFOABOUT" Value="' + xmlEscape(website) + '"/>' : '',
         website ? '    <Property Id="ARPURLUPDATEINFO" Value="' + xmlEscape(website) + '"/>' : '',
         '    <Media Id="1" Cabinet="app.cab" EmbedCab="yes"/>',
-        // WiX/wixl does not support a native license-agreement dialog via the
-        // minimal WiX3 UI (WixUI_Minimal uses UIRef which wixl ignores). The
-        // LicenseAgreement text is surfaced via the ARPREADME property so the
-        // user can open it from Programs & Features, and the license file is
-        // installed alongside the app so it is always present on-disk.
+        // wixl ignores WixUI_Minimal's UIRef; surface the license via ARPREADME instead.
         ...(fs.existsSync(path.join(stagingDir, 'licenses', 'LICENSE'))
             ? ['    <Property Id="ARPREADME" Value="[APPDIR]licenses\\LICENSE"/>'] : []),
         '    <Directory Id="TARGETDIR" Name="SourceDir">',
@@ -1815,12 +1626,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build an MSIX package for the Windows Store / MSIX sideloading.
- * Requires makemsix (from microsoft/msix-packaging) at /opt/makemsix.
- * The resulting .msix is UNSIGNED — sign with signtool or osslsigncode
- * before Store submission, or install via Add-AppxPackage -AllowUnsigned.
- */
+/** Build an MSIX package via makemsix. Output is unsigned — sign before Store submission or install with Add-AppxPackage -AllowUnsigned. */
 function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('msix')) return;
 
@@ -1858,8 +1664,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(assetsDir, { recursive: true });
 
-    // Use cp -r for the staging copy: more reliable than copyDir on Docker volume mounts
-    // (avoids ENOENT due to Windows NTFS↔Linux volume caching inconsistencies).
+    // cp -r avoids ENOENT from NTFS↔Linux volume caching inconsistencies on Docker mounts.
     const cpR = spawnSync('cp', ['-rL', '--no-preserve=ownership',
         path.join(stagingDir, '.'), tmpBase], { stdio: 'inherit' });
     if (cpR.status !== 0) {
@@ -1937,12 +1742,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build a Chocolatey .nupkg.
- * Embeds the NSIS installer EXE + PowerShell install/uninstall scripts.
- * Non-bundle: declares microsoft-edge-webview2-runtime dependency.
- * Publish to: https://community.chocolatey.org
- */
+/** Build a Chocolatey .nupkg embedding the NSIS setup EXE and PowerShell install/uninstall scripts. */
 function buildChocoPackage(opts, info, arch, nsisExePath, outDir) {
     if (opts.exts.size > 0 && !opts.exts.has('choco')) return;
 
@@ -2018,11 +1818,7 @@ function buildChocoPackage(opts, info, arch, nsisExePath, outDir) {
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build a NuGet .nupkg for Windows distribution.
- * Includes metadata and, when available, the NSIS setup executable under tools/.
- * WebView2 is handled by the bundled setup.exe at install time.
- */
+/** Build a NuGet .nupkg with package metadata and optionally the NSIS setup.exe under tools/. */
 function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '') {
     if (opts.exts.size > 0 && !opts.exts.has('nuget')) return;
 
@@ -2074,10 +1870,7 @@ function buildNugetPackage(opts, info, arch, outDir, nsisExePath = '') {
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Generate winget YAML manifests for microsoft/winget-pkgs submission.
- * This creates metadata only; publishing still requires pushing those manifests.
- */
+/** Generate winget YAML manifests for microsoft/winget-pkgs submission. Publishing requires pushing to the winget-pkgs repo. */
 function buildWingetManifest(opts, info, arch, nsisExePath, outDir) {
     if (opts.exts.size > 0 && !opts.exts.has('winget')) return;
     if (!nsisExePath || !fs.existsSync(nsisExePath)) {
@@ -2161,25 +1954,10 @@ function buildWingetManifest(opts, info, arch, nsisExePath, outDir) {
 // ─── macOS packaging ──────────────────────────────────────────────────────────
 
 /**
- * Build a proper macOS .app bundle inside destDir.
- *
- * Layout (required by RenWeb — Locate::currentDirectory() = executable().parent_path()):
- *   <Title>.app/
- *     Contents/
- *       MacOS/         ← ALL staging files go here as siblings of the binary
- *         <exe>        ← primary executable (CFBundleExecutable)
- *         content/     ← web content
- *         config.json
- *         info.json
- *         plugins/
- *         ...
- *       Info.plist     ← generated from info.json (including permissions)
- *
- * @param {string} stagingDir  Populated staging tree.
- * @param {string} exeFilename Binary filename inside stagingDir (CFBundleExecutable).
- * @param {object} info        Parsed info.json.
- * @param {string} destDir     Directory in which <Title>.app is created.
- * @returns {string}           Absolute path to the created .app bundle.
+ * Build a macOS .app bundle. Launcher in Contents/MacOS/ bootstraps
+ * ~/Library/Application Support/<AppName>/ from Contents/Resources/data/ on first launch,
+ * then execs the real binary there (matching Locate::currentDirectory() = executable().parent_path()).
+ * Returns the absolute path to the created .app bundle.
  */
 function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
     const title        = info.title    || 'App';
@@ -2293,15 +2071,7 @@ function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
     return appBundle;
 }
 
-/**
- * Build a macOS DMG distributable.
- *
- * On macOS: uses hdiutil (native, produces a proper HFS+ UDZO image).
- * On Linux/Docker: uses xorrisofs or genisoimage (ISO-9660 image, mounts on
- *   macOS but is not a true HFS+ DMG — suitable for CI artifact storage).
- *
- * In both cases the DMG contains a proper .app bundle built via buildMacAppBundle().
- */
+/** Build a macOS DMG via create-dmg/hdiutil on macOS, or xorrisofs/genisoimage on Linux/Docker (ISO-9660, not true HFS+). */
 function buildMacDmg(opts, info, stagingDir, arch, outPath, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('dmg')) return;
 
@@ -2462,11 +2232,7 @@ const HOMEBREW_BOTTLE_TAG = {
     universal: 'all',
 };
 
-/**
- * Build a real Homebrew bottle (.tar.gz in Cellar layout) and push the bottle
- * metadata into `homebrewBottles` for later unified formula generation.
- * Call writeHomebrewFormula() once after all arches to write the combined .rb.
- */
+/** Build a Homebrew bottle (.tar.gz in Cellar layout) and accumulate metadata into homebrewBottles. Call writeHomebrewFormula() once after all arches. */
 function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, exeFilename = '', homebrewBottles = null) {
     if (opts.exts.size > 0 && !opts.exts.has('homebrew')) return;
 
@@ -2510,7 +2276,6 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, exeFilena
     fs.writeFileSync(wrapperPath, wrapperSh, 'utf8');
     makeExecutable(wrapperPath);
 
-    // ── Pack the bottle ────────────────────────────────────────────────────
     fs.mkdirSync(outDir, { recursive: true });
     const bottleName = pkgId + '--' + version + '.' + bottleTag + '.bottle.tar.gz';
     const bottlePath = path.join(outDir, bottleName);
@@ -2524,30 +2289,22 @@ function generateHomebrewFormula(opts, info, arch, outDir, stagingDir, exeFilena
     }
     ui.ok('[homebrew bottle] \u2192 ' + path.relative(process.cwd(), bottlePath));
 
-    // ── Compute sha256 of the bottle ───────────────────────────────────────
     const sha256 = require('crypto')
         .createHash('sha256')
         .update(fs.readFileSync(bottlePath))
         .digest('hex');
 
-    // Push bottle metadata for later unified formula write
     if (homebrewBottles) {
         homebrewBottles.push({ bottleTag, bottleName, sha256, binTarget, outDir, pkgId, klass, version, desc, website, license });
     }
 }
 
-/**
- * Write a single unified Homebrew formula .rb that includes all collected
- * bottle entries (arm64, x86_64, universal). Call once after all macOS arches.
- */
+/** Write a unified Homebrew formula .rb for all collected bottle entries. Call once after all macOS arches. */
 function writeHomebrewFormula(bottles) {
     if (!bottles || bottles.length === 0) return;
 
-    // All bottles should agree on these fields; take from first entry.
     const { outDir, pkgId, klass, version, desc, website, license } = bottles[0];
 
-    // Prefer the 'all' (universal) bottle as the primary download url;
-    // fall back to the first bottle if none is present.
     const primary = bottles.find(b => b.bottleTag === 'all') || bottles[0];
 
     const rb = [
@@ -2585,14 +2342,7 @@ function writeHomebrewFormula(bottles) {
     fs.writeFileSync(formulaPath, rb.join('\n'), 'utf8');
 }
 
-/**
- * Build a macOS App Store-ready .pkg installer using productbuild.
- * Creates a proper .app bundle (Contents/MacOS + Info.plist) then wraps it
- * with `productbuild --component`. Requires productbuild — macOS only;
- * skipped automatically on Linux/Docker.
- * ⚠ Actual App Store submission requires codesigning with a
- *   Mac App Distribution certificate before calling productsign.
- */
+/** Build a macOS App Store .pkg via productbuild (macOS only). Needs Mac App Distribution codesigning before submission. */
 function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('mas')) return;
 
@@ -2692,12 +2442,7 @@ const APPIMAGE_ARCH_MAP = {
     armhf  : 'armhf',
 };
 
-/**
- * Build an AppImage using appimagetool.
- * APPIMAGE_EXTRACT_AND_RUN=1 is set in the Dockerfile so FUSE is not needed
- * during the build.  At runtime, AppRun prefers the extract-and-run path
- * (writable tmpdir) over the old copy-on-first-run approach.
- */
+/** Build an AppImage via appimagetool. APPIMAGE_EXTRACT_AND_RUN=1 is used for FUSE-free builds in Docker. */
 function buildAppImage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('AppImage') && !opts.exts.has('appimage')) return;
 
@@ -2739,25 +2484,16 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
         '#!/bin/sh',
         'APPDIR="$(dirname "$(readlink -f "$0")")"',
         '',
-        '# Fast path: APPDIR is writable (extract-and-run tmpdir) — exec directly.',
-        'if touch "$APPDIR/.w" 2>/dev/null && rm -f "$APPDIR/.w"; then',
-        '    exec "$APPDIR/opt/' + pkgId + '/' + appTarget + '" "$@"',
-        'fi',
-        '',
-        '# APPDIR is read-only (FUSE mount). Re-exec via extract-and-run so the',
-        '# runtime lands in a writable tmpdir on the next invocation.',
-        'if [ -z "${_RENWEB_REEXEC}" ]; then',
-        '    export _RENWEB_REEXEC=1 APPIMAGE_EXTRACT_AND_RUN=1',
-        '    exec "${APPIMAGE:-$0}" "$@"',
-        'fi',
-        '',
-        '# Last-resort fallback: copy app to ~/.local/share once and exec from there.',
+        '# Always install to the user data directory so the engine has a stable,',
+        '# writable home and FS.getApplicationDirPath() reports the correct path.',
+        '# A version stamp triggers a refresh on upgrade.',
         'DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/' + pkgId + '"',
         'STAMP="$DATA_DIR/.renweb-version"',
         'if [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "' + version + '" ]; then',
-        '    rm -rf "$DATA_DIR" && mkdir -p "$DATA_DIR"',
-        '    cp -a "$APPDIR/opt/' + pkgId + '/." "$DATA_DIR/" || { echo "AppImage: copy failed" >&2; exit 1; }',
-        '    echo "' + version + '" > "$STAMP"',
+        '    printf "%s: installing to %s\\n" "' + pkgId + '" "$DATA_DIR"',
+        '    rm -rf "$DATA_DIR" && mkdir -p "$DATA_DIR" || { printf "error: %s: cannot create %s\\n" "' + pkgId + '" "$DATA_DIR" >&2; exit 1; }',
+        '    cp -a "$APPDIR/opt/' + pkgId + '/." "$DATA_DIR/" || { printf "error: %s: copy failed\\n" "' + pkgId + '" >&2; exit 1; }',
+        '    printf "%s" "' + version + '" > "$STAMP"',
         'fi',
         'exec "$DATA_DIR/' + appTarget + '" "$@"',
         '',
@@ -2857,11 +2593,7 @@ function buildAppImage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     try { fs.rmSync(appDir, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build a real .snap package using mksquashfs (squashfs-tools, already in Docker).
- * A snap file is a squashfs archive containing meta/snap.yaml and the app files.
- * Output naming follows the Snap Store convention: <name>_<version>_<arch>.snap
- */
+/** Build a .snap (squashfs archive) via mksquashfs. Output named per Snap Store convention: <name>_<version>_<arch>.snap. */
 function buildSnapPackage(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('snap')) return;
     if (spawnSync('which', ['mksquashfs'], { encoding: 'utf8' }).status !== 0) {
@@ -2886,16 +2618,12 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, exeFilename = ''
     fs.mkdirSync(metaDir,  { recursive: true });
     copyDir(stagingDir, appShare);
 
-    // $SNAP is a read-only squashfs mount, and the engine writes log.txt next
-    // to its own executable (Locate::currentDirectory() = exe.parent_path()).
-    // The launcher wrapper copies the app tree to $SNAP_USER_DATA once per
-    // version and then execs from that writable directory.
+    // $SNAP is read-only; the launcher copies to $SNAP_USER_DATA once per version so the engine can write log.txt.
     const confinement = 'classic';
     const appTarget   = exeFilename;
     const wrapperName = 'snap-launch.sh';
     const wrapperPath = path.join(appShare, wrapperName);
 
-    // Common launcher body — copy-once + exec from writable $SNAP_USER_DATA.
     const wrapperLines = [
         '#!/bin/sh',
         '# $SNAP         — read-only squashfs mount',
@@ -2969,9 +2697,7 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, exeFilename = ''
     fs.writeFileSync(path.join(metaDir, 'snap.yaml'),
         yamlLines.filter(l => l !== null).join('\n'), 'utf8');
 
-    // ── meta/gui — desktop integration (KDE/GNOME app launcher, KRunner, etc.) ──
-    // snapd reads meta/gui/<name>.desktop and registers it in
-    // ~/.local/share/applications/ so the app appears in system search.
+    // meta/gui/<name>.desktop: snapd registers it so the app appears in system search.
     const guiDir  = path.join(metaDir, 'gui');
     fs.mkdirSync(guiDir, { recursive: true });
     const cats    = parseCats(info.categories || info.category);
@@ -3014,12 +2740,7 @@ function buildSnapPackage(opts, info, stagingDir, arch, outDir, exeFilename = ''
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build a real .flatpak single-file bundle using flatpak-builder.
- * Uses org.gnome.Platform//47 which ships WebKitGTK 2.44+, GTK3, Mesa,
- * and GStreamer — all required by the RenWeb engine.
- * Does not need bwrap inside Docker (build-init / build-finish path).
- */
+/** Build a .flatpak bundle via flatpak build-init/finish/export/bundle. Uses org.gnome.Platform//47 (WebKitGTK 2.44+). No bwrap needed in Docker. */
 function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('flatpak')) return;
     if (spawnSync('which', ['flatpak'], { encoding: 'utf8' }).status !== 0) {
@@ -3036,8 +2757,6 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(tmpBase, { recursive: true });
 
-    // Step 1: initialise the build directory — org.gnome.Platform//47 ships
-    // WebKitGTK 2.44+, GTK3, Mesa, and GStreamer required by the engine.
     const initR = spawnSync('flatpak', [
         'build-init', buildDir, appId,
         'org.gnome.Sdk//47', 'org.gnome.Platform//47',
@@ -3048,18 +2767,13 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
         return;
     }
 
-    // Step 2: copy app files into files/opt/<pkgId>/ and create bin wrapper — pure Node.js, no bwrap
     const appFiles = path.join(buildDir, 'files', 'opt', pkgId);
     const binDir   = path.join(buildDir, 'files', 'bin');
     fs.mkdirSync(appFiles, { recursive: true });
     fs.mkdirSync(binDir,   { recursive: true });
     copyDir(stagingDir, appFiles);
     try { fs.chmodSync(path.join(appFiles, exeFilename), 0o755); } catch (_) {}
-    // bin/<pkgId> wrapper: copy app to $XDG_DATA_HOME once per version so the
-    // engine can write log.txt and other runtime files next to its executable.
-    // Inside the Flatpak sandbox $XDG_DATA_HOME resolves to
-    // ~/.var/app/<appId>/data/ — a per-app writable directory that is cleaned
-    // up automatically on `flatpak uninstall --delete-data`.
+    // Launcher: copies app to $XDG_DATA_HOME (~/.var/app/<appId>/data/) once per version for engine write access.
     const wrapperSh = [
         '#!/bin/sh',
         'SRC="/app/opt/' + pkgId + '"',
@@ -3084,7 +2798,6 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
     fs.mkdirSync(outDir, { recursive: true });
     ui.ok('[flatpak] \u2192 ' + path.relative(process.cwd(), outFile));
 
-    // Step 3: finalise metadata (finish-args, command) — no bwrap
     const finishR = spawnSync('flatpak', [
         'build-finish',
         '--command=' + pkgId,
@@ -3103,7 +2816,6 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
         return;
     }
 
-    // Step 4: export build dir into a local OSTree repo — no bwrap
     const exportR = spawnSync('flatpak', [
         'build-export', repoDir, buildDir,
     ], { stdio: 'inherit' });
@@ -3113,7 +2825,6 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
         return;
     }
 
-    // Step 5: pack repo into a single-file .flatpak bundle
     const bundleR = spawnSync('flatpak', [
         'build-bundle',
         '--runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo',
@@ -3123,12 +2834,7 @@ function buildFlatpakBundle(opts, info, stagingDir, arch, outDir, exeFilename = 
     try { fs.rmSync(tmpBase, { recursive: true, force: true }); } catch (_) {}
 }
 
-/**
- * Build a Void Linux binary XBPS package using xbps-create.
- * Supports both bare (runtime deps declared) and bundle (self-contained, no deps) variants.
- * Output: <stem>.xbps — renamed from xbps-create's <pkgver>.<arch>.xbps naming convention.
- * Optionally signed with the XBPS private key and GPG if credentials are present.
- */
+/** Build a Void Linux XBPS package via xbps-create. Optionally signed. Output renamed from xbps-create's <pkgver>.<arch>.xbps convention. */
 function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, tmpDir, exeFilename = '') {
     if (opts.exts.size > 0 && !opts.exts.has('xbps')) return;
     if (!findBin('xbps-create')) {
@@ -3157,17 +2863,8 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
     // Populate system-layout staging tree (/opt, /usr/bin, /usr/share/…)
     buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, xbpsRoot);
 
-    // XBPS INSTALL script — called by xbps-install as:
-    //   INSTALL post-install <pkgver>   (after files are unpacked)
-    //   INSTALL post-update  <pkgver>   (after an upgrade)
-    //   INSTALL pre-remove   <pkgver>   (before files are removed)
-    // $1 = action, $2 = pkgver  (no pkgname argument — verified from xbps source).
-    //
-    // The seed at /usr/share/<pkgId>/ is installed read-only by xbps-install.
-    // No chmod hacks are needed: the user's mutable copy is bootstrapped to
-    // ~/.local/share/<pkgId>/ by the wrapper script on first launch.
-    // pre-remove cleans the seed; user data in ~/.local/share/ is left in place
-    // (the user owns that directory — removal is their choice).
+    // XBPS INSTALL script: $1 = post-install|post-update|pre-remove, $2 = pkgver.
+    // pre-remove deletes /usr/share/<pkgId>/; user data in ~/.local/share/ is left in place.
     const installLines = [
         '#!/bin/sh',
         '# $1=post-install|post-update|pre-remove  $2=pkgver',
@@ -3236,28 +2933,17 @@ function buildXbpsPackage(opts, info, stagingDir, targetOs, targetArch, outDir, 
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
-/**
- * Register SIGINT / SIGTERM / SIGHUP handlers so that Ctrl+C kills every
- * child process the script has started (fpm, wine, tar, zip, …).
- *
- * Strategy: `process.kill(0, signal)` sends to the entire process group of
- * the current process, which covers all non-detached children inherited from
- * Node.  We remove our own listeners first to prevent recursion (since the
- * kill also signals this process).
- */
+/** Register SIGINT/SIGTERM/SIGHUP handlers to kill all child processes on exit (fpm, wine, tar, zip, …). */
 function setupSignalHandlers() {
     let exiting = false;
     const onSignal = (sig) => {
         if (exiting) return;
         exiting = true;
         process.stderr.write('\n  Interrupted — terminating child processes…\n');
-        // Deregister before killing so re-delivery of the signal doesn't recurse.
         process.off('SIGINT',  onSignal);
         process.off('SIGTERM', onSignal);
         process.off('SIGHUP',  onSignal);
-        // Send SIGTERM to the whole process group (belt-and-suspenders: the
-        // terminal already delivered SIGINT to the group on Ctrl+C, but some
-        // tools like wine spawn sub-daemons that may ignore it).
+        // Send SIGTERM to the whole process group; wine may spawn sub-daemons that ignore SIGINT.
         try { process.kill(0, 'SIGTERM'); } catch (_) {}
         // Hard exit — this node process may already be dying from the above.
         process.exitCode = (sig === 'SIGINT' ? 130 : 143);
@@ -3273,10 +2959,7 @@ function run(args) {
     const opts = parseArgs(args);
 
     // ── 1. Locate and validate build/info.json ────────────────────────────────
-    // RENWEB_PROJECT_ROOT is set by dispatch() when running inside Docker and
-    // the user invoked rw from a subdirectory (e.g. package/). The upward walk
-    // can't escape the /project mount point in that case, so dispatch mounts the
-    // host project root at /renweb-project and passes it here.
+    // RENWEB_PROJECT_ROOT is set by dispatch() for Docker runs; mounts the host project root at /renweb-project.
     const buildDir = process.env.RENWEB_PROJECT_ROOT
         ? path.join(process.env.RENWEB_PROJECT_ROOT, 'build')
         : findBuildDir();
@@ -3305,14 +2988,13 @@ function run(args) {
         if (opts.noCredentials)       ui.info('signing   : disabled (--no-credentials)');
         else if (opts.credDir)        ui.info(`signing   : ${opts.credDir}`);
         else                          ui.info('signing   : credentials/ not found — outputs will be unsigned');
+    if (process.platform === 'darwin')
+        ui.dim('note      : macOS-only formats (dmg, pkg/osxpkg, app) are available on this host');
     if (process.env.IN_DOCKER !== '1')
         ui.info('Tip: run `rw build` first to ensure build/ is up to date before packaging.');
 
     // ── 2. Set up directories ─────────────────────────────────────────────────
     const projectRoot = path.resolve(buildDir, '..');
-    // When running inside Docker with RENWEB_PROJECT_ROOT set, the project root is
-    // a read-only mount. Output and cache must go into the writable /project mount
-    // (the user's actual CWD), not into the read-only project root.
     const writableRoot = process.env.RENWEB_PROJECT_ROOT
         ? (process.env.RENWEB_CWD ? path.resolve(process.env.RENWEB_CWD) : process.cwd())
         : projectRoot;
@@ -3323,16 +3005,13 @@ function run(args) {
     const pluginsDir  = path.join(cacheDir, 'plugins');
     const buildSrcDir = path.join(tmpDir, 'build-src');
 
-    // Always clear ./package before starting a fresh build
     if (fs.existsSync(pkgDir)) {
         ui.step('Clearing previous package output…');
         fs.rmSync(pkgDir, { recursive: true, force: true });
     }
     fs.mkdirSync(pkgDir, { recursive: true });
 
-    // Without --cache: wipe all of .package (engines + plugins + staging)
     if (!opts.cache && fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true });
-    // Staging is always wiped fresh (even when --cache keeps engines/plugins)
     if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.mkdirSync(buildSrcDir, { recursive: true });
     fs.mkdirSync(enginesDir,  { recursive: true });
@@ -3356,11 +3035,9 @@ function run(args) {
     for (const [key, group] of engineGroups) {
         const targetOs   = key.split('-')[0];
         const targetArch = key.slice(targetOs.length + 1);
-        // OS filter
         if (opts.oses.size > 0 && !opts.oses.has(targetOs)) {
             ui.dim(`skip (os filter): ${key}`); continue;
         }
-        // Arch filter
         if (opts.arches.size > 0 && !opts.arches.has(targetArch)) {
             ui.dim(`skip (arch filter): ${key}`); continue;
         }
@@ -3422,8 +3099,6 @@ function run(args) {
     }
 
     // ── 6. Download plugins → .package/plugins/0, /1, … (with optional cache) ─
-    // Build a lookup of (os, arch) pairs we're actually building for so we only
-    // download the plugin flavours that will be used — honouring --arch / --os filters.
     const targetCombos = toProcess.map(a => ({ os: a.os, arch: a.arch }));
     if (pluginRepos.length > 0) ui.section('Fetching plugins');
     for (let i = 0; i < pluginRepos.length; i++) {
@@ -3497,13 +3172,15 @@ function run(args) {
 }
 
 // ─── Docker / native dispatch ─────────────────────────────────────────────────
-// Owns the decision of whether to run natively (macOS-only targets) or via
-// Docker (Linux / Windows targets), or both.  Called by the CLI entry point.
 function dispatch(args) {
     function normalizePathForDocker(p) {
-        if (process.platform !== 'win32') return p;
-        const m = p.match(/^([A-Za-z]):\\?(.*)$/);
-        if (!m) return p.replace(/\\/g, '/');
+        // Resolve symlinks so Docker receives the canonical path (e.g. /tmp →
+        // /private/tmp on macOS, or a real path Docker is configured to share).
+        let resolved = p;
+        try { resolved = fs.realpathSync(p); } catch (_) {}
+        if (process.platform !== 'win32') return resolved;
+        const m = resolved.match(/^([A-Za-z]):\\?(.*)$/);
+        if (!m) return resolved.replace(/\\/g, '/');
         const drive = m[1].toLowerCase();
         const rest  = m[2].replace(/\\/g, '/');
         return `/${drive}/${rest}`;
@@ -3561,9 +3238,29 @@ function dispatch(args) {
         const hostCwd = normalizePathForDocker(path.resolve(process.cwd()));
         const image   = process.env.RENWEB_IMAGE || 'renweb-cli';
 
-        // Resolve the project root on the host (full filesystem available here).
-        // Inside Docker the upward walk is bounded by the /project mount point, so
-        // we pass the project root as a second read-only volume at /renweb-project.
+        // Pre-flight: catch the common "path not shared" error before investing time building an image.
+        const mountTest = spawnSync(
+            'docker', ['run', '--rm', '-v', `${hostCwd}:/test-mount`, 'busybox', 'true'],
+            { stdio: 'pipe', encoding: 'utf8' }
+        );
+        if (mountTest.status !== 0) {
+            const stderr = (mountTest.stderr || '').toLowerCase();
+            if (stderr.includes('mounts denied') || stderr.includes('not shared') || stderr.includes('file sharing')) {
+                ui.error(
+                    `Docker cannot mount your working directory:\n  ${hostCwd}\n\n` +
+                    `This usually happens when your project is inside /tmp or another\n` +
+                    `directory that Docker Desktop does not share by default.\n\n` +
+                    `Solutions:\n` +
+                    `  1. Move your project to your home directory and re-run.\n` +
+                    `  2. Add '${hostCwd}' to Docker Desktop → Preferences → Resources → File Sharing.`
+                );
+            } else {
+                ui.error(`Docker volume mount test failed:\n${mountTest.stderr || mountTest.stdout}`);
+            }
+            process.exit(125);
+        }
+
+        // Pass the host project root as a second read-only volume at /renweb-project (bounded by /project inside Docker).
         const hostBuildDir   = findBuildDir();
         const hostProjectDir = hostBuildDir ? normalizePathForDocker(path.resolve(hostBuildDir, '..')) : null;
 
@@ -3650,7 +3347,8 @@ function dispatch(args) {
             : argsWithOs(macosOses.length > 0 ? macosOses : ['macos']);
 
         if (process.platform !== 'darwin') {
-            ui.section('Packaging: running Docker (linux/windows) — macOS packages require a macOS host');
+            ui.section('Packaging: running Docker (linux/windows');
+
             runInDocker(args, (code) => process.exit(code));
             return;
         }

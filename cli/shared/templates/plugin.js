@@ -1278,10 +1278,10 @@ function makePluginTestHarnessHtml(info, pluginName) {
   <pre id="out">Loading&hellip;</pre>
   <script type="module">
     /// <reference path="./index.d.ts" />
-    import { Plugins } from './index.js';
+    import { Application } from './index.js';
     const out = document.getElementById('out');
     try {
-      const list = await Plugins.getPluginsList();
+      const list = await Application.getPluginsList();
       out.textContent = JSON.stringify(list, null, 2);
     } catch (e) {
       out.className = 'err';

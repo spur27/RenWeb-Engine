@@ -13,6 +13,9 @@ function findBuildDir(start) {
         const candidate = path.join(cur, 'build');
         if (fs.existsSync(path.join(cur, 'info.json')) && fs.existsSync(candidate))
             return candidate;
+        // Used for recognizing build directory in plugin projects
+        if (fs.existsSync(path.join(candidate, 'info.json')))
+            return candidate;
         const parent = path.dirname(cur);
         if (parent === cur) break;
         cur = parent;

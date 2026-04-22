@@ -152,12 +152,9 @@ program
   });
 
 program
-  .command('fetch')
-  .description('Download the latest RenWeb engine, plugin header, or JS/TS API files')
-  .option('--executable',    'Download the engine executable + template info.json to build/')
-  .option('--plugin',        'Download plugin.hpp to the current directory')
-  .option('--api',           'Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)')
-  .option('--version <tag>', 'Pin to a specific release tag (default: latest)')
+  .command('fetch [verb]')
+  .description('Download RenWeb assets.\n   Verbs: executable | plugin | api\n   (default: executable)\n   executable  Download the engine executable + template info.json to build/\n   plugin      Download plugin.hpp to the current directory\n   api         Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)')
+  .option('--version <tag>', 'Pin to a specific release tag (default: latest, executable only)')
   .allowUnknownOption(true)
   .action(() => {
     const idx = process.argv.indexOf('fetch');
@@ -166,7 +163,7 @@ program
 
 program
   .command('docker <action>')
-  .description('Manage the renweb-cli Docker image: build | rebuild | kill')
+  .description('Manage the renweb-cli Docker image: build | rebuild | kill | delete')
   .action((action) => {
     const { spawnSync } = require('child_process');
     const image     = process.env.RENWEB_IMAGE || 'renweb-cli';
@@ -191,10 +188,16 @@ program
         const r = spawnSync('docker', ['kill', ...ids], { stdio: 'inherit' });
         process.exit(r.status ?? 0);
       },
+      delete: () => {
+        ui.step(`Removing Docker image '${image}'…`);
+        const r = spawnSync('docker', ['image', 'rm', image], { stdio: 'inherit' });
+        if (r.status !== 0) { ui.warn(`Image '${image}' may not exist or could not be removed.`); }
+        process.exit(r.status ?? 0);
+      },
     };
 
     if (!actions[action]) {
-      ui.error(`Unknown docker action '${action}'. Use: build | rebuild | kill`);
+      ui.error(`Unknown docker action '${action}'. Use: build | rebuild | kill | delete`);
       process.exit(1);
     }
     actions[action]();

@@ -629,8 +629,8 @@ const reversed = await BIND_plugin_example_reverse_string(Utils.encode("Hello"))
 await Log.debug(reversed); // "olleH"
 
 // Get list of all plugins
-const plugins = await Plugins.getPluginsList();
-const examplePlugin = plugins.find(p => p.internal_name === "example");
+const plugins = await Application.getPluginsList();
+const examplePlugin = plugins.filter(p => p.internal_name === "example")[0];
 await Log.debug(examplePlugin.name, examplePlugin.version);
 await Log.debug("Available functions:", examplePlugin.functions);</code></pre>
                     </div>
@@ -715,9 +715,13 @@ private:
     }
 };
 
-// THIS IS CRITICAL!! Keep this exact function signature at the end of your plugin implementation file so the RenWeb engine can load your plugin!!
+// THIS IS CRITICAL!! Keep these exact function signatures at the end of your plugin implementation file so the RenWeb engine can load your plugin!!
 extern "C" PLUGIN_EXPORT RenWeb::Plugin* createPlugin(std::shared_ptr&lt;RenWeb::ILogger&gt; logger) {
-    return new ExamplePlugin(logger);
+    return new CustomPlugin(logger);
+}
+
+extern "C" PLUGIN_EXPORT void destroyPlugin(RenWeb::Plugin* plugin) {
+    delete plugin;
 }</code></pre>
                     </div>
                 </div>
