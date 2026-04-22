@@ -56,6 +56,7 @@ namespace RenWeb {
             );
             ~WebServer() override;
             std::string getURL() const override;
+            std::string getBasePath() const override;
             void start() override;
             void stop() override;
             bool isURI(const std::string& uri) const override;            

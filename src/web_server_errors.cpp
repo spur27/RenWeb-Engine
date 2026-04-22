@@ -100,24 +100,6 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
         .back-button:hover {
             background: #1976D2;
         }
-        .reset-button {
-            display: inline-block;
-            margin-top: 20px;
-            margin-right: 10px;
-            padding: 12px 24px;
-            background: #f321c9;
-            color: white;
-            text-decoration: none;
-            border-radius: 4px;
-            font-weight: bold;
-            border: none;
-            cursor: pointer;
-            font-size: 1em;
-            transition: background 0.2s;
-        }
-        .reset-button:hover {
-            background: #d219a1;
-        }
         .restart-button {
             display: inline-block;
             margin-top: 20px;
@@ -162,7 +144,6 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
         <h1>{{MESSAGE}}</h1>
         {{DESCRIPTION}}
         <button id='backButton' class='back-button' onclick='goBack()'>Back</button>
-        <button class='reset-button' onclick='resetApp()'>Reset</button>
         <button class='restart-button' onclick='restartApp()'>Restart</button>
         <button class='close-button' onclick='closeApp()'>Close</button>
     </div>
@@ -245,22 +226,10 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
             window.history.back();
         }
         
-        async function resetApp() {
-            try {
-                if (typeof BIND_reset_page !== 'undefined') {
-                    await BIND_reset_page(null);
-                } else {
-                    window.location.reload();
-                }
-            } catch (err) {
-                BIND_log_error(encode('Failed to reset: ' + err));
-                window.location.reload();
-            }
-        }
         async function restartApp() {
             try {
-                if (typeof BIND_create_window !== 'undefined' && typeof BIND_initial_page !== 'undefined' && typeof BIND_terminate !== 'undefined') {
-                    await BIND_create_window([], [], encode({ is_detachable: true, include_orig_args: true }));
+                if (typeof BIND_create_window !== 'undefined' && typeof BIND_terminate !== 'undefined') {
+                    await BIND_create_window([], [], encode({ is_detachable: true, include_orig_args: true, share_stdio: false }));
                     await BIND_terminate(null);
                 } else {
                     window.location.reload();
@@ -291,10 +260,6 @@ std::string WebServer::generateErrorHTML(int status_code, const std::string& sta
                 } else {
                     closeApp();
                 }
-            }
-            else if ((e.ctrlKey && e.key === 'r') || e.key === 'F5') {
-                e.preventDefault();
-                resetApp();
             }
             else if ((e.ctrlKey && e.key === 'i') || e.key === 'F12') {
                 e.preventDefault();

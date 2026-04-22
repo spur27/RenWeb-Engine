@@ -58,6 +58,7 @@ Config::Config(
     const std::string& current_page,
     std::shared_ptr<File> file
 ) : JSON(logger, file),
+    initial_page(current_page),
     current_page(current_page)
 { }
 

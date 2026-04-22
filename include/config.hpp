@@ -42,6 +42,7 @@ namespace RenWeb {
         private:
             static constexpr const char* DEFAULTS_KEY = "__defaults__";
         public:
+            static constexpr const char* ERROR_KEY = "__error__";
             const std::string initial_page;
             std::string current_page = "";
 

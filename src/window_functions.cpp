@@ -77,6 +77,7 @@
 
 
 using WF = RenWeb::WindowFunctions;
+using WebServer = RenWeb::WebServer;
 using IOM = RenWeb::InOutManager<std::string, json::value, const json::value&>;
 
 static bool startsWith(const std::string& value, const std::string& prefix) {
@@ -189,6 +190,7 @@ static bool isTrustedExecutionContext(RenWeb::App* app) {
         return false;
     }
     const std::string current_page = app->config->current_page;
+    if (current_page == RenWeb::Config::ERROR_KEY) return true;
     const auto trusted_rules = app->info->getProperty("trusted");
 
     if (isUriLike(current_page)) {
@@ -212,6 +214,23 @@ static bool isTrustedExecutionContext(RenWeb::App* app) {
             return false;
     }
     return true;
+}
+
+static void showErrorPage(RenWeb::App* app, const std::shared_ptr<ILogger>& logger,
+                                  int code, const std::string& message, const std::string& description) {
+    app->config->current_page = RenWeb::Config::ERROR_KEY;
+    const std::filesystem::path base = std::filesystem::path(app->ws->getBasePath());
+    const std::string error_key = RenWeb::Config::ERROR_KEY;
+    const bool has_custom =
+        std::filesystem::exists(base / "custom"  / error_key / "index.html") ||
+        std::filesystem::exists(base / "content" / error_key / "index.html");
+    if (has_custom) {
+        logger->debug("[error page] Serving custom error page '" + error_key + "'");
+        app->w->navigate(app->ws->getURL());
+    } else {
+        logger->debug("[error page] Showing built-in error page " + std::to_string(code) + ": " + message);
+        app->w->set_html(WebServer::generateErrorHTML(code, message, description));
+    }
 }
 
 #if defined(_WIN32)
@@ -759,8 +778,10 @@ WF* WF::setGetSets() {
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             return json::value(([nsWindow styleMask] & NSWindowStyleMaskResizable) != 0);
         #elif defined(__linux__)
-            auto window_widget = this->app->w->window().value();
-            return json::value(static_cast<bool>(gtk_window_get_resizable(GTK_WINDOW(window_widget))));
+            if (this->saved_states.find("resizable") != this->saved_states.end()) {
+                return this->saved_states["resizable"];
+            }
+            return json::value(true);
         #endif
         }),
         // -----------------------------------------
@@ -786,7 +807,21 @@ WF* WF::setGetSets() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
-            gtk_window_set_resizable(GTK_WINDOW(window_widget), resizable);
+            this->saved_states["resizable"] = json::value(resizable);
+            gint w, h;
+            gtk_window_get_size(GTK_WINDOW(window_widget), &w, &h);
+            if (!resizable) {
+                GdkGeometry hints{};
+                hints.min_width  = w;
+                hints.min_height = h;
+                hints.max_width  = w;
+                hints.max_height = h;
+                gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), nullptr, &hints,
+                    static_cast<GdkWindowHints>(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+            } else {
+                gtk_window_set_geometry_hints(GTK_WINDOW(window_widget), nullptr, nullptr,
+                    static_cast<GdkWindowHints>(0));
+            }
         #endif
         })
     ))
@@ -1281,17 +1316,18 @@ WF* WF::setWindowCallbacks() {
                     page = "_"; 
                 }
             }
-            if (page != "_") this->app->config->current_page = page;
             if (isUriLike(page)) {
                 const auto origins = this->app->info->getProperty("origins");
                 if (isOriginAllowlisted(page, origins)) {
+                    this->app->config->current_page = page;
                     this->logger->info("[function] Navigating to external URI " + page);
                     this->app->w->navigate(page);
                 } else {
                     this->logger->warn("[function] Navigation blocked (origin not in allowlist): " + page);
-                    this->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + page + "</p>"));
+                    showErrorPage(this->app, this->logger, 403, "Forbidden", "<p><strong>Unwhitelisted origin:</strong> " + page + "</p>");
                 }
             } else {
+                if (page != "_") this->app->config->current_page = page;
                 this->logger->info("[function] Navigating to page " + page);
                 this->app->w->navigate(this->app->ws->getURL());
             }
@@ -1839,8 +1875,27 @@ WF* WF::setFileSystemCallbacks() {
             }
             std::filesystem::rename(orig_path, new_path, ec);
             if (ec) {
-                this->logger->error("[function] " + ec.message());
-                return json::value(false);
+                if (ec.value() == EXDEV) {
+                    // Cross-device move: copy then remove
+                    const auto opts = std::filesystem::is_directory(orig_path)
+                        ? std::filesystem::copy_options::recursive
+                        : std::filesystem::copy_options::none;
+                    std::filesystem::copy(orig_path, new_path, opts, ec);
+                    if (ec) {
+                        this->logger->error("[function] Cross-device copy failed: " + ec.message());
+                        return json::value(false);
+                    }
+                    std::filesystem::is_directory(orig_path)
+                        ? std::filesystem::remove_all(orig_path, ec)
+                        : std::filesystem::remove(orig_path, ec);
+                    if (ec) {
+                        this->logger->error("[function] Cross-device remove source failed: " + ec.message());
+                        return json::value(false);
+                    }
+                } else {
+                    this->logger->error("[function] " + ec.message());
+                    return json::value(false);
+                }
             }
             return json::value(true);
     }))->add("copy",
@@ -2413,6 +2468,14 @@ WF* WF::setNavigateCallbacks() {
                 if (resource[i] == '\\') resource[i] = '/';
             }
 
+            const bool is_abs_path = !resource.empty() &&
+                (resource[0] == '/' ||
+                 resource[0] == '~' ||
+                 (resource.size() >= 3 && std::isalpha(resource[0]) && resource[1] == ':' && resource[2] == '/'));
+            if (is_abs_path) {
+                resource = "file://" + resource;
+            }
+
             if (!isSafeOpenUriScheme(resource)) {
                 this->logger->warn("[security] Blocked open_uri with unsupported scheme: " + resource);
                 return json::value(nullptr);
@@ -2430,8 +2493,16 @@ WF* WF::setNavigateCallbacks() {
             GError* open_err = nullptr;
             g_app_info_launch_default_for_uri(resource.c_str(), nullptr, &open_err);
             if (open_err) {
-                this->logger->warn("[function] open_uri: " + std::string(open_err->message));
+                this->logger->debug("[function] open_uri: GIO failed (" + std::string(open_err->message) + "), falling back to xdg-open");
                 g_error_free(open_err);
+                open_err = nullptr;
+                std::string xdg_cmd = "xdg-open";
+                gchar* argv[] = { xdg_cmd.data(), resource.data(), nullptr };
+                g_spawn_async(nullptr, argv, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr, &open_err);
+                if (open_err) {
+                    this->logger->warn("[function] open_uri: xdg-open failed: " + std::string(open_err->message));
+                    g_error_free(open_err);
+                }
             }
         #endif
             return json::value(nullptr);
@@ -2602,9 +2673,9 @@ WF* WF::setInternalCallbacks() {
                         } else if (is_user_navigation) {
                             ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
                             webkit_policy_decision_ignore(decision);
-                            ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                            showErrorPage(ctx->app, ctx->logger, 403, "Forbidden",
                                 "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url + 
-                                "</code></p><p>Navigation blocked for security.</p>"));
+                                "</code></p><p>Navigation blocked for security.</p>");
                         } else {
                             ctx->logger->debug("[csp] Allowing programmatic navigation");
                             webkit_policy_decision_use(decision);
@@ -2768,9 +2839,9 @@ WF* WF::setInternalCallbacks() {
                             } else if (is_user_initiated) {
                                 ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
                                 args->put_Cancel(TRUE);
-                                ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                                showErrorPage(ctx->app, ctx->logger, 403, "Forbidden",
                                     "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url + 
-                                    "</code></p><p>Navigation blocked for security.</p>"));
+                                    "</code></p><p>Navigation blocked for security.</p>");
                             } else {
                                 ctx->logger->debug("[csp] Allowing programmatic navigation");
                             }
@@ -2963,9 +3034,9 @@ WF* WF::setInternalCallbacks() {
                             } else if (is_user_navigation) {
                                 ctx->logger->warn("[csp] Blocking user navigation to: " + origin);
                                 decisionHandler(WKNavigationActionPolicyCancel);
-                                ctx->app->w->set_html(WebServer::generateErrorHTML(403, "Forbidden",
+                                showErrorPage(ctx->app, ctx->logger, 403, "Forbidden",
                                     "<p><strong>Origin not whitelisted:</strong></p><p><code>" + url_str + 
-                                    "</code></p><p>Navigation blocked for security.</p>"));
+                                    "</code></p><p>Navigation blocked for security.</p>");
                             } else {
                                 ctx->logger->debug("[csp] Allowing programmatic navigation");
                                 decisionHandler(WKNavigationActionPolicyAllow);

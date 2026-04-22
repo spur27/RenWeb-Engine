@@ -74,7 +74,9 @@ function run(args) {
     const defaultMode = !hasExe && !hasPlugin && !hasApi;
 
     const verIdx = args.indexOf('--version');
-    const tag    = verIdx !== -1 ? args[verIdx + 1] : null;
+    const tag    = verIdx !== -1 && verIdx + 1 < args.length && !args[verIdx + 1].startsWith('--')
+        ? args[verIdx + 1]
+        : null;
 
     const cwd = process.cwd();
 

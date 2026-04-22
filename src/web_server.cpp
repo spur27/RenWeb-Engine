@@ -88,6 +88,10 @@ std::string WebServer::getURL() const /*override*/ {
     return "http://" + this->ip + ":" + std::to_string(this->port);
 }
 
+std::string WebServer::getBasePath() const /*override*/ {
+    return this->base_path.string();
+}
+
 void WebServer::start() /*override*/ {
     if (this->server->is_running()) {
         this->logger->error("[server] Can't start server while it's already running.");

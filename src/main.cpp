@@ -65,6 +65,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nC
     auto args = std::make_unique<RenWeb::Args>(__argc, __argv);
 #else
 int main(int argc, char** argv) {
+#if defined(__linux__)
+    unsetenv("WEBKIT_DEBUG");
+#endif
     auto args = std::make_unique<RenWeb::Args>(argc, argv);
 #endif
     args->run();

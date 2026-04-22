@@ -194,6 +194,8 @@ window.onload = async () => {
         document.querySelector(".systems_pid").textContent = `${await System.getPID()}`;
         const os = await System.getOS();
         document.querySelector(".systems_os").textContent = `${os}`;
+        const cpu_arch = await System.getCPUArchitecture();
+        document.querySelector(".systems_cpu_arch").textContent = `${cpu_arch}`;
         const plugins = await Application.getPluginsList();
         document.querySelector(".plugin_list_output").textContent = JSON.stringify(plugins, null, 2);
         document.querySelector(".settings_output").value = JSON.stringify(await Config.getConfig(), null, 2);
@@ -249,6 +251,18 @@ document.querySelector(".log_critical").onclick = async () => {
 // ============================================================================
 // FILE SYSTEM SECTION
 // ============================================================================
+document.querySelector(".get_app_dir").onclick = async () => {
+    const path = await FS.getApplicationDirPath();
+    document.querySelector(".file_msg").value = path;
+};
+
+document.querySelector(".get_temp_dir").onclick = async () => {
+    const path = await FS.getTmpDirPath();
+    document.querySelector(".file_msg").value = path;
+};
+
+
+
 document.querySelector(".read_file").onclick = async () => {
     const filename = document.querySelector(".file_msg").value;
     await Log.debug(`Reading file "${filename}"`);
@@ -550,6 +564,13 @@ document.querySelector(".navigate_back").onclick = async () => {
 document.querySelector(".navigate_forward").onclick = async () => {
     await Log.debug(`Navigating forward...`);
 };
+
+document.querySelector(".open_uri").onclick = async () => {
+    const uri = document.querySelector(".uri_input").value;
+    await Log.debug(`Opening URI "${uri}"`);
+    await Navigate.openURI(uri);
+};
+
 
 
 // ============================================================================
@@ -873,6 +894,12 @@ document.querySelector(".get_os").onclick = async () => {
     document.querySelector(".systems_os").textContent = `${os}`;
 };
 
+document.querySelector(".get_cpu_arch").onclick = async () => {
+    await Log.debug(`Getting CPU Architecture...`);
+    const cpu_arch = await System.getCPUArchitecture();
+    document.querySelector(".systems_cpu_arch").textContent = `${cpu_arch}`;
+};
+
 document.querySelector(".send_notif_1").onclick = async () => {
     await Log.debug(`Sending notification...`);
     const notif = new Notification("Simple notification", {
@@ -977,7 +1004,7 @@ document.querySelector(".reset_settings_to_defaults").onclick = async () => {
 document.querySelector(".get_config_property").onclick = async () => {
     const key = document.querySelector(".property_name").value;
     await Log.debug(`Getting config property "${key}"`);
-    const property = await Config.getConfigProperty(key);
+    const property = (await Config.getConfig())[key];
     document.querySelector(".property_value").value = JSON.stringify(property, null, 2);
 };
 

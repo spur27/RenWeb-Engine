@@ -86,6 +86,10 @@
 
             <section id="filesystem" class="card">
                 <h2>File System</h2>
+                <div class="btn-grid"> <!-- TODO -->
+                    <button class="btn get_app_dir">Get Application Directory</button>
+                    <button class="btn get_temp_dir">Get Temporary Directory</button>
+                </div>
                 <div class="input-group">
                     <input type="text" class="file_msg" placeholder="Enter file path...">
                 </div>
@@ -204,7 +208,7 @@
                         </div>
                     </div>
                     <div class="input-group">
-                        <input type="text" class="page_input" placeholder="URI/page...">
+                        <input type="text" class="page_input" placeholder="URL/page...">
                         <button class="btn navigate_page">Go</button>
                     </div>
                 </div>
@@ -313,6 +317,13 @@
                     <div class="progress-bar"><div class="progress-fill" id="load-progress-bar"></div></div>
                     <div class="info-display load_progress_output">0%</div>
                 </div>
+                <div class="subsection">
+                    <h3>Open URI</h3>
+                    <div class="input-group">
+                        <input type="text" class="uri_input" placeholder="URI...">
+                        <button class="btn open_uri">Go</button>
+                    </div>
+                </div>
             </section>
 
             <section id="debug" class="card">
@@ -336,6 +347,11 @@
                         <div class="info-label">OS</div>
                         <div class="info-value systems_os">...</div>
                         <button class="btn-sm get_os">Get</button>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">CPU Architecture</div>
+                        <div class="info-value systems_cpu_arch">...</div>
+                        <button class="btn-sm get_cpu_arch">Get</button>
                     </div>
                 </div>
                 <div class="subsection">
