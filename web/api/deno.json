@@ -1,6 +1,6 @@
 {
   "name": "@spur27/renweb-api",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "license": "BSL-1.0",
   "exports": "./index.ts",
   "publish": {
