@@ -333,7 +333,7 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
 <span style="color: #808080;">│   └──</span> <span style="color: #ce9178; font-weight: bold;">&lt;page_name&gt;/</span>
 <span style="color: #808080;">│       ├──</span> <span style="color: #ce9178;">index.html</span>            <span style="color: #6a9955;"># Required entry point</span>
 <span style="color: #808080;">│       └── ...</span>
-<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">resources/</span>                    <span style="color: #6a9955;"># Resources</span>
+<span style="color: #808080;">├──</span> <span style="color: #ce9178; font-weight: bold;">resource/</span>                     <span style="color: #6a9955;"># Resources</span>
 <span style="color: #808080;">│   └── ...</span>
 <span style="color: #808080;">├──</span> <span style="color: #569cd6;">custom/</span>                       <span style="color: #6a9955;"># User customization - optional</span>
 <span style="color: #808080;">│   └──</span> <span style="color: #808080;">(overrides for content/assets)</span>
@@ -525,6 +525,13 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         The <code>__defaults__</code> section provides fallback values for all pages. 
                         Individual page settings override these defaults unless <code>merge_defaults</code> is set to <code>false</code>.
                     </p>
+                    <p>
+                        The reserved key <code>__error__</code> defines a custom error page. When the engine
+                        encounters a fatal startup error (e.g. a missing or invalid page), it will load the
+                        <code>__error__</code> page instead of showing the built-in error screen. Add a
+                        <code>content/__error__/index.html</code> directory to your project and reference it
+                        with an <code>"__error__": { "title": "Error" }</code> entry in <code>config.json</code>.
+                    </p>
                 </div>
 
                 <div class="info-box">
@@ -533,7 +540,7 @@ Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutF
                         If set to <code>false</code>, the window won't show until you call <code>Window.show()</code> 
                         from JavaScript. This is useful to prevent the white flash during page load:
                     </p>
-                    <pre><code class="language-javascript">window.onload = async () => {
+                    <pre><code class="language-javascript">window.renweb.onReady = async () => {
   await Window.show();
 };</code></pre>
                 </div>
