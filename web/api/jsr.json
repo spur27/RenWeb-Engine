@@ -7,7 +7,8 @@
     "include": [
       "index.ts",
       "index.d.ts",
-      "jsr.json"
+      "jsr.json",
+      "README.md"
     ]
   }
 }

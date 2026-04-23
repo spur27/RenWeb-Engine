@@ -12,7 +12,8 @@
     "shared/",
     "Dockerfile",
     ".dockerignore",
-    "DOCKER.md"
+    "DOCKER.md",
+    "README.md"
   ],
   "keywords": [
     "renweb",

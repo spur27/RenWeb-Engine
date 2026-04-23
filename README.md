@@ -6,13 +6,14 @@
 </p>
 
 <p align="center">
-    <img src="https://img.shields.io/badge/version-0.0.7-EF233C?style=flat-square" alt="Version">
+    <img src="https://img.shields.io/github/v/release/spur27/RenWeb-Engine?style=flat-square&color=EF233C" alt="Latest Release">
     <img src="https://img.shields.io/badge/license-BSL--1.0-9333EA?style=flat-square" alt="License">
     <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat-square&logo=cplusplus&logoColor=white" alt="C++20">
-    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/ubuntu_make_test.yml/badge.svg" alt="Ubuntu">
-    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/fedora_make_test.yml/badge.svg" alt="Fedora">
-    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/windows_make_test.yml/badge.svg" alt="Windows">
-    <img src="https://github.com/SpurSlicer/RenWeb/actions/workflows/macos_make_test.yml/badge.svg" alt="MacOS">
+    <img src="https://img.shields.io/github/stars/spur27/RenWeb-Engine?style=flat-square&color=F77F00" alt="GitHub Stars">
+    <img src="https://github.com/spur27/RenWeb-Engine/actions/workflows/ubuntu_make_test.yml/badge.svg" alt="Ubuntu">
+    <img src="https://github.com/spur27/RenWeb-Engine/actions/workflows/fedora_make_test.yml/badge.svg" alt="Fedora">
+    <img src="https://github.com/spur27/RenWeb-Engine/actions/workflows/windows_make_test.yml/badge.svg" alt="Windows">
+    <img src="https://github.com/spur27/RenWeb-Engine/actions/workflows/macos_make_test.yml/badge.svg" alt="MacOS">
 </p>
 
 <p align="center">
@@ -27,7 +28,7 @@
 
 ## RenWeb Engine
 
-A cross-platform desktop application framework that lets you build native GUI apps using HTML, CSS, and JavaScript with a C++ backend. Made to be simple, easy, and fun to use.
+A minimal, lightweight, cross-platform desktop application framework that lets you build native GUI apps using web technologies with a C++ backend.
 
 ## Features
 

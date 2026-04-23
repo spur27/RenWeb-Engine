@@ -17,7 +17,7 @@
     "index.d.ts",
     "index.ts",
     "jsr.json",
-    "deno.json"
+    "README.md"
   ],
   "keywords": [
     "renweb",

@@ -11,7 +11,7 @@ any changes to this project.
 **RenWeb Engine** is a cross-platform desktop application framework that lets
 developers build native GUI applications using HTML, CSS, and JavaScript for
 the frontend with a C++ backend. It is intentionally minimal: executables stay
-under 2 MB and no Electron/Chromium runtimes are required.
+around 2 MB and no Electron/Chromium runtimes are required.
 
 - **Repository**: https://github.com/spur27/RenWeb-Engine
 - **Version**: 0.0.7
@@ -630,7 +630,7 @@ not a real page name.
 
 ### Executable Size Goal
 
-The project intentionally targets sub-2 MB executables. Do not introduce large
+The project intentionally targets executables around 2 MB. Do not introduce large
 static data arrays, embedded fonts, or binary resources without explicit discussion.
 
 ### HTTP Server Bind Address
@@ -668,6 +668,11 @@ The project version appears in:
 
 When bumping the version, update `info.json`. The makefile will automatically
 pick up the new version for the executable filename.
+
+**`MAINTENANCE.md` is the authoritative checklist** for every file that contains
+a version string, URL, timestamp, or other project-wide value that requires
+coordinated updates. Consult it before and after any version bump, repository
+rename, or domain change.
 
 ---
 

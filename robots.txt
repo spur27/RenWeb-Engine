@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://spur27.github.io/RenWeb-Engine/sitemap.xml

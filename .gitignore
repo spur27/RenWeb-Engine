@@ -15,7 +15,7 @@ node_modules
 package-lock.json
 dist
 installers
-todo.txt
+todo.*
 *.pdb
 index
 lib/*
@@ -40,6 +40,8 @@ credentials/*.pass
 credentials/*.token
 credentials/*.rsa
 credentials/*.rsa.pub
+credentials/*.pem
+credentials/*.pem.pub
 credentials/*.json
 
 # RenWeb cache
