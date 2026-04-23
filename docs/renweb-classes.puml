@@ -36,12 +36,13 @@ package "Interfaces" #DDDDDD {
     
     interface IWebServer <<interface>> {
         +getURL(): string
-        +getMessages(): vector<json::value>
+        +getBasePath(): string
+        +getMessages(): const vector<json::value>&
         +start(): void
         +stop(): void
         +isURI(uri: string): bool
-        +sendMessage(ip: string, message: json, timeout): void
-        +whoAreYou(ip: string, timeout): json::object
+        +sendMessage(ip: string, message: json, timeout_s, timeout_ms): void
+        +whoAreYou(ip: string, timeout_s, timeout_ms): json::object
     }
     
     interface IWebview <<interface>> {
@@ -58,6 +59,8 @@ package "Interfaces" #DDDDDD {
         +init(js: string): void
         +window(): optional<void*>
         +widget(): optional<void*>
+        +get_controller(): optional<void*>  /' Windows only '/
+        +register_navigation_handler(callback): void  /' Windows only '/
     }
     
     interface IProcessManager <<interface>> {
@@ -83,23 +86,23 @@ package "Interfaces" #DDDDDD {
 
 package "Template Managers" #DDDDDD {
     
-    class "CallbackManager<K,V,P>" as CallbackManager <<manager>> {
-        -callbacks: map<K, function<V(P)>>
-        +add(key: K, callback: function): CallbackManager*
-        +remove(key: K): CallbackManager*
+    class "CallbackManager<Key,RetType,...Params>" as CallbackManager <<manager>> {
+        -callbacks: map<Key, function<RetType(Params...)>>
+        +add(key: Key, callback: function): CallbackManager*
+        +remove(key: Key): CallbackManager*
         +clear(): void
-        +run(key: K, args: P...): V
-        +getMap(): map&
+        +run(key: Key, args: Params...): RetType
+        +getMap(): const map&
     }
     
-    class "InOutManager<K,Out,In>" as InOutManager <<manager>> {
-        -inouts: map<K, pair<function<Out()>, function<void(In)>>>
-        +add(key: K, up_down_pair): InOutManager*
-        +remove(key: K): InOutManager*
+    class "InOutManager<Key,OutType,...InTypes>" as InOutManager <<manager>> {
+        -inouts: map<Key, pair<function<OutType()>, function<void(InTypes...)>>>
+        +add(key: Key, up_down_pair): InOutManager*
+        +remove(key: Key): InOutManager*
         +clear(): InOutManager*
-        +out(key: K): Out
-        +in(key: K, args: In...): void
-        +getMap(): map&
+        +out(key: Key): OutType
+        +in(key: Key, args: InTypes...): void
+        +getMap(): const map&
     }
 }
 
@@ -108,13 +111,17 @@ package "Template Managers" #DDDDDD {
 package "Implementations" #DDDDDD {
     
     class Logger <<implementation>> {
+        -{static} max_log_size_bytes: uintmax_t
+        -{static} trimmed_log_size_bytes: uintmax_t
         -logger: unique_ptr<spdlog::logger>
         -flags: unique_ptr<LogFlags>
         -file: shared_ptr<File>
-        +Logger(flags: LogFlags)
-        +Logger(file: File, flags: LogFlags)
+        -unable_to_log_msg: bool
+        -trimLogFileOnStartup(): void
+        +Logger(flags: unique_ptr<LogFlags>)
+        +Logger(file: shared_ptr<File>, flags: unique_ptr<LogFlags>)
         +trace/debug/info/warn/error/critical(msg): void
-        +refresh(fmt: map): void
+        +refresh(fmt: map<string,string>): void
     }
     
     class FakeLogger <<implementation>> {
@@ -123,21 +130,23 @@ package "Implementations" #DDDDDD {
     }
     
     class WebServer <<implementation>> {
-        -app: App*
         -logger: shared_ptr<ILogger>
-        -server: unique_ptr<httplib::Server>
-        -method_callbacks: unique_ptr<CallbackManager>
-        -messages: vector<json::value>
+        -app: App*
         -base_path: filesystem::path
-        -ip: string
-        -port: unsigned short
-        -https: bool
-        -ssl_cert_path: filesystem::path
-        -ssl_key_path: filesystem::path
+        -method_callbacks: unique_ptr<CallbackManager>
+        -server: unique_ptr<httplib::Server>
         -server_thread: thread
+        -port: unsigned short
+        -ip: string
+        -messages: vector<json::value>
+        +{static} generateErrorHTML(code, msg, desc): string
         +WebServer(logger: ILogger, app: App*)
-        +start/stop/getURL/isURI(...): ...
-        +getMessages(): vector<json::value>&
+        +getURL(): string
+        +getBasePath(): string
+        +start(): void
+        +stop(): void
+        +isURI(uri: string): bool
+        +getMessages(): const vector<json::value>&
         +sendMessage/whoAreYou(...): ...
         -setHandles/setMethodCallbacks(): void
         -sendFile/sendStatus/getMimeType(...): ...
@@ -145,11 +154,13 @@ package "Implementations" #DDDDDD {
     
     class Webview <<implementation>> {
         -webview_impl: unique_ptr<webview::webview>
-        +Webview(debug: bool, window: void*)
+        +Webview(debug: bool, window: void*, app_id: string, logger: shared_ptr<ILogger>)
         +run/terminate/navigate(...): void
         +bind/unbind/dispatch(...): void
         +eval/init/set_title/set_size/set_html(...): void
         +window/widget(): optional<void*>
+        +get_controller(): optional<void*>  /' Windows only '/
+        +register_navigation_handler(callback): void  /' Windows only '/
     }
 }
 
@@ -163,12 +174,13 @@ package "Core" #DDDDDD {
         +info: unique_ptr<JSON>
         +config: unique_ptr<Config>
         +procm: unique_ptr<IProcessManager>
-        +w: unique_ptr<IWebview>
         +ws: unique_ptr<IWebServer>
-        +fns: unique_ptr<WindowFunctions>
         +pm: unique_ptr<PluginManager>
-        -App(logger: ILogger)
+        +w: unique_ptr<IWebview>
+        +fns: unique_ptr<WindowFunctions>
+        -App(logger: shared_ptr<ILogger>)
         +run(): void
+        +{static} showErrorPopup(message: string): void
     }
     
     class AppBuilder <<core>> {
@@ -227,8 +239,8 @@ package "Core" #DDDDDD {
         -opts: map<string, string>
         -arg_callbacks: unique_ptr<CallbackManager>
         -arg_callback_order_vec: vector<string>
-        +Args(argc, argv)
-        +add(names, val, description, callback): Args*
+        +Args(argc: int, argv: char**)
+        +add(names: string, val: value_semantic*, description, callback): Args*
         +run(): void
         -addDefaults(): Args*
     }
@@ -245,24 +257,30 @@ package "Plugin System" #DDDDDD {
         #description: string
         #repository_url: string
         #logger: shared_ptr<ILogger>
-        #functions: map<string, function>
-        +Plugin(name, internal_name, version...)
-        +getName/getInternalName/getVersion/..(): string
-        +hasFunction(name: string): bool
-        +runFunction(name: string, args: json): json
-        #processInput(input: json): json
-        #formatOutput(output: json): json
+        #functions: map<string, function<json(const json&)>>
+        +Plugin(name, internal_name, version, description, repository_url, logger)
+        +getName(): string
+        +getInternalName(): string
+        +getVersion(): string
+        +getDescription(): string
+        +getRepositoryUrl(): string
+        +getFunctions(): const map&
+        +getMetadata(): json::object
+        #processInput(input): json
+        #formatOutput(output): json
     }
     
     class PluginManager <<manager>> {
         -logger: shared_ptr<ILogger>
-        -plugins: map<string, unique_ptr<Plugin>>
+        -plugins: map<string, shared_ptr<Plugin>>
         +PluginManager(logger)
-        +hasPlugin(name: string): bool
-        +getPlugin(name: string): Plugin*
-        +listPlugins(): vector<string>
+        +getPlugins(): const map&
+        +getPluginList(): json::array
         -loadPlugin(path: filesystem::path): void
         -unloadPlugin(name: string): bool
+        -openLibrary(path): LibraryHandle
+        -closeLibrary(handle): void
+        -resolveSymbol(handle, path, symbol): T
     }
 }
 
@@ -274,35 +292,43 @@ package "Utilities" #DDDDDD {
         #logger: shared_ptr<ILogger>
         #json_data: json::value
         +file: shared_ptr<File>
-        +JSON(logger, file)
-        +{static} peek(file, key): json::value
-        +{static} merge(old_data, new_data): json::object
-        +getJson(): json::value&
+        +JSON(logger: shared_ptr<ILogger>, file: shared_ptr<File>)
+        +{static} peek(file: File*, key: string): json::value
+        +{static} merge(old_data: json::object, new_data: json::object): json::object
+        +getJson(): const json::value&
         +getProperty(key: string): json::value
-        +setProperty(key, value): void
+        +setProperty(key: string, value: json::value): void
         +update(new_data: json::object): void
     }
     
     class Config <<utility>> {
+        -{static} DEFAULTS_KEY: string
+        +{static} ERROR_KEY: string
         +initial_page: string
         +current_page: string
-        +Config(logger, current_page)
-        +Config(logger, current_page, file)
-        +getProperty/setProperty(key, ...): ...
-        +getDefaultProperty(key): json::value
-        +setDefaultProperty(key, value): void
-        +getJson/getDefaultsJson(): json::value&
-        +update(new_data): void
+        +Config(logger, current_page: string)
+        +Config(logger, current_page: string, file: shared_ptr<File>)
+        +getProperty(key: string): json::value
+        +setProperty(key: string, value: json::value): void
+        +getDefaultProperty(key: string): json::value
+        +setDefaultProperty(key: string, value: json::value): void
+        +getJson(): const json::value&
+        +getDefaultsJson(): const json::value&
+        +update(new_data: json::object): void
     }
     
     class File <<utility>> {
         -file_path: filesystem::path
-        +File(file_path)
+        +File()
+        +File(file_path: filesystem::path)
         +exists(): bool
         +read(): shared_ptr<string>
         +write(data: string): void
         +clear(): void
-        +getPath/getName/getDir/getExtension(): path
+        +getPath(): const path&
+        +getName(): path
+        +getDir(): path
+        +getExtension(): path
     }
     
     class LogFlags <<utility>> {

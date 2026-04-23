@@ -115,7 +115,7 @@ Appears in canonical tags, OG metadata, sitemap entries, and package homepages.
 
 ## OG / Twitter Social Image URL
 
-**Current value:** `https://raw.githubusercontent.com/spur27/RenWeb-Engine/main/docs/assets/renweb.png`
+**Current value:** `https://raw.githubusercontent.com/spur27/RenWeb-Engine/main/docs/assets/renweb_no_version.png`
 
 If the image is moved, renamed, or the branch changes, all of these must be updated.
 
