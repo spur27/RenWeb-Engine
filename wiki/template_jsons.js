@@ -70,7 +70,7 @@ const INFO_JSON = {
 const INFO_MINIMUM_JSON = {
   "title": "My App",
   "version": "1.0.0",
-  "starting_pages": ["index"]
+  "starting_pages": ["main"]
 };
 
 const CONFIG_JSON = {
