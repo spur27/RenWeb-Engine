@@ -54,7 +54,7 @@ auto-updated by `npm install`; do not edit it manually.
 
 ## JS API Version
 
-**Current value:** `0.0.4`
+**Current value:** `0.0.5`
 
 Three separate config files must stay in sync. `package-lock.json` at the root
 is auto-updated.
