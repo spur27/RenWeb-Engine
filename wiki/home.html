@@ -79,25 +79,21 @@
                         <h2>What is RenWeb?</h2>
                         <p>
                             RenWeb is a lightweight framework for building native desktop applications 
-                            using HTML, CSS, and JavaScript. The engine itself is written in C++,
-                            but using the capabilities of the engine is done solely through the JS API.
+                            using HTML, CSS, and JavaScript. The engine itself is written in C++
+                            but is interacted with through the JS API.
                             RenWeb is similar to Electron and Tauri but with a focus on native performance,
-                            simplicity, and desktop applications rather than explicit web apps.
+                            simplicity, and desktop applications rather than web-deployed apps.
                         </p>
                         <p>
-                            I made this engine because I didn't like the current options. It's common for frameworks like these to be bloated,
-                            overcomplicated, and unintuitive. So, I created my own in a way that seemed the most intuitive to me. 
-                            The engine relies on native technologies to avoid bloat but still offers dependencyless builds for those who want it.
-                            You don't have to know a lick of C++ to use this engine. All you need to do is look at the engine file structure,
-                            copy and paste the JS API files, and code your frontend in HTML, CSS, and JavaScript. And for those that want to extend
-                            the engine functionality, they can via an extremely simple plugin system that even a C++ beginner could understand and use.
+                            I made this engine because I didn't like the current options — most frameworks like these are bloated, overcomplicated, and unintuitive. So I built my own, designed around what felt most natural to me.
                         </p>
                         <p>
-                            This project took over a year to complete, but I'm extremely proud of how it turned out. I hope this engine is as intuitive to you as 
-                            is to me, and I thank you for checking it out and giving it a chance :&#41;
+                            Under the hood, the engine uses the native webview available on each platform — WebKitGTK on Linux, WKWebView on macOS, and WebView2 on Windows — keeping the binary small and avoiding any bundled browser runtime.
+                        </p>
+                        <p>
+                            You don't need to know any C++ to use it. Just grab the JS API, write your frontend in HTML, CSS, and JavaScript, and you're up and running. If you ever want to go deeper, the plugin system is straightforward enough that even a C++ beginner can pick it up.
                         </p>
                     </div>
-                    
                     <div class="what-is-visual">
                         <div class="screenshot-carousel">
                             <div class="screenshot-container">

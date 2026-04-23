@@ -2971,6 +2971,10 @@ body.iframe-page .footer {
     .what-is-content {
         grid-template-columns: 1fr;
     }
+
+    .what-is-visual {
+        margin-bottom: 1.5rem;
+    }
     
     .hero-title {
         font-size: 2rem;

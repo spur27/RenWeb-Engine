@@ -2203,7 +2203,7 @@ function sortByArchitecture(assets) {
 
 /**
  * Create "no items available" message
- * @param {string} itemType - Type of items (executables, bundles, examples)
+ * @param {string} itemType - Type of items (executables, examples)
  * @returns {string} HTML string
  */
 function createNoItemsMessage(itemType) {
