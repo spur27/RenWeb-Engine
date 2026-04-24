@@ -1,7 +1,7 @@
 
 <p align="center">
     <a href="https://github.com/spur27/RenWeb-Engine">
-        <img height=300 src="https://github.com/spur27/RenWeb-Engine/blob/main/docs/assets/renweb.png" alt="RenWeb ~ A FOSS Software SDK">
+        <img height=300 src="https://raw.githubusercontent.com/spur27/RenWeb-Engine/main/docs/assets/renweb_no_version.png" alt="RenWeb ~ A FOSS Desktop Application Framework">
     </a>
 </p>
 
@@ -28,7 +28,7 @@
 
 ## RenWeb Engine
 
-A minimal, lightweight, cross-platform desktop application framework that lets you build native GUI apps using web technologies with a C++ backend.
+A minimal, lightweight, cross-platform desktop application engine that lets you build native GUI apps using web technologies with a C++ backend. 
 
 ## Features
 
