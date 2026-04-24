@@ -1,7 +1,7 @@
 
 <p align="center">
     <a href="https://github.com/spur27/RenWeb-Engine">
-        <img height=300 src="https://raw.githubusercontent.com/spur27/RenWeb-Engine/main/docs/assets/renweb_no_version.png" alt="RenWeb ~ A FOSS Desktop Application Framework">
+        <img height=300 src="https://raw.githubusercontent.com/spur27/RenWeb-Engine/main/docs/assets/renweb.png" alt="RenWeb ~ A FOSS Desktop Application Framework">
     </a>
 </p>
 
