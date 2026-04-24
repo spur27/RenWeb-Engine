@@ -1,7 +1,7 @@
 {
   "name": "renweb-api",
   "version": "0.0.5",
-  "description": "RenWeb Engine JavaScript/TypeScript API.",
+  "description": "TypeScript/JavaScript API bindings for the RenWeb Engine desktop app runtime.",
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
