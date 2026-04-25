@@ -52,6 +52,7 @@ window.renweb.onReady = async () => {
             await Properties.setOpacity((targetOpacity * i) / fadeSteps);
         }
     }
+    await Window.focus();
 }
 
 // Back button

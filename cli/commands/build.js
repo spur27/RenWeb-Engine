@@ -12,6 +12,26 @@ const { fetchPlugins } = require('../shared/fetchers');
 const { ProjectState } = require('../project/project_state');
 const ui = require('../shared/ui');
 
+function finishBuild(result, buildLabel) {
+    if (!result) {
+        ui.error(`Build failed (${buildLabel}) — no process result.`);
+        process.exit(1);
+    }
+
+    if (result.error) {
+        ui.error(`Build failed (${buildLabel}) — ${result.error.message}`);
+        process.exit(1);
+    }
+
+    if (result.status === 0) {
+        ui.ok(`Build complete (${buildLabel}).`);
+        process.exit(0);
+    }
+
+    ui.error(`Build failed (${buildLabel}) with exit code ${result.status}.`);
+    process.exit(result.status ?? 1);
+}
+
 function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     if (findProjectExecutable(buildDir, targetOs, targetArch)) return true;
 
@@ -47,6 +67,24 @@ function ensureExecutable(projectRoot, buildDir, targetOs, targetArch) {
     try { fs.chmodSync(dest, 0o755); } catch (_) {}
     ui.ok(`Engine fetched: ${asset.name}`);
     return true;
+}
+
+/** On Windows, find MSYS2/Git-for-Windows usr/bin directories and prepend them
+ *  to PATH so that make shell recipes can find grep, sed, tr, xargs, etc. */
+function buildMakeEnv() {
+    if (process.platform !== 'win32') return process.env;
+
+    const candidates = [
+        'C:\\msys64\\usr\\bin',
+        'C:\\msys32\\usr\\bin',
+        'C:\\Program Files\\Git\\usr\\bin',
+        'C:\\Git\\usr\\bin',
+    ];
+
+    const found = candidates.filter(p => { try { return fs.statSync(p).isDirectory(); } catch (_) { return false; } });
+    if (found.length === 0) return process.env;
+
+    return { ...process.env, PATH: found.join(path.delimiter) + path.delimiter + (process.env.PATH || '') };
 }
 
 function hasBuildScript(projectRoot, jsEngine) {
@@ -103,16 +141,17 @@ function run(args) {
     const makefilePath = ['makefile', 'Makefile'].find(f => fs.existsSync(path.join(projectRoot, f)));
     if (makefilePath && state.js_engine === 'none') {
         ui.step('Building plugin (make)…');
-        const r = spawnSync('make', [], { cwd: projectRoot, stdio: 'inherit' });
-        process.exit(r.status ?? 0);
+        const makeEnv = buildMakeEnv();
+        const r = spawnSync('make', [], { cwd: projectRoot, stdio: 'inherit', env: makeEnv });
+        finishBuild(r, 'plugin');
     }
 
     if (hasBuildScript(projectRoot, state.js_engine)) {
-        const [bin, bin_args] = state.pkg_manager().build_cmd();
+        const pm = state.pkg_manager();
         const buildLabel = state.isVanilla() ? state.js_engine : state.framework;
         ui.step(`Building (${buildLabel})…`);
-        const r = spawnSync(bin, bin_args, { cwd: projectRoot, stdio: 'inherit' });
-        process.exit(r.status ?? 0);
+        const r = pm.run('build');
+        finishBuild(r, buildLabel);
     }
 
     const srcDir = path.join(projectRoot, 'src');

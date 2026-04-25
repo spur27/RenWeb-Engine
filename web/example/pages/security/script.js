@@ -55,6 +55,7 @@ window.renweb.onReady = async () => {
             await Properties.setOpacity((targetOpacity * i) / fadeSteps);
         }
     }
+    await Window.focus();
 }
 
 function updateTestStatus(testId, status) {

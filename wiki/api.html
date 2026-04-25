@@ -580,6 +580,25 @@ await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
                     </div>
                 </div>
 
+                <div id="window-focus" class="api-method">
+                    <h3>
+                        Window.focus()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>focus(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Requests focus for the current window and brings it to the foreground when the platform allows it.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.focus();</code></pre>
+                    </div>
+                </div>
+
                 <div id="window-show" class="api-method">
                     <h3>
                         Window.show()
@@ -612,6 +631,7 @@ await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
 
                 <div id="window-changetitle" class="api-method">
                     <h3>
+        {name: 'focus', signature: 'focus()', description: 'Returns: Promise<void>'},
                         Window.changeTitle()
                         <span class="method-tags">
                             <span class="method-tag async">async</span>
@@ -2672,7 +2692,7 @@ console.log(repos.plugins); // ["https://github.com/..."]</code></pre>
                     <div class="method-example">
                         <h4>Example</h4>
                         <pre><code class="language-javascript">const versions = await Application.fetchVersions();
-console.log(versions.engine); // "0.0.7"
+console.log(versions.engine); // "0.1.0"
 console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
                     </div>
                 </div>

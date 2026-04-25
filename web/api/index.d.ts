@@ -280,6 +280,11 @@ export declare namespace Window {
      */
     function isFocus(): Promise<boolean>;
     /**
+     * Requests focus for the current window.
+     * @returns Promise that resolves when the focus request has been issued
+     */
+    function focus(): Promise<void>;
+    /**
      * Shows or hides the window.
      * @param is_window_shown - Whether to show the window
      * @returns Promise that resolves when operation is complete
@@ -519,12 +524,23 @@ export declare namespace FS {
         create?: boolean;
     }): Promise<string>;
     /**
+     * Opens the native file chooser and returns absolute selected path(s).
+     * @param options - Picker options
+     * @param options.multiple - Whether multiple selections are allowed (default: false)
+     * @param options.directories - Whether to select directories only (default: false)
+     * @returns Promise that resolves to a single path, an array of paths, or null if cancelled
+     */
+    function chooseFiles(options?: {
+        multiple?: boolean;
+        directories?: boolean;
+    }): Promise<string | string[] | null>;
+    /**
      * Downloads a file from a URI to a local path.
      * @param uri - URI to download from
      * @param path - Local path to save the file
      * @returns Promise that resolves when download is complete
      */
-    function downloadUri(uri: string, path: string): Promise<void>;
+    function downloadUri(uri: string, path?: string): Promise<void>;
 }
 /**
  * Configuration management functions.

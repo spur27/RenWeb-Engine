@@ -11,6 +11,31 @@ const PASS = '\u2713'; // ✓
 const FAIL = '\u2717'; // ✗
 const WARN = '\u26a0'; // ⚠
 
+function runVersionProbe(command, args = ['--version']) {
+    try {
+        return spawnSync(command, args, { encoding: 'utf8', stdio: 'pipe' });
+    } catch (_) {
+        return null;
+    }
+}
+
+function probeNpm() {
+    const attempts = process.platform === 'win32'
+        ? [
+            ['npm.cmd', ['--version']],
+            ['npm', ['--version']],
+            ['cmd.exe', ['/d', '/s', '/c', 'npm --version']],
+        ]
+        : [['npm', ['--version']]];
+
+    for (const [cmd, args] of attempts) {
+        const r = runVersionProbe(cmd, args);
+        if (!r) continue;
+        if (r.status === 0) return r;
+    }
+    return null;
+}
+
 
 function run() {
     let exitCode = 0;
@@ -21,8 +46,8 @@ function run() {
     const sect = (msg) => ui.section(msg);
 
     function checkBin(name, installHint) {
-        const r = spawnSync(name, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
-        if (r.status === 0 || r.stdout) {
+        const r = runVersionProbe(name);
+        if (r && (r.status === 0 || r.stdout)) {
             const ver = (r.stdout || r.stderr || '').trim().split('\n')[0] || '';
             ok(`${name}${ver ? '  (' + ver + ')' : ''}`);
             return true;
@@ -32,11 +57,21 @@ function run() {
     }
 
     function checkBinOptional(name, note) {
-        const r = spawnSync(name, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
-        if (r.status === 0 || r.stdout) {
+        const r = runVersionProbe(name);
+        if (r && (r.status === 0 || r.stdout)) {
             ok(`${name}  (optional, present)`);
         } else {
             warn(`${name} not found${note ? ' — ' + note : ''}`);
+        }
+    }
+
+    function checkNpmOptional(note) {
+        const r = probeNpm();
+        if (r && r.status === 0) {
+            const ver = (r.stdout || r.stderr || '').trim().split('\n')[0] || '';
+            ok(`npm${ver ? '  (' + ver + ')' : ''}  (optional, present)`);
+        } else {
+            warn(`npm not found${note ? ' — ' + note : ''}`);
         }
     }
 
@@ -117,7 +152,7 @@ function run() {
     else                         fail('curl / wget — at least one is required for downloads');
 
     checkBin('git',    'needed for `rw create engine` and `rw plugin add`');
-    checkBinOptional('npm',     'needed for Vite-based projects (react / vue / svelte / preact)');
+    checkNpmOptional('needed for Vite-based projects (react / vue / svelte / preact)');
     if (process.platform === 'linux')
         checkBinOptional('xdg-open', 'needed for `rw doc`');
     checkBinOptional('make',     'needed for building plugins');

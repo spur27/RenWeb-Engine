@@ -115,6 +115,7 @@ window.renweb.onReady = async () => {
             await Properties.setOpacity((targetOpacity * i) / fadeSteps);
         }
     }
+    await Window.focus();
 }
 
 window.renweb.onTerminate = async () => {
@@ -384,39 +385,23 @@ document.querySelector(".copy_file").onclick = async () => {
     }
 };
 
-document.querySelector(".choose_files_input").onchange = async (event) => {
-    const files = event.target.files;
-
-    if (files.length > 0) {
-        const file_list = Array.from(files).reduce((acc, f) => {
-            return acc + ` ├─ ${f.webkitRelativePath || f.name} (${(f.size / 1024).toFixed(2)} KB)\n`;
-        }, "");
-        document.querySelector(".choose_files_output").textContent = file_list;
-    } else {
-        document.querySelector(".choose_files_output").textContent = "empty";
-    }
-};
-
 document.querySelector(".choose_files").onclick = async () => {
     await Log.debug(`Opening file/directory chooser...`);
     const multiple = document.querySelector(".multiple").checked;
     const directories = document.querySelector(".directories").checked;
+    const selected = await FS.chooseFiles({ multiple, directories });
+    const paths = (selected == null) ? [] : (Array.isArray(selected) ? selected : [selected]);
 
-    if (multiple) {
-        document.querySelector(".choose_files_input").setAttribute("multiple", "");
-    } else {
-        document.querySelector(".choose_files_input").removeAttribute("multiple");
+    if (paths.length === 0) {
+        document.querySelector(".choose_files_output").textContent = "empty";
+        return;
     }
 
-    if (directories) {
-        document.querySelector(".choose_files_input").setAttribute("webkitdirectory", "");
-        document.querySelector(".choose_files_input").setAttribute("directory", "");
-    } else {
-        document.querySelector(".choose_files_input").removeAttribute("webkitdirectory");
-        document.querySelector(".choose_files_input").removeAttribute("directory");
-    }
-
-    document.querySelector(".choose_files_input").click();    
+    document.querySelector(".file_msg").value = paths[0];
+    const file_list = paths.reduce((acc, path) => {
+        return acc + ` ├─ ${path}\n`;
+    }, "");
+    document.querySelector(".choose_files_output").textContent = file_list;
 };
 
 document.querySelector(".download_files").onclick = async () => {

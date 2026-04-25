@@ -528,11 +528,11 @@ $(RES_FILE): resource/app.rc resource/app.ico resource/app.manifest info.json | 
 	$(call step,Compiling Resource File,$@)
 	@INFO=./info.json; \
 	 RC_TITLE=$$(sed -n 's/.*"title"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
-	 RC_TITLE=$${RC_TITLE:-}; \
+	 RC_TITLE=$${RC_TITLE:-$(EXE_NAME)}; \
 	 RC_AUTHOR=$$(sed -n 's/.*"author"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
 	 RC_AUTHOR=$${RC_AUTHOR:-}; \
 	 RC_DESCRIPTION=$$(sed -n 's/.*"description"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
-	 RC_DESCRIPTION=$${RC_DESCRIPTION:-}; \
+	 RC_DESCRIPTION=$${RC_DESCRIPTION:-$$RC_TITLE}; \
 	 RC_COPYRIGHT=$$(sed -n 's/.*"copyright"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$INFO" 2>/dev/null | xargs 2>/dev/null); \
 	 RC_COPYRIGHT=$${RC_COPYRIGHT:-}; \
 	 RC_VERSION_CSV=$$(echo "$(EXE_VERSION)" | awk -F. 'NF>=3{printf "%s,%s,%s,0",$$1,$$2,$$3} NF<3{print "0,0,0,0"}' 2>/dev/null); \

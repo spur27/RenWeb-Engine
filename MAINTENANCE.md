@@ -9,7 +9,7 @@ a checklist to ensure nothing is missed.
 To find all occurrences of any value quickly:
 
 ```sh
-grep -r "0.0.7" --include="*.json" --include="*.html" --include="*.md" --include="*.js" \
+grep -r "0.1.0" --include="*.json" --include="*.html" --include="*.md" --include="*.js" \
   --exclude-dir=external --exclude-dir=node_modules .
 ```
 
@@ -17,7 +17,7 @@ grep -r "0.0.7" --include="*.json" --include="*.html" --include="*.md" --include
 
 ## Engine Version
 
-**Current value:** `0.0.7`
+**Current value:** `0.1.0`
 
 The authoritative source is `info.json → "version"`. The makefile reads it at
 compile time via `sed` to construct the executable filename. All other locations
@@ -30,17 +30,17 @@ must be kept in sync manually.
 | `index.html` | JSON-LD `"softwareVersion"` |
 | `wiki/home.html` | JSON-LD `"softwareVersion"` |
 | `wiki/template_jsons.js` | template JSON `"version"` field |
-| `wiki/cli.html` | example output strings (`renweb-0.0.7-linux-x86_64`) |
+| `wiki/cli.html` | example output strings (`renweb-0.1.0-linux-x86_64`) |
 | `.github/copilot-instructions.md` | `"Version"` field and example paths |
 
-> `wiki/api.html` contains `"0.0.7"` in a code example comment — update as
+> `wiki/api.html` contains `"0.1.0"` in a code example comment — update as
 > well for accuracy, but it has no functional effect.
 
 ---
 
 ## CLI Tool Version
 
-**Current value:** `0.0.6`
+**Current value:** `0.1.0`
 
 Versioned independently from the engine. The `package-lock.json` is
 auto-updated by `npm install`; do not edit it manually.
@@ -54,7 +54,7 @@ auto-updated by `npm install`; do not edit it manually.
 
 ## JS API Version
 
-**Current value:** `0.0.6`
+**Current value:** `0.1.0`
 
 Three separate config files must stay in sync. `package-lock.json` at the root
 is auto-updated.

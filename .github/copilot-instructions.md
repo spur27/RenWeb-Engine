@@ -14,7 +14,7 @@ the frontend with a C++ backend. It is intentionally minimal: executables stay
 around 2 MB and no Electron/Chromium runtimes are required.
 
 - **Repository**: https://github.com/spur27/RenWeb-Engine
-- **Version**: 0.0.7
+- **Version**: 0.1.0
 - **License**: Boost Software License 1.0 (BSL-1.0)
 - **Author**: spur27 / Spur27
 - **App ID**: `io.github.spur27.renweb-engine`
@@ -183,7 +183,7 @@ All major components have interface base classes (prefix `I`):
     "description": "Base RenWeb engine.",
     "license": "BSL",
     "title": "RenWeb",
-    "version": "0.0.7",
+    "version": "0.1.0",
     "repository": "https://github.com/spur27/RenWeb-Engine",
     "category": "Utility",
     "copyright": "Copyright © 2025 Spur27",
@@ -268,7 +268,7 @@ When modifying makefile defaults, always use the `ifndef VAR` / `VAR := value` p
 build/<name>-<version>-<os>-<arch>[.exe]
 ```
 
-Example: `build/renweb-0.0.7-linux-x86_64`
+Example: `build/renweb-0.1.0-linux-x86_64`
 
 Name and version are extracted from `./info.json` using `sed` at build time.
 

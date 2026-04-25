@@ -58,9 +58,11 @@
 #include <deque>
 #include <future>
 #include <atomic>
+#include <cstdlib>
 
 #if defined(_WIN32)
     #include <windows.h>
+    #include <io.h>
     #include <tlhelp32.h>
     #include <psapi.h>
     #include <winsock2.h>
@@ -1016,10 +1018,108 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
         
         std::vector<std::string> resolved_args = args;
         resolved_args[0] = executable;
+
+#if defined(_WIN32)
+        if (share_stdio) {
+            auto toLowerCopy = [](std::string input) -> std::string {
+                std::transform(input.begin(), input.end(), input.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                return input;
+            };
+
+            const std::string exe_path = toLowerCopy(executable);
+            const bool looks_like_msys_or_cygwin =
+                exe_path.find("cygwin") != std::string::npos ||
+                exe_path.find("msys") != std::string::npos ||
+                exe_path.find("/usr/bin/") != std::string::npos ||
+                exe_path.find("\\\\usr\\\\bin\\\\") != std::string::npos;
+
+            if (looks_like_msys_or_cygwin) {
+                auto quoteForCmd = [](const std::string& arg) -> std::string {
+                    if (arg.empty()) return "\"\"";
+                    const bool needs_quotes = arg.find_first_of(" \t\"") != std::string::npos;
+                    if (!needs_quotes) return arg;
+                    std::string escaped;
+                    escaped.reserve(arg.size() + 8);
+                    escaped.push_back('"');
+                    for (char ch : arg) {
+                        if (ch == '"') escaped.push_back('\\');
+                        escaped.push_back(ch);
+                    }
+                    escaped.push_back('"');
+                    return escaped;
+                };
+
+                std::string cmd_payload;
+                for (size_t i = 0; i < resolved_args.size(); ++i) {
+                    if (i > 0) cmd_payload.push_back(' ');
+                    cmd_payload += quoteForCmd(resolved_args[i]);
+                }
+
+                std::string cmd_exe = "C:\\Windows\\System32\\cmd.exe";
+                char* comspec = nullptr;
+                size_t comspec_len = 0;
+                if (_dupenv_s(&comspec, &comspec_len, "ComSpec") == 0 && comspec && *comspec) {
+                    cmd_exe.assign(comspec);
+                }
+                free(comspec);
+
+                resolved_args = {
+                    cmd_exe,
+                    "/d",
+                    "/s",
+                    "/c",
+                    cmd_payload
+                };
+
+                this->logger->warn("[proc] share_stdio: routing MSYS/Cygwin executable through cmd.exe for compatibility");
+            }
+        }
+#endif
         
         Child proc;
-        Pid pid;
+        Pid pid = 0;
         File out_file;
+
+#if defined(_WIN32)
+        auto closeHandleIfValid = [](HANDLE handle) {
+            if (handle && handle != INVALID_HANDLE_VALUE) {
+                CloseHandle(handle);
+            }
+        };
+
+        auto launchWindowsProcess = [&](const std::vector<std::string>& launch_args,
+                                        STARTUPINFOW& startup_info,
+                                        const std::string& context) -> PROCESS_INFORMATION {
+            std::wstring cmd_line = buildCmdLine(launch_args);
+            PROCESS_INFORMATION process_info = {};
+            if (!CreateProcessW(
+                    nullptr,
+                    cmd_line.data(),
+                    nullptr,
+                    nullptr,
+                    TRUE,
+                    0,
+                    nullptr,
+                    nullptr,
+                    &startup_info,
+                    &process_info)) {
+                const DWORD error = GetLastError();
+                const std::string message = context.empty()
+                    ? "Failed to create process"
+                    : "Failed to create process with " + context;
+                throw std::runtime_error(message + " (error " + std::to_string(error) + ")");
+            }
+            return process_info;
+        };
+
+        auto adoptWindowsProcess = [&](const PROCESS_INFORMATION& process_info) {
+            pid = static_cast<Pid>(process_info.dwProcessId);
+            proc = Child(process_info.dwProcessId);
+            closeHandleIfValid(process_info.hThread);
+            closeHandleIfValid(process_info.hProcess);
+        };
+#endif
 
         if (share_stdio) {
 #if defined(__linux__) || defined(__unix__)
@@ -1034,6 +1134,134 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
                     proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
                 }
             }
+#elif defined(_WIN32)
+            auto duplicateAsInheritable = [](HANDLE src) -> HANDLE {
+                if (!src || src == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+                HANDLE dup = INVALID_HANDLE_VALUE;
+                if (!DuplicateHandle(
+                        GetCurrentProcess(),
+                        src,
+                        GetCurrentProcess(),
+                        &dup,
+                        0,
+                        TRUE,
+                        DUPLICATE_SAME_ACCESS)) {
+                    return INVALID_HANDLE_VALUE;
+                }
+                return dup;
+            };
+
+            auto openSpecialOrNul = [](bool input_handle) -> HANDLE {
+                SECURITY_ATTRIBUTES sa = {};
+                sa.nLength = sizeof(sa);
+                sa.bInheritHandle = TRUE;
+
+                const wchar_t* special_name = input_handle ? L"CONIN$" : L"CONOUT$";
+                HANDLE h = CreateFileW(
+                    special_name,
+                    input_handle ? GENERIC_READ : GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    &sa,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    nullptr
+                );
+                if (h && h != INVALID_HANDLE_VALUE) {
+                    return h;
+                }
+
+                h = CreateFileW(
+                    L"NUL",
+                    input_handle ? GENERIC_READ : GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    &sa,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    nullptr
+                );
+                return h;
+            };
+
+            auto makeInheritableStdHandle = [&](DWORD std_id, bool input_handle) -> HANDLE {
+                // Prefer CRT descriptors first because MSYS/Cygwin-style processes rely on them
+                // even when Win32 GetStdHandle() is unset in GUI parents.
+                int crt_fd = -1;
+                if (std_id == STD_INPUT_HANDLE) {
+                    crt_fd = _fileno(stdin);
+                } else if (std_id == STD_OUTPUT_HANDLE) {
+                    crt_fd = _fileno(stdout);
+                } else if (std_id == STD_ERROR_HANDLE) {
+                    crt_fd = _fileno(stderr);
+                }
+
+                if (crt_fd >= 0) {
+                    intptr_t osfh = _get_osfhandle(crt_fd);
+                    if (osfh != -1) {
+                        HANDLE dup_from_crt = duplicateAsInheritable(reinterpret_cast<HANDLE>(osfh));
+                        if (dup_from_crt && dup_from_crt != INVALID_HANDLE_VALUE) {
+                            return dup_from_crt;
+                        }
+                    }
+                }
+
+                HANDLE src = GetStdHandle(std_id);
+                HANDLE dup = duplicateAsInheritable(src);
+                if (dup && dup != INVALID_HANDLE_VALUE) {
+                    return dup;
+                }
+                return openSpecialOrNul(input_handle);
+            };
+
+            HANDLE hIn = makeInheritableStdHandle(STD_INPUT_HANDLE, true);
+            HANDLE hOut = makeInheritableStdHandle(STD_OUTPUT_HANDLE, false);
+            HANDLE hErr = makeInheritableStdHandle(STD_ERROR_HANDLE, false);
+
+            // Some runtimes (like Cygwin/MSYS) expect stderr to be truly distinct from stdout.
+            if (hErr == hOut && hOut && hOut != INVALID_HANDLE_VALUE) {
+                if (hErr && hErr != INVALID_HANDLE_VALUE) {
+                    CloseHandle(hErr);
+                }
+                HANDLE distinct_err = openSpecialOrNul(false);
+                if (distinct_err && distinct_err != INVALID_HANDLE_VALUE) {
+                    hErr = distinct_err;
+                } else {
+                    hErr = duplicateAsInheritable(hOut);
+                }
+            }
+
+            if (!hIn || hIn == INVALID_HANDLE_VALUE ||
+                !hOut || hOut == INVALID_HANDLE_VALUE ||
+                !hErr || hErr == INVALID_HANDLE_VALUE) {
+                if (hIn && hIn != INVALID_HANDLE_VALUE) CloseHandle(hIn);
+                if (hOut && hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
+                if (hErr && hErr != INVALID_HANDLE_VALUE) CloseHandle(hErr);
+                throw std::runtime_error("Failed to prepare inheritable stdio handles (error " +
+                                         std::to_string(GetLastError()) + ")");
+            }
+
+            STARTUPINFOW si = {};
+            si.cb = sizeof(si);
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = hIn;
+            si.hStdOutput = hOut;
+            si.hStdError = hErr;
+
+            PROCESS_INFORMATION pi = {};
+            try {
+                pi = launchWindowsProcess(resolved_args, si, "shared stdio");
+            } catch (...) {
+                closeHandleIfValid(hIn);
+                closeHandleIfValid(hOut);
+                closeHandleIfValid(hErr);
+                throw;
+            }
+
+            closeHandleIfValid(hIn);
+            closeHandleIfValid(hOut);
+            closeHandleIfValid(hErr);
+
+            adoptWindowsProcess(pi);
+            out_file = File("");
 #else
             proc = Child(resolved_args, BOOST_PROCESS_V1_NAMESPACE::std_in.close());
 #endif
@@ -1061,7 +1289,6 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
                 throw std::runtime_error("Failed to create output file: " + temp_path.string() +
                                          " (error " + std::to_string(GetLastError()) + ")");
 
-            std::wstring cmd_line = buildCmdLine(resolved_args);
             STARTUPINFOW si = {};
             si.cb = sizeof(si);
             si.dwFlags = STARTF_USESTDHANDLES;
@@ -1070,18 +1297,17 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
             si.hStdInput  = INVALID_HANDLE_VALUE;
 
             PROCESS_INFORMATION pi = {};
-            BOOL ok = CreateProcessW(nullptr, cmd_line.data(),
-                                     nullptr, nullptr, TRUE, 0,
-                                     nullptr, nullptr, &si, &pi);
-            CloseHandle(hOut); // child inherited its own copy with FILE_SHARE_DELETE
-            if (!ok) {
+            try {
+                pi = launchWindowsProcess(resolved_args, si, "");
+            } catch (...) {
+                closeHandleIfValid(hOut);
                 std::filesystem::remove(temp_path);
-                throw std::runtime_error("Failed to create process (error " +
-                                         std::to_string(GetLastError()) + ")");
+                throw;
             }
 
-            pid = static_cast<Pid>(pi.dwProcessId);
-            CloseHandle(pi.hThread);
+            closeHandleIfValid(hOut); // child inherited its own copy with FILE_SHARE_DELETE
+
+            adoptWindowsProcess(pi);
 
             // Rename to the final {pid}.txt — works because the child's handle has FILE_SHARE_DELETE
             std::filesystem::path final_path = proc_dir / (std::to_string(pid) + ".txt");
@@ -1092,11 +1318,6 @@ inline json::object PM::createChildProcess(const std::vector<std::string>& args,
             } else {
                 out_file = File(final_path.string());
             }
-
-            // Construct Child from the native DWORD pid so the pid_t overload is
-            // selected instead of the variadic template launch constructor.
-            proc = Child(pi.dwProcessId);
-            CloseHandle(pi.hProcess);
 #else
             std::string temp_filename = "temp_" +
                 std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".txt";

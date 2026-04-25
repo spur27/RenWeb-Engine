@@ -1330,6 +1330,7 @@ function formatSignature(name, details) {
         },
         'Window': {
             'isFocus': { params: [], returns: 'Promise<boolean>' },
+            'focus': { params: [], returns: 'Promise<void>' },
             'show': { params: [{name: 'is_window_shown', type: 'boolean?'}], returns: 'Promise<void>' },
             'changeTitle': { params: [{name: 'title', type: 'string'}], returns: 'Promise<string>' },
             'resetTitle': { params: [], returns: 'Promise<string>' },
@@ -1447,7 +1448,7 @@ function formatSignature(name, details) {
     
     const apiTreeData = {
         'Properties': ['getSize', 'setSize', 'getPosition', 'setPosition', 'getTitleBar', 'setTitleBar', 'getResizable', 'setResizable', 'getKeepAbove', 'setKeepAbove', 'getMinimize', 'setMinimize', 'getMaximize', 'setMaximize', 'getFullscreen', 'setFullscreen', 'getTaskbarShow', 'setTaskbarShow', 'getOpacity', 'setOpacity'],
-        'Window': ['isFocus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
+        'Window': ['isFocus', 'focus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
         'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
         'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'downloadUri'],
         'Config': ['getConfig', 'getInfo', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],

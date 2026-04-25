@@ -80,6 +80,7 @@ window.apiData = {
     ],
     'Window': [
         {name: 'isFocus', signature: 'isFocus()', description: 'Returns: Promise<boolean>'},
+        {name: 'focus', signature: 'focus()', description: 'Returns: Promise<void>'},
         {name: 'show', signature: 'show(is_window_shown?)', description: 'Returns: Promise<void>'},
         {name: 'changeTitle', signature: 'changeTitle(title)', description: 'Returns: Promise<string>'},
         {name: 'resetTitle', signature: 'resetTitle()', description: 'Returns: Promise<string>'},
