@@ -329,6 +329,7 @@ Webview::Webview(bool debug, void* window,
 #endif
 {
 #if defined(__linux__)
+    (void)logger;
     if (!app_id.empty())
         g_set_prgname(app_id.c_str());
     webview_impl = std::make_unique<webview::webview>(debug, window);

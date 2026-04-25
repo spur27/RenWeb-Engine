@@ -8,6 +8,8 @@
 - Added consistent cross-platform command naming support for packaging outputs.
 - Reduced Windows build noise by replacing deprecated `getenv` usage with `_dupenv_s` for `ComSpec` lookup.
 - Validated release build and Windows packaging flow for updated metadata and command behavior.
+- Added chooseFiles function to FS for choosing files with full paths
+- Added focus function to Window for forcing window focus
 
 ## 0.0.7 - 2026-04-23
 - Added example plugin

@@ -2128,6 +2128,7 @@ WF* WF::setFileSystemCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             bool multiple = false;
             bool directories = false;
+            std::vector<std::string> extensions;
 
             json::value param = this->getSingleParameter(req);
             if (param.is_object()) {
@@ -2138,7 +2139,43 @@ WF* WF::setFileSystemCallbacks() {
                 if (options.contains("directories") && options.at("directories").is_bool()) {
                     directories = options.at("directories").as_bool();
                 }
+                if (options.contains("extensions") && options.at("extensions").is_array()) {
+                    const json::array& extension_values = options.at("extensions").as_array();
+                    for (const json::value& extension_value : extension_values) {
+                        if (!extension_value.is_string()) {
+                            continue;
+                        }
+
+                        std::string extension = extension_value.as_string().c_str();
+                        const size_t first_non_whitespace = extension.find_first_not_of(" \t\r\n");
+                        if (first_non_whitespace == std::string::npos) {
+                            continue;
+                        }
+                        extension.erase(0, first_non_whitespace);
+                        extension.erase(extension.find_last_not_of(" \t\r\n") + 1);
+                        if (extension.empty()) {
+                            continue;
+                        }
+                        if (extension == "*" || extension == "*.*") {
+                            extensions.clear();
+                            break;
+                        }
+                        if (startsWith(extension, "*.")) {
+                            extension.erase(0, 2);
+                        } else if (!extension.empty() && extension.front() == '.') {
+                            extension.erase(0, 1);
+                        }
+                        if (extension.empty()) {
+                            continue;
+                        }
+                        if (std::find(extensions.begin(), extensions.end(), extension) == extensions.end()) {
+                            extensions.push_back(extension);
+                        }
+                    }
+                }
             }
+
+            const bool use_extension_filter = !directories && !extensions.empty();
 
             auto format_paths = [multiple](const std::vector<std::string>& paths) -> json::value {
                 if (paths.empty()) {
@@ -2180,6 +2217,38 @@ WF* WF::setFileSystemCallbacks() {
                 options |= FOS_FILEMUSTEXIST;
             }
             dialog->SetOptions(options);
+
+            std::vector<std::wstring> filter_names;
+            std::vector<std::wstring> filter_patterns;
+            std::vector<COMDLG_FILTERSPEC> filter_specs;
+            std::wstring default_extension;
+            if (use_extension_filter) {
+                std::wstring allowed_patterns;
+                for (size_t index = 0; index < extensions.size(); ++index) {
+                    if (!allowed_patterns.empty()) {
+                        allowed_patterns += L";";
+                    }
+                    allowed_patterns += L"*.";
+                    allowed_patterns += WindowHelper::Utf8ToWide(extensions[index]);
+                }
+
+                filter_names.push_back(L"Allowed Files");
+                filter_patterns.push_back(allowed_patterns);
+                filter_names.push_back(L"All Files");
+                filter_patterns.push_back(L"*.*");
+
+                for (size_t index = 0; index < filter_names.size(); ++index) {
+                    filter_specs.push_back(COMDLG_FILTERSPEC{
+                        filter_names[index].c_str(),
+                        filter_patterns[index].c_str()
+                    });
+                }
+
+                default_extension = WindowHelper::Utf8ToWide(extensions.front());
+                dialog->SetFileTypes(static_cast<UINT>(filter_specs.size()), filter_specs.data());
+                dialog->SetFileTypeIndex(1);
+                dialog->SetDefaultExtension(default_extension.c_str());
+            }
 
             hr = dialog->Show(WindowHelper::GetHWND(this->app));
             if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
@@ -2242,6 +2311,14 @@ WF* WF::setFileSystemCallbacks() {
             [panel setCanChooseDirectories:directories ? YES : NO];
             [panel setAllowsMultipleSelection:multiple ? YES : NO];
             [panel setResolvesAliases:YES];
+            if (use_extension_filter) {
+                NSMutableArray<NSString*>* allowed_file_types = [NSMutableArray arrayWithCapacity:extensions.size()];
+                for (const std::string& extension : extensions) {
+                    [allowed_file_types addObject:[NSString stringWithUTF8String:extension.c_str()]];
+                }
+                [panel setAllowedFileTypes:allowed_file_types];
+                [panel setAllowsOtherFileTypes:NO];
+            }
 
             NSInteger response = [panel runModal];
             if (response != NSModalResponseOK) {
@@ -2274,6 +2351,21 @@ WF* WF::setFileSystemCallbacks() {
                 "Cancel"
             );
             gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), multiple ? TRUE : FALSE);
+            if (use_extension_filter) {
+                GtkFileFilter* allowed_filter = gtk_file_filter_new();
+                gtk_file_filter_set_name(allowed_filter, "Allowed files");
+                for (const std::string& extension : extensions) {
+                    const std::string pattern = "*." + extension;
+                    gtk_file_filter_add_pattern(allowed_filter, pattern.c_str());
+                }
+                gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), allowed_filter);
+                gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(dialog), allowed_filter);
+
+                GtkFileFilter* all_filter = gtk_file_filter_new();
+                gtk_file_filter_set_name(all_filter, "All files");
+                gtk_file_filter_add_pattern(all_filter, "*");
+                gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all_filter);
+            }
 
             gint response = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
             if (response != GTK_RESPONSE_ACCEPT) {
