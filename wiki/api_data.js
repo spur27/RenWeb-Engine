@@ -123,6 +123,7 @@ window.apiData = {
         {name: 'copy', signature: 'copy(orig_path, new_path, settings = { overwrite: false })', description: 'Returns: Promise<boolean>'},
         {name: 'getApplicationDirPath', signature: 'getApplicationDirPath()', description: 'Returns: Promise<string>'},
         {name: 'getTmpDirPath', signature: 'getTmpDirPath(options = { create: false })', description: 'Returns: Promise<string>'},
+        {name: 'chooseFiles', signature: 'chooseFiles(options = { multiple: false, directories: false, extensions: [] })', description: 'Returns: Promise<string | string[] | null>'},
         {name: 'downloadUri', signature: 'downloadUri(uri, path)', description: 'Returns: Promise<void>'}
     ],
     'Config': [
