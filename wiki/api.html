@@ -580,6 +580,25 @@ await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
                     </div>
                 </div>
 
+                <div id="window-isshown" class="api-method">
+                    <h3>
+                        Window.isShown()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>isShown(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is currently visible on screen.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is visible</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const visible = await Window.isShown();</code></pre>
+                    </div>
+                </div>
+
                 <div id="window-focus" class="api-method">
                     <h3>
                         Window.focus()

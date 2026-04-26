@@ -1276,6 +1276,23 @@ WF* WF::setWindowCallbacks() {
             auto window_widget = this->app->w->window().value();
             return json::value(gtk_window_has_toplevel_focus(GTK_WINDOW(window_widget)));
         #endif
+    }))->add("is_shown",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+        (void)req;
+        #if defined(_WIN32)
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                return json::value(IsWindowVisible(hwnd) != FALSE);
+            }
+            return json::value(false);
+        #elif defined(__APPLE__)
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            return json::value([nsWindow isVisible] == YES);
+        #elif defined(__linux__)
+            auto window_widget = this->app->w->window().value();
+            return json::value(gtk_widget_get_visible(GTK_WIDGET(window_widget)) != FALSE);
+        #endif
     }))->add("focus",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
         (void)req;
@@ -1844,7 +1861,31 @@ WF* WF::setWindowCallbacks() {
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
                 if (webview) {
-                    [webview findString:@"" withConfiguration:nil completionHandler:nil];
+                    if ([webview respondsToSelector:@selector(findString:withConfiguration:completionHandler:)]) {
+                        // Use a sentinel string that won't match any real content to dismiss
+                        // the native find overlay and clear WKFindConfiguration highlights.
+                        NSString* noMatchSentinel = @"\uffff";
+                        id config = [[NSClassFromString(@"WKFindConfiguration") alloc] init];
+
+                        void (^completionHandler)(id) = ^(id result) {
+                            (void)result;
+                        };
+
+                        SEL selector = @selector(findString:withConfiguration:completionHandler:);
+                        NSMethodSignature* signature = [webview methodSignatureForSelector:selector];
+                        if (signature) {
+                            NSInvocation* invocation = [NSInvocation invocationWithMethodSignature:signature];
+                            [invocation setTarget:webview];
+                            [invocation setSelector:selector];
+                            [invocation setArgument:&noMatchSentinel atIndex:2];
+                            [invocation setArgument:&config atIndex:3];
+                            [invocation setArgument:&completionHandler atIndex:4];
+                            [invocation invoke];
+                        }
+                    }
+                    // Always clear JS-based selection (from find_next / find_previous).
+                    std::string js = "if (window.getSelection) { window.getSelection().removeAllRanges(); }";
+                    this->app->w->eval(js);
                 }
             }
         #elif defined(__linux__)
@@ -2447,64 +2488,59 @@ WF* WF::setFileSystemCallbacks() {
                 this->logger->info("[function] Initiated download for: " + uri);
             }
         #elif defined(__APPLE__)
+            NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
+            NSURL* url = [NSURL URLWithString:urlString];
+            if (!url) {
+                this->logger->error("[function] Invalid URI for download on macOS: " + uri);
+                return json::value(nullptr);
+            }
+
+            std::filesystem::path output_path;
             if (!destination_path.empty()) {
-                std::error_code ec;
-                std::filesystem::path output_path(destination_path);
-                output_path = std::filesystem::absolute(output_path, ec);
-                if (ec) {
-                    this->logger->error("[function] Failed to resolve destination path on macOS: " + ec.message());
-                    return json::value(nullptr);
-                }
-
-                const std::filesystem::path output_parent = output_path.parent_path();
-                if (!output_parent.empty() && !std::filesystem::exists(output_parent)) {
-                    std::filesystem::create_directories(output_parent, ec);
-                    if (ec) {
-                        this->logger->error("[function] Failed to create destination directory on macOS: " + ec.message());
-                        return json::value(nullptr);
-                    }
-                }
-
-                NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
-                NSURL* url = [NSURL URLWithString:urlString];
-                if (!url) {
-                    this->logger->error("[function] Invalid URI for download on macOS: " + uri);
-                    return json::value(nullptr);
-                }
-
-                NSError* readError = nil;
-                NSData* data = [NSData dataWithContentsOfURL:url options:0 error:&readError];
-                if (!data) {
-                    const std::string errMsg = readError ? std::string([[readError localizedDescription] UTF8String]) : std::string("unknown");
-                    this->logger->error("[function] Failed to download URI on macOS: " + errMsg + " URI=" + uri);
-                    return json::value(nullptr);
-                }
-
-                NSString* outputPathNs = [NSString stringWithUTF8String:output_path.string().c_str()];
-                NSError* writeError = nil;
-                if (![data writeToFile:outputPathNs options:NSDataWritingAtomic error:&writeError]) {
-                    const std::string errMsg = writeError ? std::string([[writeError localizedDescription] UTF8String]) : std::string("unknown");
-                    this->logger->error("[function] Failed to write downloaded file on macOS: " + errMsg + " PATH=" + output_path.string());
-                    return json::value(nullptr);
-                }
-
-                this->logger->info("[function] Downloaded URI to path: " + output_path.string());
+                output_path = std::filesystem::path(destination_path);
             } else {
-                auto window_result = this->app->w->window();
-                if (window_result.has_value()) {
-                    id webview = getWKWebViewFromWindow(window_result.value());
-                    if (webview) {
-                        NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
-                        NSURL* url = [NSURL URLWithString:urlString];
-                        NSURLRequest* request = [NSURLRequest requestWithURL:url];
-                        if ([webview respondsToSelector:@selector(startDownloadUsingRequest:completionHandler:)]) {
-                            [webview performSelector:@selector(startDownloadUsingRequest:completionHandler:) withObject:request withObject:nil];
-                        } else {
-                            this->logger->warn("[function] WKWebView download not available on this macOS version");
-                        }
-                    }
+                NSArray<NSString*>* downloads_dirs = NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES);
+                NSString* downloads_dir = ([downloads_dirs count] > 0) ? downloads_dirs[0] : [NSHomeDirectory() stringByAppendingPathComponent:@"Downloads"];
+                NSString* filename = [[url path] lastPathComponent];
+                if (!filename || [filename length] == 0) {
+                    filename = @"download.bin";
+                }
+                output_path = std::filesystem::path([downloads_dir UTF8String]) / std::string([filename UTF8String]);
+            }
+
+            std::error_code ec;
+            output_path = std::filesystem::absolute(output_path, ec);
+            if (ec) {
+                this->logger->error("[function] Failed to resolve destination path on macOS: " + ec.message());
+                return json::value(nullptr);
+            }
+
+            const std::filesystem::path output_parent = output_path.parent_path();
+            if (!output_parent.empty() && !std::filesystem::exists(output_parent)) {
+                std::filesystem::create_directories(output_parent, ec);
+                if (ec) {
+                    this->logger->error("[function] Failed to create destination directory on macOS: " + ec.message());
+                    return json::value(nullptr);
                 }
             }
+
+            NSError* readError = nil;
+            NSData* data = [NSData dataWithContentsOfURL:url options:0 error:&readError];
+            if (!data) {
+                const std::string errMsg = readError ? std::string([[readError localizedDescription] UTF8String]) : std::string("unknown");
+                this->logger->error("[function] Failed to download URI on macOS: " + errMsg + " URI=" + uri);
+                return json::value(nullptr);
+            }
+
+            NSString* outputPathNs = [NSString stringWithUTF8String:output_path.string().c_str()];
+            NSError* writeError = nil;
+            if (![data writeToFile:outputPathNs options:NSDataWritingAtomic error:&writeError]) {
+                const std::string errMsg = writeError ? std::string([[writeError localizedDescription] UTF8String]) : std::string("unknown");
+                this->logger->error("[function] Failed to write downloaded file on macOS: " + errMsg + " PATH=" + output_path.string());
+                return json::value(nullptr);
+            }
+
+            this->logger->info("[function] Downloaded URI to path: " + output_path.string());
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitDownload* download = webkit_web_view_download_uri(WEBKIT_WEB_VIEW(webview_widget), uri.c_str());

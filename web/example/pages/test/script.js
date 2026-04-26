@@ -101,9 +101,11 @@ window.renweb.onReady = async () => {
     const os = String(await System.getOS()).toLowerCase();
     let targetOpacity = 1;
     if (os === "macos") {
+        if (await Window.isShown()) return;
         targetOpacity = await Properties.getOpacity();
         await Properties.setOpacity(0);
     }
+
 
     await Window.show(true);
 
@@ -418,23 +420,22 @@ Test Data:
 - Timestamp: ${Date.now()}
 - User agent: ${navigator.userAgent}
 `;
-    
-    const blob = new Blob([testContent], { type: 'text/plain' });
-    
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `renweb-test-${Date.now()}.txt`;
-    
-    document.body.appendChild(a);
-    a.click();
-    
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    await Log.info(`Downloaded test file: ${a.download}`);
-    
-    document.querySelector(".download_files_output").textContent = `Downloaded: ${a.download}\nSaved to your default downloads folder`;
+
+    const filename = `renweb-test-${Date.now()}.txt`;
+    const tmpDir = await FS.getTmpDirPath({ create: true });
+    const tmpPath = `${tmpDir}/${filename}`;
+    const writeOk = await FS.writeFile(tmpPath, testContent, { append: false });
+
+    if (!writeOk) {
+        await Log.error(`Failed to create temporary test file: ${tmpPath}`);
+        document.querySelector(".download_files_output").textContent = `Download failed: could not create temp file`;
+        return;
+    }
+
+    const sourceUri = `file://${encodeURI(tmpPath)}`;
+    await FS.downloadUri(sourceUri);
+    await Log.info(`Downloaded test file: ${filename}`);
+    document.querySelector(".download_files_output").textContent = `Downloaded: ${filename}\nSaved to your default downloads folder`;
 };
 
 // ============================================================================
@@ -468,6 +469,17 @@ document.querySelector(".test_focus").onclick = async () => {
     }, 5000);
 };
 
+document.querySelector(".is_shown").onclick = async () => {
+    await Log.debug(`Is shown...`);
+    const res = await Window.isShown();
+    if (res) {
+        document.querySelector(".is_shown").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".is_shown").style.backgroundColor = "red";
+    }
+};
+
+
 document.querySelector(".test_hide").onclick = async () => {
     await Log.debug(`Hiding for 5 seconds...`);
     await Window.show(false);
@@ -476,6 +488,8 @@ document.querySelector(".test_hide").onclick = async () => {
         await Window.show(true);
     }, 5000);
 };
+
+
 
 document.querySelector(".change_title").onclick = async () => {
     await Log.debug(`Changing Title...`);

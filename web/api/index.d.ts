@@ -280,6 +280,11 @@ export declare namespace Window {
      */
     function isFocus(): Promise<boolean>;
     /**
+     * Checks if the window is currently visible.
+     * @returns Promise that resolves to true if window is shown
+     */
+    function isShown(): Promise<boolean>;
+    /**
      * Requests focus for the current window.
      * @returns Promise that resolves when the focus request has been issued
      */

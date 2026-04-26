@@ -10,6 +10,7 @@
 - Validated release build and Windows packaging flow for updated metadata and command behavior.
 - Added chooseFiles function to FS for choosing files with full paths
 - Added focus function to Window for forcing window focus
+- Added isShown function to Window for checking window visibility
 
 ## 0.0.7 - 2026-04-23
 - Added example plugin

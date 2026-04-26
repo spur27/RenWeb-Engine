@@ -416,6 +416,13 @@ export namespace Window {
         { return await BIND_is_focus(null); }
 
     /**
+     * Checks if the window is currently visible.
+     * @returns Promise that resolves to true if window is shown
+     */
+    export async function isShown(): Promise<boolean>
+        { return await BIND_is_shown(null); }
+
+    /**
      * Requests focus for the current window.
      * @returns Promise that resolves when the focus request has been issued
      */
@@ -1577,6 +1584,7 @@ declare const BIND_get_opacity: (...args: any[]) => Promise<any>;
 declare const BIND_set_opacity: (...args: any[]) => Promise<any>;
 
 declare const BIND_is_focus: (...args: any[]) => Promise<any>;
+declare const BIND_is_shown: (...args: any[]) => Promise<any>;
 declare const BIND_focus: (...args: any[]) => Promise<any>;
 declare const BIND_show: (...args: any[]) => Promise<any>;
 declare const BIND_change_title: (...args: any[]) => Promise<any>;

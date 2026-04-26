@@ -40,6 +40,7 @@ window.renweb.onReady = async () => {
     const os = String(await System.getOS()).toLowerCase();
     let targetOpacity = 1;
     if (os === "macos") {
+        if (await Window.isShown()) return;
         targetOpacity = await Properties.getOpacity();
         await Properties.setOpacity(0);
     }
