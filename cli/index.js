@@ -153,7 +153,7 @@ program
 
 program
   .command('fetch [verb]')
-  .description('Download RenWeb assets.\n   Verbs: executable | plugin | api\n   (default: executable)\n   executable  Download the engine executable + template info.json to build/\n   plugin      Download plugin.hpp to the current directory\n   api         Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)')
+  .description('Download RenWeb assets.\n   Verbs: executable | plugin | api | example\n   (default: executable)\n   executable  Download the engine executable + template info.json to build/\n   plugin      Download plugin.hpp to the current directory\n   api         Download the JS/TS API files (index.js, .ts, .d.ts, .js.map)\n   example     Download latest example-x.y.z archive (zip on Windows, tar.gz elsewhere)')
   .option('--version <tag>', 'Pin to a specific release tag (default: latest, executable only)')
   .allowUnknownOption(true)
   .action(() => {

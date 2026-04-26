@@ -638,7 +638,35 @@ WF* WF::setGetSets() {
             json::object obj = this->getSingleParameter(req).as_object();
             int64_t width = obj.at("width").as_int64();
             int64_t height = obj.at("height").as_int64();
+        #if defined(__APPLE__)
+            if (width <= 0 || height <= 0) {
+                this->logger->warn("[function] Ignoring invalid window size request on macOS: " +
+                                   std::to_string(width) + "x" + std::to_string(height));
+                return;
+            }
+
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            if (!nsWindow) {
+                this->logger->warn("[function] Cannot set window size on macOS: NSWindow unavailable");
+                return;
+            }
+
+            auto apply_size = ^{
+                const BOOL was_visible = [nsWindow isVisible];
+                [nsWindow setContentSize:NSMakeSize((CGFloat)width, (CGFloat)height)];
+                if (!was_visible) {
+                    [nsWindow orderOut:nil];
+                }
+            };
+
+            if ([NSThread isMainThread]) {
+                apply_size();
+            } else {
+                dispatch_sync(dispatch_get_main_queue(), apply_size);
+            }
+        #else
             this->app->w->set_size(width, height);
+        #endif
         })
     ))
 // -----------------------------------------
@@ -2863,15 +2891,35 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->error("[function] Can't close devtools programmatically on windows.");
+            this->logger->warn("[function] close_devtools is best-effort on Windows and is not supported by WebView2.");
         #elif defined(__APPLE__)
-            // macOS WKWebView inspector close
+            // macOS WKWebView inspector close via private API is best-effort only.
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
                 if (webview) {
-                    [(id)[webview performSelector:@selector(_inspector)] performSelector:@selector(close)];
+                    @try {
+                        id inspector = nil;
+                        if ([webview respondsToSelector:@selector(_inspector)]) {
+                            inspector = [webview performSelector:@selector(_inspector)];
+                        }
+
+                        if (inspector && [inspector respondsToSelector:@selector(close)]) {
+                            [inspector performSelector:@selector(close)];
+                        } else if (inspector && [inspector respondsToSelector:@selector(hide)]) {
+                            [inspector performSelector:@selector(hide)];
+                        } else {
+                            this->logger->debug("[function] close_devtools inspector handle unavailable on macOS; ignoring");
+                        }
+                    } @catch (NSException* exception) {
+                        this->logger->warn(std::string("[function] close_devtools best-effort close failed on macOS: ") +
+                                           [[exception reason] UTF8String]);
+                    }
+                } else {
+                    this->logger->debug("[function] close_devtools webview unavailable on macOS; ignoring");
                 }
+            } else {
+                this->logger->debug("[function] close_devtools window unavailable on macOS; ignoring");
             }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();

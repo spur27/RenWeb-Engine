@@ -66,7 +66,11 @@ class ProjectState {
     }
     static detect(cwd) {
         const { findProjectRoot } = require('../shared/utils');
-        const root = findProjectRoot(cwd || process.cwd());
+        let activeCwd = cwd;
+        if (!activeCwd) {
+            try { activeCwd = process.cwd(); } catch (_) { return null; }
+        }
+        const root = findProjectRoot(activeCwd);
         if (!root) return null;
         return ProjectState._build(root);
     }

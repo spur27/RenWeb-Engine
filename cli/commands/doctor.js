@@ -20,20 +20,44 @@ function runVersionProbe(command, args = ['--version']) {
 }
 
 function probeNpm() {
-    const attempts = process.platform === 'win32'
-        ? [
+    if (process.platform === 'win32') {
+        for (const [cmd, args] of [
             ['npm.cmd', ['--version']],
-            ['npm', ['--version']],
+            ['npm',     ['--version']],
             ['cmd.exe', ['/d', '/s', '/c', 'npm --version']],
-        ]
-        : [['npm', ['--version']]];
-
-    for (const [cmd, args] of attempts) {
-        const r = runVersionProbe(cmd, args);
-        if (!r) continue;
-        if (r.status === 0) return r;
+        ]) {
+            const r = runVersionProbe(cmd, args);
+            if (r && r.status === 0) return r;
+        }
+        return null;
     }
-    return null;
+
+    // First try with the inherited PATH
+    const r = runVersionProbe('npm', ['--version']);
+    if (r && r.status === 0) return r;
+
+    // macOS / Linux: PATH may not include npm when launched outside an
+    // interactive shell (e.g. nvm, Homebrew). Try augmented PATH first.
+    const extra = [
+        process.env.NVM_BIN,
+        process.env.NVM_DIR && require('path').join(process.env.NVM_DIR, 'versions', 'node',
+            (process.env.NODE_VERSION || ''), 'bin'),
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+    ].filter(Boolean);
+
+    const augmented = [...extra, process.env.PATH || ''].join(':');
+    const r2 = spawnSync('npm', ['--version'], {
+        encoding: 'utf8', stdio: 'pipe',
+        env: { ...process.env, PATH: augmented },
+    });
+    if (r2 && r2.status === 0) return r2;
+
+    // Last resort: use the shell to locate npm (handles aliases and custom PATHs)
+    const shell = process.env.SHELL || '/bin/sh';
+    const r3 = spawnSync(shell, ['-lc', 'npm --version'], { encoding: 'utf8', stdio: 'pipe' });
+    return (r3 && r3.status === 0) ? r3 : null;
 }
 
 

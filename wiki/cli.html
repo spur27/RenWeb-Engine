@@ -72,7 +72,7 @@ rw --help</code></pre>
                     <tbody>
                         <tr><td><code>rw create</code></td><td>Scaffold a new RenWeb project from a template</td></tr>
                         <tr><td><code>rw init</code></td><td>Integrate RenWeb into an existing project (Angular, Vite, Deno, or vanilla)</td></tr>
-                        <tr><td><code>rw fetch</code></td><td>Download the engine executable, plugin header, or JS API files</td></tr>
+                        <tr><td><code>rw fetch [verb]</code></td><td>Download engine assets: executable, plugin, API files, or the example release archive</td></tr>
                         <tr><td><code>rw run</code></td><td>Launch the engine — walks up from cwd to find <code>build/</code> and the host executable</td></tr>
                         <tr><td><code>rw build</code></td><td>Prepare <code>build/</code> for launch — copy pages, fetch engine and plugins, then delegate to Vite or mirror <code>src/</code></td></tr>
                         <tr><td><code>rw update</code></td><td>Update the engine, JS modules, npm/bun packages, and plugins in an existing project</td></tr>
@@ -240,12 +240,31 @@ rw init ./my-project</code></pre>
                 <h2><code>rw fetch</code></h2>
                 <p class="intro-text">
                     Downloads engine assets from the latest GitHub release into the current
-                    working directory. Without any flags, downloads the bare engine executable
+                    working directory. Without a verb, shows usage help.
+                    Use <code>executable</code>, <code>plugin</code>, <code>api</code>, or
+                    <code>example</code>.
+                    <code>example</code> downloads the latest
+                    <code>example-x.y.z.zip</code> or <code>example-x.y.z.tar.gz</code>
+                    archive (zip preferred on Windows, tar.gz preferred on macOS/Linux).
+                    <code>executable</code> downloads the bare engine executable
                     for the host platform.
                 </p>
 
                 <h3>Usage</h3>
-                <pre><code class="language-bash">rw fetch [flags]</code></pre>
+                <pre><code class="language-bash">rw fetch &lt;verb&gt; [--version &lt;tag&gt;]</code></pre>
+
+                <h3>Verbs</h3>
+                <table aria-label="fetch verbs">
+                    <thead>
+                        <tr><th>Verb</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>executable</code></td><td>Download the bare engine executable for the host OS/arch</td></tr>
+                        <tr><td><code>plugin</code></td><td>Download the example plugin binary for the host OS/arch</td></tr>
+                        <tr><td><code>api</code></td><td>Download the JS/TS API files (<code>index.js</code>, <code>index.d.ts</code>, <code>index.ts</code>, <code>index.js.map</code>)</td></tr>
+                        <tr><td><code>example</code></td><td>Download the latest example project archive (<code>example-x.y.z.zip</code> or <code>example-x.y.z.tar.gz</code>)</td></tr>
+                    </tbody>
+                </table>
 
                 <h3>Flags</h3>
                 <table aria-label="fetch flags">
@@ -253,28 +272,28 @@ rw init ./my-project</code></pre>
                         <tr><th>Flag</th><th>Description</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>--executable</code></td><td>Download the bare engine executable (default when no flag is given)</td></tr>
-                        <tr><td><code>--plugin</code></td><td>Download plugin assets into the current directory</td></tr>
-                        <tr><td><code>--api</code></td><td>Download the JS API type definitions and source files (<code>index.js</code>, <code>index.d.ts</code>, <code>index.ts</code>)</td></tr>
                         <tr><td><code>--version &lt;tag&gt;</code></td><td>Pin to a specific release tag instead of the latest (e.g. <code>--version 0.0.6</code>)</td></tr>
                     </tbody>
                 </table>
 
-                <p>Flags can be combined. For example, <code>rw fetch --api --executable</code>
+                <p>Verbs can be combined. For example, <code>rw fetch api executable</code>
                 downloads both the engine and the API files in one call.</p>
 
                 <h3>Examples</h3>
                 <pre><code class="language-bash"># Download the engine executable (host platform auto-detected)
-rw fetch
+rw fetch executable
 
 # Download JS API type definitions
-rw fetch --api
+rw fetch api
+
+# Download the latest example archive (OS-preferred format)
+rw fetch example
 
 # Download engine and API together
-rw fetch --executable --api
+rw fetch executable api
 
 # Pin to a specific release version
-rw fetch --version 0.0.6</code></pre>
+rw fetch executable --version 0.0.6</code></pre>
             </section>
 
             <!-- ── run ───────────────────────────────────────────────────── -->

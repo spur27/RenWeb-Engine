@@ -854,21 +854,27 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                 fs.writeFileSync(postinstallPath, [
                     '#!/bin/sh',
                     'set -e',
-                    `mkdir -p /usr/local/bin`,
-                    `cat > /usr/local/bin/${commandName} <<'RENWEOF'`,
+                    'write_cmd() {',
+                    '    _dir="$1"',
+                    '    _name="$2"',
+                    '    mkdir -p "$_dir"',
+                    '    cat > "$_dir/$_name" <<\'RENWEOF\'',
                     generateMacCommandWrapper(info.title || 'App', launcherName),
                     'RENWEOF',
-                    `chmod 755 /usr/local/bin/${commandName}`,
+                    '    chmod 755 "$_dir/$_name"',
+                    '}',
+                    `write_cmd /usr/local/bin ${commandName}`,
+                    `[ -d /opt/homebrew/bin ] && write_cmd /opt/homebrew/bin ${commandName} || true`,
                     'exit 0',
                     '',
-                ].join('\n'), 'utf8');
+                ].filter(Boolean).join('\n'), 'utf8');
                 makeExecutable(postinstallPath);
 
                 // Build flat component pkg, then wrap with productbuild
                 const componentPkg = pkgOut.replace(/\.pkg$/, '-component.pkg');
                 const pkgR = spawnSync('pkgbuild', [
                     '--component',        appBundle,
-                    '--install-location', '~/Applications',
+                    '--install-location', '/Applications',
                     '--identifier',       bundleId,
                     '--version',          pkgVersion,
                     '--scripts',          scriptsDir,
@@ -887,7 +893,17 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                             ? `  <license file="LICENSE"/>` : '',
                         fs.existsSync(bgPkgSrc)
                             ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
-                        '  <options customize="never" require-scripts="false"/>',
+                            // hostArchitectures prevents the installer from attempting
+                            // to run the distribution check under Rosetta (architecture translation).
+                            (() => {
+                                const hostArch = targetArch === 'universal' ? 'arm64,x86_64'
+                                    : targetArch === 'arm64'  ? 'arm64'
+                                    : targetArch === 'x86_64' ? 'x86_64'
+                                    : null;
+                                return hostArch
+                                    ? `  <options customize="never" require-scripts="false" hostArchitectures="${hostArch}"/>`
+                                    : '  <options customize="never" require-scripts="false"/>';
+                            })(),
                         '  <choices-outline>',
                         '    <line choice="default"/>',
                         '  </choices-outline>',
@@ -2168,21 +2184,42 @@ function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
         '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
         '<plist version="1.0"><dict>',
-        '  <key>CFBundleIdentifier</key>        <string>' + bundleId     + '</string>',
-        '  <key>CFBundleName</key>              <string>' + title        + '</string>',
-        '  <key>CFBundleDisplayName</key>       <string>' + title        + '</string>',
-        '  <key>CFBundleVersion</key>           <string>' + version      + '</string>',
-        '  <key>CFBundleShortVersionString</key><string>' + version      + '</string>',
-        '  <key>CFBundleExecutable</key>        <string>' + launcherName + '</string>',
+        '  <key>CFBundleIdentifier</key>        <string>' + xmlEscapeSimple(bundleId)     + '</string>',
+        '  <key>CFBundleName</key>              <string>' + xmlEscapeSimple(title)        + '</string>',
+        '  <key>CFBundleDisplayName</key>       <string>' + xmlEscapeSimple(title)        + '</string>',
+        '  <key>CFBundleVersion</key>           <string>' + xmlEscapeSimple(version)      + '</string>',
+        '  <key>CFBundleShortVersionString</key><string>' + xmlEscapeSimple(version)      + '</string>',
+        '  <key>CFBundleExecutable</key>        <string>' + xmlEscapeSimple(launcherName) + '</string>',
         '  <key>CFBundlePackageType</key>       <string>APPL</string>',
         '  <key>NSPrincipalClass</key>          <string>NSApplication</string>',
         '  <key>NSHighResolutionCapable</key>   <true/>',
         '  <key>LSMinimumSystemVersion</key>    <string>10.15</string>',
-        '  <key>NSHumanReadableCopyright</key>  <string>' + copyright    + '</string>',
+        '  <key>NSHumanReadableCopyright</key>  <string>' + xmlEscapeSimple(copyright)    + '</string>',
         ...nsKeys,
         '</dict></plist>',
     ].join('\n');
     fs.writeFileSync(path.join(contentsDir, 'Info.plist'), plist, 'utf8');
+
+    // Generate entitlements.plist for permissions that have real macOS sandbox entitlement keys.
+    // Note: notifications are controlled by Info.plist usage description + signing context; there
+    // is no direct entitlement equivalent to "notifications: true" for this local-notification flow.
+    const entitlements_keys = [];
+    if (perms.geolocation)     entitlements_keys.push('  <key>com.apple.security.personal-information.location</key>', '  <true/>');
+    if (perms.media_devices)   entitlements_keys.push('  <key>com.apple.security.device.microphone</key>', '  <true/>', '  <key>com.apple.security.device.camera</key>', '  <true/>');
+    
+    if (entitlements_keys.length > 0) {
+        const entitlements = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
+            '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            '  <key>com.apple.security.app-sandbox</key>',
+            '  <false/>',
+            ...entitlements_keys,
+            '</dict></plist>',
+        ].join('\n');
+        fs.writeFileSync(path.join(contentsDir, 'entitlements.plist'), entitlements, 'utf8');
+    }
 
     return appBundle;
 }
@@ -2494,7 +2531,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilena
     const masComponentPkg = outFile.replace(/\.pkg$/, '-component.pkg');
     const masCompR = spawnSync('pkgbuild', [
         '--component',        appBundle,
-        '--install-location', '~/Applications',
+        '--install-location', '/Applications',
         '--identifier',       masBundleId,
         '--version',          masVersion,
         masComponentPkg,
@@ -2507,7 +2544,15 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilena
             `  <title>${xmlEscapeSimple(info.title || 'App')}</title>`,
             fs.existsSync(masLicSrc) ? `  <license file="LICENSE"/>` : '',
             fs.existsSync(masBgPkgSrc) ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
-            '  <options customize="never" require-scripts="false"/>',
+            (() => {
+                const hostArch = arch === 'universal' ? 'arm64,x86_64'
+                    : arch === 'arm64'  ? 'arm64'
+                    : arch === 'x86_64' ? 'x86_64'
+                    : null;
+                return hostArch
+                    ? `  <options customize="never" require-scripts="false" hostArchitectures="${hostArch}"/>`
+                    : '  <options customize="never" require-scripts="false"/>';
+            })(),
             '  <choices-outline>',
             '    <line choice="default"/>',
             '  </choices-outline>',

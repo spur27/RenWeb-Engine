@@ -23,13 +23,57 @@ const ui = require('../shared/ui');
 const { prompt } = ui;
 
 function isDirectoryNonEmpty(dirPath) {
-    return fs.existsSync(dirPath) && fs.readdirSync(dirPath).length > 0;
+    if (!fs.existsSync(dirPath)) return false;
+    const entries = fs.readdirSync(dirPath);
+    return entries.some((entry) => !entry.startsWith('.'));
+}
+
+function appendGitignoreEntries(projectDir, entries, sectionLabel = 'RenWeb') {
+    const giPath = path.join(projectDir, '.gitignore');
+    const existing = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
+    const toAdd = entries.filter((entry) => !existing.includes(entry));
+    if (toAdd.length === 0) return;
+    fs.appendFileSync(giPath, `\n# ${sectionLabel}\n${toAdd.join('\n')}\n`, 'utf8');
+}
+
+function mergeGitignoreFiles(srcPath, destPath) {
+    if (!fs.existsSync(srcPath)) return;
+    if (!fs.existsSync(destPath)) {
+        fs.renameSync(srcPath, destPath);
+        return;
+    }
+
+    const srcLines = fs.readFileSync(srcPath, 'utf8').split(/\r?\n/);
+    const destText = fs.readFileSync(destPath, 'utf8');
+    const toAdd = srcLines
+        .map((line) => line.trim())
+        .filter((line) => line && !destText.includes(line));
+
+    if (toAdd.length) {
+        fs.appendFileSync(destPath, `\n# Existing scaffold\n${toAdd.join('\n')}\n`, 'utf8');
+    }
+
+    fs.unlinkSync(srcPath);
 }
 
 function moveDirectoryContents(srcDir, destDir) {
     fs.mkdirSync(destDir, { recursive: true });
     for (const entry of fs.readdirSync(srcDir)) {
-        fs.renameSync(path.join(srcDir, entry), path.join(destDir, entry));
+        const srcPath = path.join(srcDir, entry);
+        const destPath = path.join(destDir, entry);
+
+        if (entry === '.gitignore') {
+            mergeGitignoreFiles(srcPath, destPath);
+            continue;
+        }
+
+        // Preserve user/system dotfiles already present in destination.
+        if (entry.startsWith('.') && fs.existsSync(destPath)) {
+            fs.rmSync(srcPath, { recursive: true, force: true });
+            continue;
+        }
+
+        fs.renameSync(srcPath, destPath);
     }
     fs.rmdirSync(srcDir);
 }
@@ -109,7 +153,8 @@ function normalizeScaffoldPaths(projectDir) {
     const name = path.basename(projectDir);
     const safeBaseName = toKebab(name) || 'renweb-app';
     const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
-    const scaffoldName = (safeBaseName !== name) ? tempScaffoldName : name;
+    const targetExists = fs.existsSync(projectDir);
+    const scaffoldName = (targetExists || safeBaseName !== name) ? tempScaffoldName : name;
     return {
         parent,
         name,
@@ -484,7 +529,7 @@ async function createFrontend(projectDir, info) {
     fs.writeFileSync(path.join(buildDir, 'info.json'),   infoText,   'utf8');
     fetchEngineExecutable(buildDir);
 
-    const ignoreEntries = [
+    appendGitignoreEntries(projectDir, [
         'build/',
         'package/',
         'release/',
@@ -495,10 +540,7 @@ async function createFrontend(projectDir, info) {
         '.env',
         '*.log',
         '.rw/',
-        '',
-    ];
-    const giPath = path.join(projectDir, '.gitignore');
-    if (!fs.existsSync(giPath)) fs.writeFileSync(giPath, ignoreEntries.join('\n'), 'utf8');
+    ]);
 }
 
 
@@ -588,11 +630,7 @@ export default defineConfig({
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    const giPath       = path.join(projectDir, '.gitignore');
-    const giExisting   = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
-    const giAppend     = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
-        .filter(e => !giExisting.includes(e));
-    if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
+    appendGitignoreEntries(projectDir, ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']);
 
     installNpmPackages(projectDir, npmCmd);
 }
@@ -677,11 +715,7 @@ async function createAngular(projectDir, info) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    const giPath     = path.join(projectDir, '.gitignore');
-    const giExisting = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
-    const giAppend   = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
-        .filter(e => !giExisting.includes(e));
-    if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
+    appendGitignoreEntries(projectDir, ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']);
 
     installNpmPackages(projectDir, npmCmd);
 }
@@ -724,8 +758,11 @@ async function createPlugin(projectDir, info, skipSubmodules = false) {
     fs.writeFileSync(path.join(projectDir, 'README.md'),
         makePluginReadme(info, pluginName), 'utf8');
 
-    fs.writeFileSync(path.join(projectDir, '.gitignore'),
-        makePluginGitignore(), 'utf8');
+    const pluginGitignore = makePluginGitignore()
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'));
+    appendGitignoreEntries(projectDir, pluginGitignore, 'RenWeb Plugin');
 
     fs.writeFileSync(path.join(projectDir, '.github', 'workflows', 'build.yml'),
         makePluginWorkflow(pluginName), 'utf8');
@@ -763,15 +800,31 @@ function createEngine(projectDir, skipSubmodules) {
     const gitOk = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
     if (!gitOk) { ui.error('git is required for `rw create engine`'); process.exit(1); }
 
-    const parent    = path.dirname(projectDir);
-    const name      = path.basename(projectDir);
-    const repoUrl   = resolveEngineRepo();
+    if (isDirectoryNonEmpty(projectDir)) {
+        ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+        process.exit(1);
+    }
+
+    // Ensure an empty directory exists for cloning into.
+    // We clear contents rather than deleting the directory itself so that any
+    // shell process whose CWD is projectDir doesn't end up with an invalid CWD.
+    if (fs.existsSync(projectDir)) {
+        for (const entry of fs.readdirSync(projectDir)) {
+            fs.rmSync(path.join(projectDir, entry), { recursive: true, force: true });
+        }
+    } else {
+        fs.mkdirSync(projectDir, { recursive: true });
+    }
+
+    const name    = path.basename(projectDir);
+    const repoUrl = resolveEngineRepo();
+    // Clone into '.' (the now-empty projectDir) rather than creating a child directory.
     const cloneArgs = skipSubmodules
-        ? ['clone', repoUrl, name]
-        : ['clone', '--recurse-submodules', repoUrl, name];
+        ? ['clone', repoUrl, '.']
+        : ['clone', '--recurse-submodules', repoUrl, '.'];
 
     ui.step(`Cloning RenWeb Engine repository into ${name}/…${skipSubmodules ? '' : ' (including submodules)'}`);
-    const r = spawnSync('git', cloneArgs, { cwd: parent, stdio: 'inherit' });
+    const r = spawnSync('git', cloneArgs, { cwd: projectDir, stdio: 'inherit' });
     if (r.status !== 0) { ui.error('git clone failed'); process.exit(r.status); }
 }
 
@@ -812,7 +865,13 @@ async function run(args) {
         type = await promptType(rl);
     }
 
-    const projectDir = path.resolve(dir || getCwdSafe() || '.');
+    const cwd = dir || getCwdSafe();
+    if (!cwd) {
+        ui.error('Cannot determine working directory. Please run from a valid directory or pass --dir.');
+        if (rl) rl.close();
+        process.exit(1);
+    }
+    const projectDir = path.resolve(cwd);
 
     // ── Engine clone: no further prompts needed ───────────────────────────────
     if (type === 'engine') {

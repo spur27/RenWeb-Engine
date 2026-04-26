@@ -42,7 +42,7 @@ npm install -g renweb-cli
 | `rw doctor` | Check environment and project health |
 | `rw package` | Package build output into distributable archives (.deb, .rpm, .zip, .tar.gz) |
 | `rw doc [pages...]` | Open RenWeb documentation pages in a browser |
-| `rw fetch [verb]` | Download engine assets (executable, plugin headers, JS/TS API files) |
+| `rw fetch [verb]` | Download engine assets (executable, plugin binary, JS/TS API files, or example archive) |
 | `rw docker <action>` | Manage the renweb-cli Docker image (build, rebuild, kill, delete) |
 
 ## Project Types (`rw create`)
@@ -75,6 +75,9 @@ rw package -olinux -ax86_64 -edeb
 
 # Fetch the latest engine executable
 rw fetch executable
+
+# Fetch the latest example archive (zip on Windows, tar.gz on macOS/Linux)
+rw fetch example
 
 # Check environment health
 rw doctor
