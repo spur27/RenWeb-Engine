@@ -580,6 +580,44 @@ await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
                     </div>
                 </div>
 
+                <div id="window-isshown" class="api-method">
+                    <h3>
+                        Window.isShown()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>isShown(): Promise&lt;boolean&gt;</code></div>
+                    <p class="method-description">Checks if the window is currently visible on screen.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;boolean&gt;</span> - True if window is visible</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">const visible = await Window.isShown();</code></pre>
+                    </div>
+                </div>
+
+                <div id="window-focus" class="api-method">
+                    <h3>
+                        Window.focus()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>focus(): Promise&lt;void&gt;</code></div>
+                    <p class="method-description">Requests focus for the current window and brings it to the foreground when the platform allows it.</p>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;void&gt;</span></p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">await Window.focus();</code></pre>
+                    </div>
+                </div>
+
                 <div id="window-show" class="api-method">
                     <h3>
                         Window.show()
@@ -612,6 +650,7 @@ await Log.debug(`Position: (${pos.x}, ${pos.y})`);</code></pre>
 
                 <div id="window-changetitle" class="api-method">
                     <h3>
+        {name: 'focus', signature: 'focus()', description: 'Returns: Promise<void>'},
                         Window.changeTitle()
                         <span class="method-tags">
                             <span class="method-tag async">async</span>
@@ -1565,6 +1604,62 @@ await FS.rm("folder", { recursive: true });</code></pre>
                     <div class="method-example">
                         <h4>Example</h4>
                         <pre><code class="language-javascript">const tmpDir = await FS.getTmpDirPath();</code></pre>
+                    </div>
+                </div>
+
+                <div id="fs-choosefiles" class="api-method">
+                    <h3>
+                        FS.chooseFiles()
+                        <span class="method-tags">
+                            <span class="method-tag async">async</span>
+                        </span>
+                    </h3>
+                    <div class="method-signature"><code>chooseFiles(options?: { multiple?: boolean, directories?: boolean, extensions?: string[] }): Promise&lt;string | string[] | null&gt;</code></div>
+                    <p class="method-description">Opens a native file or folder picker dialog and returns the selected path(s). Returns <code>null</code> if the user cancels.</p>
+                    <div class="method-params">
+                        <h4>Parameters</h4>
+                        <ul>
+                            <li>
+                                <span class="param-name">options</span>
+                                <span class="param-type">object</span>
+                                <span class="param-description">- Optional configuration object</span>
+                                <ul>
+                                    <li>
+                                        <span class="param-name">multiple</span>
+                                        <span class="param-type">boolean</span>
+                                        <span class="param-description">- Allow selecting multiple files or folders. Defaults to <code>false</code></span>
+                                    </li>
+                                    <li>
+                                        <span class="param-name">directories</span>
+                                        <span class="param-type">boolean</span>
+                                        <span class="param-description">- Open a folder picker instead of a file picker. Defaults to <code>false</code></span>
+                                    </li>
+                                    <li>
+                                        <span class="param-name">extensions</span>
+                                        <span class="param-type">string[]</span>
+                                        <span class="param-description">- File extensions to filter by (e.g. <code>["png", "jpg"]</code>). Ignored when <code>directories</code> is <code>true</code>. Pass <code>["*"]</code> or omit to allow all files</span>
+                                    </li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="method-returns">
+                        <h4>Returns</h4>
+                        <p><span class="param-type">Promise&lt;string | string[] | null&gt;</span> - Selected path as a string when <code>multiple</code> is <code>false</code>, array of paths when <code>multiple</code> is <code>true</code>, or <code>null</code> if the dialog was cancelled</p>
+                    </div>
+                    <div class="method-example">
+                        <h4>Example</h4>
+                        <pre><code class="language-javascript">// Single file
+const file = await FS.chooseFiles();
+if (file) await Log.debug(`Chosen: ${file}`);
+
+// Multiple files filtered by extension
+const images = await FS.chooseFiles({ multiple: true, extensions: ["png", "jpg", "webp"] });
+if (images) await Log.debug(`Selected ${images.length} image(s)`);
+
+// Folder picker
+const folder = await FS.chooseFiles({ directories: true });
+if (folder) await Log.debug(`Folder: ${folder}`);</code></pre>
                     </div>
                 </div>
 
@@ -2672,7 +2767,7 @@ console.log(repos.plugins); // ["https://github.com/..."]</code></pre>
                     <div class="method-example">
                         <h4>Example</h4>
                         <pre><code class="language-javascript">const versions = await Application.fetchVersions();
-console.log(versions.engine); // "0.0.7"
+console.log(versions.engine); // "0.1.0"
 console.log(versions.plugins); // { "my-plugin": "1.2.0" }</code></pre>
                     </div>
                 </div>

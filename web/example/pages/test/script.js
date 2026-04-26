@@ -101,9 +101,11 @@ window.renweb.onReady = async () => {
     const os = String(await System.getOS()).toLowerCase();
     let targetOpacity = 1;
     if (os === "macos") {
+        if (await Window.isShown()) return;
         targetOpacity = await Properties.getOpacity();
         await Properties.setOpacity(0);
     }
+
 
     await Window.show(true);
 
@@ -115,6 +117,7 @@ window.renweb.onReady = async () => {
             await Properties.setOpacity((targetOpacity * i) / fadeSteps);
         }
     }
+    await Window.focus();
 }
 
 window.renweb.onTerminate = async () => {
@@ -384,39 +387,23 @@ document.querySelector(".copy_file").onclick = async () => {
     }
 };
 
-document.querySelector(".choose_files_input").onchange = async (event) => {
-    const files = event.target.files;
-
-    if (files.length > 0) {
-        const file_list = Array.from(files).reduce((acc, f) => {
-            return acc + ` ├─ ${f.webkitRelativePath || f.name} (${(f.size / 1024).toFixed(2)} KB)\n`;
-        }, "");
-        document.querySelector(".choose_files_output").textContent = file_list;
-    } else {
-        document.querySelector(".choose_files_output").textContent = "empty";
-    }
-};
-
 document.querySelector(".choose_files").onclick = async () => {
     await Log.debug(`Opening file/directory chooser...`);
     const multiple = document.querySelector(".multiple").checked;
     const directories = document.querySelector(".directories").checked;
+    const selected = await FS.chooseFiles({ multiple, directories });
+    const paths = (selected == null) ? [] : (Array.isArray(selected) ? selected : [selected]);
 
-    if (multiple) {
-        document.querySelector(".choose_files_input").setAttribute("multiple", "");
-    } else {
-        document.querySelector(".choose_files_input").removeAttribute("multiple");
+    if (paths.length === 0) {
+        document.querySelector(".choose_files_output").textContent = "empty";
+        return;
     }
 
-    if (directories) {
-        document.querySelector(".choose_files_input").setAttribute("webkitdirectory", "");
-        document.querySelector(".choose_files_input").setAttribute("directory", "");
-    } else {
-        document.querySelector(".choose_files_input").removeAttribute("webkitdirectory");
-        document.querySelector(".choose_files_input").removeAttribute("directory");
-    }
-
-    document.querySelector(".choose_files_input").click();    
+    document.querySelector(".file_msg").value = paths[0];
+    const file_list = paths.reduce((acc, path) => {
+        return acc + ` ├─ ${path}\n`;
+    }, "");
+    document.querySelector(".choose_files_output").textContent = file_list;
 };
 
 document.querySelector(".download_files").onclick = async () => {
@@ -433,23 +420,22 @@ Test Data:
 - Timestamp: ${Date.now()}
 - User agent: ${navigator.userAgent}
 `;
-    
-    const blob = new Blob([testContent], { type: 'text/plain' });
-    
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `renweb-test-${Date.now()}.txt`;
-    
-    document.body.appendChild(a);
-    a.click();
-    
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    await Log.info(`Downloaded test file: ${a.download}`);
-    
-    document.querySelector(".download_files_output").textContent = `Downloaded: ${a.download}\nSaved to your default downloads folder`;
+
+    const filename = `renweb-test-${Date.now()}.txt`;
+    const tmpDir = await FS.getTmpDirPath({ create: true });
+    const tmpPath = `${tmpDir}/${filename}`;
+    const writeOk = await FS.writeFile(tmpPath, testContent, { append: false });
+
+    if (!writeOk) {
+        await Log.error(`Failed to create temporary test file: ${tmpPath}`);
+        document.querySelector(".download_files_output").textContent = `Download failed: could not create temp file`;
+        return;
+    }
+
+    const sourceUri = `file://${encodeURI(tmpPath)}`;
+    await FS.downloadUri(sourceUri);
+    await Log.info(`Downloaded test file: ${filename}`);
+    document.querySelector(".download_files_output").textContent = `Downloaded: ${filename}\nSaved to your default downloads folder`;
 };
 
 // ============================================================================
@@ -475,6 +461,25 @@ document.querySelector(".is_focus").onclick = async () => {
     }
 };
 
+document.querySelector(".test_focus").onclick = async () => {
+    await Log.debug(`Focusing window after 5 seconds...`);
+    setTimeout(async () => {
+        await Log.debug(`Focusing window now...`);
+        await Window.focus();
+    }, 5000);
+};
+
+document.querySelector(".is_shown").onclick = async () => {
+    await Log.debug(`Is shown...`);
+    const res = await Window.isShown();
+    if (res) {
+        document.querySelector(".is_shown").style.backgroundColor = "green";
+    } else {
+        document.querySelector(".is_shown").style.backgroundColor = "red";
+    }
+};
+
+
 document.querySelector(".test_hide").onclick = async () => {
     await Log.debug(`Hiding for 5 seconds...`);
     await Window.show(false);
@@ -483,6 +488,8 @@ document.querySelector(".test_hide").onclick = async () => {
         await Window.show(true);
     }, 5000);
 };
+
+
 
 document.querySelector(".change_title").onclick = async () => {
     await Log.debug(`Changing Title...`);

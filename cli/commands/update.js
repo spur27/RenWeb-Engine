@@ -13,6 +13,12 @@ const {
 const { ProjectState } = require('../project/project_state');
 const ui = require('../shared/ui');
 
+function getTailText(buf) {
+    const s = (buf || '').toString().trim();
+    if (!s) return '';
+    return s.split('\n').slice(-8).join('\n');
+}
+
 
 // ─── Update engine executable only ───────────────────────────────────────────
 
@@ -141,8 +147,23 @@ function run(args) {
     if (pm && pm.name() !== 'none') {
         ui.step(`Updating ${pm.name()} packages…`);
         const r = pm.install();
-        if (r && r.status !== 0) ui.warn('Package install returned non-zero');
-        else if (r) ui.ok('Packages up to date');
+        if (!r) {
+            ui.warn('Package install did not run.');
+        } else if (r.error) {
+            ui.warn(`Package install failed: ${r.error.message}`);
+            const stderr = getTailText(r.stderr);
+            const stdout = getTailText(r.stdout);
+            if (stderr) ui.dim(stderr);
+            else if (stdout) ui.dim(stdout);
+        } else if (r.status !== 0) {
+            ui.warn('Package install returned non-zero');
+            const stderr = getTailText(r.stderr);
+            const stdout = getTailText(r.stdout);
+            if (stderr) ui.dim(stderr);
+            else if (stdout) ui.dim(stdout);
+        } else {
+            ui.ok('Packages up to date');
+        }
     }
 
     // ── 2. Vanilla JS API modules ─────────────────────────────────────────────

@@ -11,6 +11,55 @@ const PASS = '\u2713'; // ✓
 const FAIL = '\u2717'; // ✗
 const WARN = '\u26a0'; // ⚠
 
+function runVersionProbe(command, args = ['--version']) {
+    try {
+        return spawnSync(command, args, { encoding: 'utf8', stdio: 'pipe' });
+    } catch (_) {
+        return null;
+    }
+}
+
+function probeNpm() {
+    if (process.platform === 'win32') {
+        for (const [cmd, args] of [
+            ['npm.cmd', ['--version']],
+            ['npm',     ['--version']],
+            ['cmd.exe', ['/d', '/s', '/c', 'npm --version']],
+        ]) {
+            const r = runVersionProbe(cmd, args);
+            if (r && r.status === 0) return r;
+        }
+        return null;
+    }
+
+    // First try with the inherited PATH
+    const r = runVersionProbe('npm', ['--version']);
+    if (r && r.status === 0) return r;
+
+    // macOS / Linux: PATH may not include npm when launched outside an
+    // interactive shell (e.g. nvm, Homebrew). Try augmented PATH first.
+    const extra = [
+        process.env.NVM_BIN,
+        process.env.NVM_DIR && require('path').join(process.env.NVM_DIR, 'versions', 'node',
+            (process.env.NODE_VERSION || ''), 'bin'),
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/bin',
+    ].filter(Boolean);
+
+    const augmented = [...extra, process.env.PATH || ''].join(':');
+    const r2 = spawnSync('npm', ['--version'], {
+        encoding: 'utf8', stdio: 'pipe',
+        env: { ...process.env, PATH: augmented },
+    });
+    if (r2 && r2.status === 0) return r2;
+
+    // Last resort: use the shell to locate npm (handles aliases and custom PATHs)
+    const shell = process.env.SHELL || '/bin/sh';
+    const r3 = spawnSync(shell, ['-lc', 'npm --version'], { encoding: 'utf8', stdio: 'pipe' });
+    return (r3 && r3.status === 0) ? r3 : null;
+}
+
 
 function run() {
     let exitCode = 0;
@@ -21,8 +70,8 @@ function run() {
     const sect = (msg) => ui.section(msg);
 
     function checkBin(name, installHint) {
-        const r = spawnSync(name, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
-        if (r.status === 0 || r.stdout) {
+        const r = runVersionProbe(name);
+        if (r && (r.status === 0 || r.stdout)) {
             const ver = (r.stdout || r.stderr || '').trim().split('\n')[0] || '';
             ok(`${name}${ver ? '  (' + ver + ')' : ''}`);
             return true;
@@ -32,11 +81,21 @@ function run() {
     }
 
     function checkBinOptional(name, note) {
-        const r = spawnSync(name, ['--version'], { encoding: 'utf8', stdio: 'pipe' });
-        if (r.status === 0 || r.stdout) {
+        const r = runVersionProbe(name);
+        if (r && (r.status === 0 || r.stdout)) {
             ok(`${name}  (optional, present)`);
         } else {
             warn(`${name} not found${note ? ' — ' + note : ''}`);
+        }
+    }
+
+    function checkNpmOptional(note) {
+        const r = probeNpm();
+        if (r && r.status === 0) {
+            const ver = (r.stdout || r.stderr || '').trim().split('\n')[0] || '';
+            ok(`npm${ver ? '  (' + ver + ')' : ''}  (optional, present)`);
+        } else {
+            warn(`npm not found${note ? ' — ' + note : ''}`);
         }
     }
 
@@ -117,7 +176,7 @@ function run() {
     else                         fail('curl / wget — at least one is required for downloads');
 
     checkBin('git',    'needed for `rw create engine` and `rw plugin add`');
-    checkBinOptional('npm',     'needed for Vite-based projects (react / vue / svelte / preact)');
+    checkNpmOptional('needed for Vite-based projects (react / vue / svelte / preact)');
     if (process.platform === 'linux')
         checkBinOptional('xdg-open', 'needed for `rw doc`');
     checkBinOptional('make',     'needed for building plugins');

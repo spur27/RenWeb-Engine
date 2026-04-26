@@ -34,9 +34,38 @@
 #include <shellapi.h>
 #include <io.h>
 #include <fcntl.h>
+#include <clocale>
 #endif
 
 #if defined(_WIN32)
+static void configureWindowsConsoleUtf8() {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD outMode = 0;
+    if (hOut && hOut != INVALID_HANDLE_VALUE && GetConsoleMode(hOut, &outMode)) {
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+        SetConsoleMode(hOut, outMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        std::setlocale(LC_ALL, ".UTF-8");
+    }
+}
+
+static void syncWindowsStdHandlesWithConsole() {
+    HANDLE hIn = CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE,
+                             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hIn && hIn != INVALID_HANDLE_VALUE) {
+        SetStdHandle(STD_INPUT_HANDLE, hIn);
+    }
+
+    HANDLE hOut = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hOut && hOut != INVALID_HANDLE_VALUE) {
+        SetStdHandle(STD_OUTPUT_HANDLE, hOut);
+        SetStdHandle(STD_ERROR_HANDLE, hOut);
+    }
+}
+
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nCmdShow) {
     (void)hInst; (void)hPrevInst; (void)lpCmdLine; (void)nCmdShow;
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -57,11 +86,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nC
         FILE* f;
         freopen_s(&f, "CONOUT$", "w", stdout);
         freopen_s(&f, "CONOUT$", "w", stderr);
-        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-        DWORD mode = 0;
-        if (h != NULL && h != INVALID_HANDLE_VALUE && GetConsoleMode(h, &mode))
-            SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        freopen_s(&f, "CONIN$", "r", stdin);
+        syncWindowsStdHandlesWithConsole();
     }
+    configureWindowsConsoleUtf8();
     auto args = std::make_unique<RenWeb::Args>(__argc, __argv);
 #else
 int main(int argc, char** argv) {

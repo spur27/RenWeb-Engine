@@ -308,6 +308,18 @@ export var Window;
     async function isFocus() { return await BIND_is_focus(null); }
     Window.isFocus = isFocus;
     /**
+     * Checks if the window is currently visible.
+     * @returns Promise that resolves to true if window is shown
+     */
+    async function isShown() { return await BIND_is_shown(null); }
+    Window.isShown = isShown;
+    /**
+     * Requests focus for the current window.
+     * @returns Promise that resolves when the focus request has been issued
+     */
+    async function focus() { await BIND_focus(null); }
+    Window.focus = focus;
+    /**
      * Shows or hides the window.
      * @param is_window_shown - Whether to show the window
      * @returns Promise that resolves when operation is complete
@@ -579,6 +591,15 @@ export var FS;
      */
     async function getTmpDirPath(options = { create: false }) { return decode(await BIND_get_tmp_dir_path(encode(options))); }
     FS.getTmpDirPath = getTmpDirPath;
+    /**
+     * Opens the native file chooser and returns absolute selected path(s).
+     * @param options - Picker options
+     * @param options.multiple - Whether multiple selections are allowed (default: false)
+     * @param options.directories - Whether to select directories only (default: false)
+     * @returns Promise that resolves to a single path, an array of paths, or null if cancelled
+     */
+    async function chooseFiles(options = {}) { return decode(await BIND_choose_files(encode(options))); }
+    FS.chooseFiles = chooseFiles;
     /**
      * Downloads a file from a URI to a local path.
      * @param uri - URI to download from

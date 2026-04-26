@@ -217,6 +217,57 @@ function toSnake(str) {
     return str.trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
+function packageCommandName(info) {
+    return toKebab((info && info.title) || 'app');
+}
+
+function windowsStableExeName(info) {
+    return packageCommandName(info) + '.exe';
+}
+
+function generateWindowsCommandShim(title, exeName) {
+    return [
+        '@echo off',
+        'setlocal EnableExtensions',
+        `set "_RW_HOME=%LOCALAPPDATA%\\${title}"`,
+        `set "_RW_TARGET=%_RW_HOME%\\${exeName}"`,
+        'if not exist "%_RW_TARGET%" (',
+        '    set "_RW_TARGET="',
+        '    for /f "delims=" %%F in (\'dir /b /a:-d "%_RW_HOME%\\renweb-*-windows-*.exe" 2^>nul\') do set "_RW_TARGET=%_RW_HOME%\\%%F"',
+        ')',
+        'if not exist "%_RW_TARGET%" (',
+        '    for /f "delims=" %%F in (\'dir /b /a:-d "%_RW_HOME%\\*.exe" 2^>nul\') do (',
+        '        if /I not "%%~nxF"=="Uninstall.exe" set "_RW_TARGET=%_RW_HOME%\\%%F"',
+        '    )',
+        ')',
+        'if not exist "%_RW_TARGET%" (',
+        '    echo error: no executable found under "%_RW_HOME%" 1>&2',
+        '    exit /b 1',
+        ')',
+        '"%_RW_TARGET%" %*',
+        'endlocal',
+        '',
+    ].join('\r\n');
+}
+
+function generateMacCommandWrapper(title, launcherName) {
+    return [
+        '#!/bin/sh',
+        `APP_NAME="${title}"`,
+        `LAUNCHER_NAME="${launcherName}"`,
+        'APP_PATH="$HOME/Applications/$APP_NAME.app/Contents/MacOS/$LAUNCHER_NAME"',
+        'if [ ! -x "$APP_PATH" ]; then',
+        '    APP_PATH="/Applications/$APP_NAME.app/Contents/MacOS/$LAUNCHER_NAME"',
+        'fi',
+        'if [ ! -x "$APP_PATH" ]; then',
+        '    printf "error: %s.app is not installed in ~/Applications or /Applications\\n" "$APP_NAME" >&2',
+        '    exit 1',
+        'fi',
+        'exec "$APP_PATH" "$@"',
+        '',
+    ].join('\n');
+}
+
 /** Stable Windows package ID; prefers info.app_id to avoid renaming drift. */
 function windowsPackageId(info) {
     const raw = (info && typeof info.app_id === 'string' && info.app_id.trim())
@@ -643,6 +694,7 @@ function generateLinuxWrapperScript(pkgId, version) {
 
 /** Build system-layout staging tree under destRoot: seed at /usr/share/<pkgId>/, wrapper at /usr/bin/<pkgId>, .desktop file, and icon. Shared by buildFpmPackages and buildXbpsPackage. */
 function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info, destRoot) {
+    const commandName = packageCommandName(info);
     const seedDir  = path.join(destRoot, 'usr', 'share', pkgId);
     const appsDir  = path.join(destRoot, 'usr', 'share', 'applications');
     const iconsDir = path.join(destRoot, 'usr', 'share', 'icons', 'hicolor', '256x256', 'apps');
@@ -654,7 +706,7 @@ function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info,
 
     // Wrapper script at /usr/bin/<pkgId>
     const wrapperContent = generateLinuxWrapperScript(pkgId, version);
-    const binPath = path.join(binDir, pkgId);
+    const binPath = path.join(binDir, commandName);
     fs.writeFileSync(binPath, wrapperContent, 'utf8');
     makeExecutable(binPath);
 
@@ -681,8 +733,8 @@ function buildSystemLayoutStaging(stagingDir, pkgId, version, exeFilename, info,
         'Type=Application',
         `Name=${info.title || pkgId}`,
         `Comment=${desc}`,
-        `Exec=/usr/bin/${pkgId} %u`,
-        `TryExec=/usr/bin/${pkgId}`,
+        `Exec=/usr/bin/${commandName} %u`,
+        `TryExec=/usr/bin/${commandName}`,
         `Icon=${iconSystemPath}`,
         'Terminal=false',
         `Categories=${cats}`,
@@ -728,6 +780,15 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     if (targetOs === 'windows' || targetOs === 'win') {
         const winExe = path.join(stagingDir, engineAsset.filename);
         if (fs.existsSync(winExe)) patchWindowsExe(winExe, info);
+
+        // Create a stable executable name for shortcuts so GUI launch stays
+        // version-agnostic while still launching directly (no cmd shim).
+        const stableWinExeName = windowsStableExeName(info);
+        if (path.basename(engineAsset.filename).toLowerCase() !== stableWinExeName.toLowerCase()) {
+            const stableWinExe = path.join(stagingDir, stableWinExeName);
+            fs.copyFileSync(winExe, stableWinExe);
+            makeExecutable(stableWinExe);
+        }
     }
 
     // Archive outputs
@@ -758,8 +819,9 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     if (targetOs === 'windows' || targetOs === 'win') {
         const nsisOut = path.join(outDir, `${stem}-setup.exe`);
-        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut);
-        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`));
+        const shortcutExeName = windowsStableExeName(info);
+        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, engineAsset.filename, shortcutExeName);
+        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`), engineAsset.filename, shortcutExeName);
         const msixExeFile = engineAsset.filename;
         buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), msixExeFile);
         buildChocoPackage(opts, info, targetArch, nsisOut, outDir);
@@ -778,20 +840,44 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                 const exeFor   = engineAsset.filename;
                 const pkgOut   = path.join(outDir, `${stem}.pkg`);
                 const pkgTmp   = path.join(tmpDir, `${stem}-osxpkg`);
+                const commandName = packageCommandName(info);
                 if (fs.existsSync(pkgTmp)) fs.rmSync(pkgTmp, { recursive: true, force: true });
                 fs.mkdirSync(pkgTmp, { recursive: true });
                 const appBundle = buildMacAppBundle(stagingDir, exeFor, info, pkgTmp);
+                const launcherName = (info.title || 'App').replace(/[^A-Za-z0-9_-]/g, '') || 'App';
                 const bundleId  = info.app_id || info.bundle_id
                     || ('com.' + toKebab(info.author || 'app').replace(/-/g, '.') + '.' + toKebab(info.title || 'app'));
                 const pkgVersion = (info.version || '0.0.1').trim();
+                const scriptsDir = path.join(pkgTmp, 'pkg-scripts');
+                const postinstallPath = path.join(scriptsDir, 'postinstall');
+                fs.mkdirSync(scriptsDir, { recursive: true });
+                fs.writeFileSync(postinstallPath, [
+                    '#!/bin/sh',
+                    'set -e',
+                    'write_cmd() {',
+                    '    _dir="$1"',
+                    '    _name="$2"',
+                    '    mkdir -p "$_dir"',
+                    '    cat > "$_dir/$_name" <<\'RENWEOF\'',
+                    generateMacCommandWrapper(info.title || 'App', launcherName),
+                    'RENWEOF',
+                    '    chmod 755 "$_dir/$_name"',
+                    '}',
+                    `write_cmd /usr/local/bin ${commandName}`,
+                    `[ -d /opt/homebrew/bin ] && write_cmd /opt/homebrew/bin ${commandName} || true`,
+                    'exit 0',
+                    '',
+                ].filter(Boolean).join('\n'), 'utf8');
+                makeExecutable(postinstallPath);
 
                 // Build flat component pkg, then wrap with productbuild
                 const componentPkg = pkgOut.replace(/\.pkg$/, '-component.pkg');
                 const pkgR = spawnSync('pkgbuild', [
                     '--component',        appBundle,
-                    '--install-location', '~/Applications',
+                    '--install-location', '/Applications',
                     '--identifier',       bundleId,
                     '--version',          pkgVersion,
+                    '--scripts',          scriptsDir,
                     componentPkg,
                 ], { stdio: 'inherit' });
 
@@ -807,7 +893,17 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
                             ? `  <license file="LICENSE"/>` : '',
                         fs.existsSync(bgPkgSrc)
                             ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
-                        '  <options customize="never" require-scripts="false"/>',
+                            // hostArchitectures prevents the installer from attempting
+                            // to run the distribution check under Rosetta (architecture translation).
+                            (() => {
+                                const hostArch = targetArch === 'universal' ? 'arm64,x86_64'
+                                    : targetArch === 'arm64'  ? 'arm64'
+                                    : targetArch === 'x86_64' ? 'x86_64'
+                                    : null;
+                                return hostArch
+                                    ? `  <options customize="never" require-scripts="false" hostArchitectures="${hostArch}"/>`
+                                    : '  <options customize="never" require-scripts="false"/>';
+                            })(),
                         '  <choices-outline>',
                         '    <line choice="default"/>',
                         '  </choices-outline>',
@@ -1292,7 +1388,7 @@ function xbpsSign(opts, filePath) {
  * Build a .nsi NSIS installer via makensis. String concatenation is used for NSIS lines to avoid
  * ambiguity between JS template-literal ${} and NSIS $VAR syntax.
  */
-function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
+function buildNsisInstaller(opts, info, stagingDir, arch, outPath, exeFilename = '', shortcutExeName = '') {
     if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
 
     if (spawnSync('which', ['makensis'], { encoding: 'utf8' }).status !== 0) {
@@ -1304,12 +1400,20 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     const desc    = info.description || title;
     const pkgId   = windowsPackageId(info);
     const regId   = windowsRegistryId(info);
+    const commandName = packageCommandName(info);
     const exeId   = toKebab(info.title || 'app');
     const author  = info.author      || title;
     const website = info.repository  || '';
     const copyright = info.copyright || ('Copyright (C) ' + author);
     const winVer  = version.replace(/[^\d.]/g,'').split('.').concat(['0','0','0','0']).slice(0,4).join('.');
-    const exeName = exeId + '-' + version + '-windows-' + arch + '.exe';
+    const exeName = exeFilename || (exeId + '-' + version + '-windows-' + arch + '.exe');
+    const shortcutTarget = shortcutExeName || exeName;
+    const windowsShim = generateWindowsCommandShim(title, exeName);
+    const nsisWindowsShim = windowsShim
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '$\\"')
+        .replace(/\r/g, '$\\r')
+        .replace(/\n/g, '$\\n');
     const ukey    = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + regId;
     const bootstrapperName = 'MicrosoftEdgeWebview2Setup.exe';
     const bootstrapperCandidates = [
@@ -1393,15 +1497,19 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     L('Section "Install"');
     L('  SetOutPath "$INSTDIR"');
     L('  File /r "' + stagingDir + '/"');
+    L('  CreateDirectory "$LOCALAPPDATA\\Microsoft\\WindowsApps"');
+    L('  FileOpen $0 "$LOCALAPPDATA\\Microsoft\\WindowsApps\\' + commandName + '.cmd" w');
+    L('  FileWrite $0 "' + nsisWindowsShim + '"');
+    L('  FileClose $0');
     L('  WriteRegStr HKCU "Software\\' + regId + '" "InstallDir" "$INSTDIR"');
     L('  WriteUninstaller "$INSTDIR\\Uninstall.exe"');
     L('  CreateDirectory "$SMPROGRAMS\\' + title + '"');
-    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '" "" "$INSTDIR\\' + exeName + '" 0');
     L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\Uninstall ' + title + '.lnk" "$INSTDIR\\Uninstall.exe"');
     if (iconPath)
-        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '" "" "$INSTDIR\\' + exeName + '" 0');
     else
-        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '"');
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '"');
     L('  WriteRegStr HKCU "' + ukey + '" "DisplayName"    "' + title   + '"');
     L('  WriteRegStr HKCU "' + ukey + '" "UninstallString" "$INSTDIR\\Uninstall.exe"');
     L('  WriteRegStr HKCU "' + ukey + '" "DisplayVersion"  "' + version + '"');
@@ -1435,6 +1543,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     L('SectionEnd');
     L();
     L('Section "Uninstall"');
+    L('  Delete "$LOCALAPPDATA\\Microsoft\\WindowsApps\\' + commandName + '.cmd"');
     L('  RMDir /r "$INSTDIR"');
     L('  DeleteRegKey HKCU "Software\\' + regId + '"');
     L('  DeleteRegKey HKCU "' + ukey + '"');
@@ -1443,7 +1552,6 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     L('  Delete "$SMPROGRAMS\\' + title + '\\Uninstall ' + title + '.lnk"');
     L('  RMDir "$SMPROGRAMS\\' + title + '"');
     L('SectionEnd');
-    L();
 
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     const nsiPath = path.join(os.tmpdir(), '_renweb-nsis-' + pkgId + '-' + arch + '.nsi');
@@ -1457,7 +1565,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
 }
 
 /** Build a .msi installer via wixl (msitools). No Wine needed. */
-function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
+function buildMsiInstaller(opts, info, stagingDir, arch, outPath, exeFilename = '', shortcutExeName = '') {
     if (opts.exts.size > 0 && !opts.exts.has('msi')) return;
     if (!findBin('wixl')) {
         ui.warn('wixl not found \u2014 skipping MSI'); return;
@@ -1468,15 +1576,19 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     const desc        = info.description || title;
     const pkgId       = windowsPackageId(info);
     const regId       = windowsRegistryId(info);
+    const commandName = packageCommandName(info);
     const exeId       = toKebab(info.title || 'app');
     const author      = info.author   || title;
     const website     = info.repository || '';
-    const exeName     = exeId + '-' + version + '-windows-' + arch + '.exe';
+    const exeName     = exeFilename || (exeId + '-' + version + '-windows-' + arch + '.exe');
+    const shortcutTarget = shortcutExeName || exeName;
     const productCode = hashToUuid(pkgId + '-product-' + version);
     const upgradeCode = hashToUuid(pkgId + '-upgrade');
     const tmpBase     = path.join(path.dirname(outPath), '_msi-' + pkgId + '-' + arch);
+    const cliShimPath = path.join(tmpBase, `${commandName}.cmd`);
     if (fs.existsSync(tmpBase)) fs.rmSync(tmpBase, { recursive: true, force: true });
     fs.mkdirSync(tmpBase, { recursive: true });
+    fs.writeFileSync(cliShimPath, generateWindowsCommandShim(title, exeName), 'utf8');
 
     // MSI version must be strictly numeric (max four dotted parts)
     const msiVersion   = version.replace(/[^\d.]/g, '').split('.').slice(0, 4)
@@ -1525,6 +1637,7 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     const dirBody  = buildDirBody(stagingDir, '      ');
     const filesWxs = path.join(tmpBase, 'files.wxs');
     const shortcutsGuid = hashToUuid(pkgId + '-msi-shortcuts').toUpperCase();
+    const cliShimGuid = hashToUuid(pkgId + '-msi-cli-shim').toUpperCase();
     const filesContent = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">',
@@ -1536,14 +1649,14 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
         '                  Directory="ProgramMenuDir"',
         '                  Name="' + xmlEscape(title) + '"',
         '                  Description="' + xmlEscape(desc) + '"',
-        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(shortcutTarget) + '"',
         ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
         '                  WorkingDirectory="APPDIR"/>',
         '        <Shortcut Id="DesktopShortcut"',
         '                  Directory="DesktopFolder"',
         '                  Name="' + xmlEscape(title) + '"',
         '                  Description="' + xmlEscape(desc) + '"',
-        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(shortcutTarget) + '"',
         ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
         '                  WorkingDirectory="APPDIR"/>',
         '        <RemoveFolder Id="ProgramMenuDir" On="uninstall"/>',
@@ -1551,11 +1664,17 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
         '        <RegistryValue Root="HKCU" Key="Software\\' + xmlEscape(regId) + '" Name="HasMsiShortcuts" Type="integer" Value="1" KeyPath="yes"/>',
         '      </Component>',
         '    </DirectoryRef>',
+        '    <DirectoryRef Id="WINAPPSDIR">',
+        '      <Component Id="AppCliShim" Guid="{' + cliShimGuid + '}">',
+        '        <File Id="AppCliShimFile" Source="' + xmlEscape(cliShimPath) + '" KeyPath="yes"/>',
+        '      </Component>',
+        '    </DirectoryRef>',
         '  </Fragment>',
         '  <Fragment>',
         '    <ComponentGroup Id="AppFiles">',
         ...compIds.map(id => '      <ComponentRef Id="' + id + '"/>'),
         '      <ComponentRef Id="AppShortcuts"/>',
+        '      <ComponentRef Id="AppCliShim"/>',
         '    </ComponentGroup>',
         '  </Fragment>',
         '</Wix>',
@@ -1591,6 +1710,9 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
         '    <Directory Id="TARGETDIR" Name="SourceDir">',
         '      <Directory Id="' + installRootDir + '">',
         '        <Directory Id="APPDIR" Name="' + xmlEscape(title) + '"/>',
+        '        <Directory Id="LOCALAPPDATAMICROSOFT" Name="Microsoft">',
+        '          <Directory Id="WINAPPSDIR" Name="WindowsApps"/>',
+        '        </Directory>',
         '      </Directory>',
         '      <Directory Id="ProgramMenuFolder">',
         '        <Directory Id="ProgramMenuDir" Name="' + xmlEscape(title) + '"/>',
@@ -1638,6 +1760,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
     const version  = (info.version || '0.0.1').trim();
     const desc     = info.description || title;
     const pkgId    = windowsPackageId(info);
+    const commandName = packageCommandName(info);
     const author   = info.author   || title;
     // Identity Name: only letters, numbers, dots, hyphens
     const identity = pkgId.replace(/[^A-Za-z0-9.\-]/g, '-');
@@ -1679,7 +1802,7 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
     // For bundles, the caller already provides the correct .exe filename (renweb-*.exe).
     const msixExe = exeFilename;
 
-    const msixIgnorableNamespaces = 'rescap win32dependencies';
+    const msixIgnorableNamespaces = 'rescap win32dependencies uap3 desktop';
     const msixExternalDeps = [
         '    <win32dependencies:ExternalDependency',
         '      Name="Microsoft.WebView2"',
@@ -1692,7 +1815,9 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
         '<?xml version="1.0" encoding="utf-8"?>',
         '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"',
         '         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"',
+        '         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"',
         '         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"',
+        '         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"',
         '         xmlns:win32dependencies="http://schemas.microsoft.com/appx/manifest/externaldependencies"',
         '         IgnorableNamespaces="' + msixIgnorableNamespaces + '">',
         '  <Identity Name="' + identity + '"',
@@ -1722,6 +1847,13 @@ function buildMsixPackage(opts, info, stagingDir, arch, outPath, exeFilename = '
         '        BackgroundColor="transparent"',
         '        Square150x150Logo="Assets\\Square150x150Logo.png"',
         '        Square44x44Logo="Assets\\Square44x44Logo.png"/>',
+        '      <Extensions>',
+        '        <uap3:Extension Category="windows.appExecutionAlias" Executable="' + msixExe + '" EntryPoint="Windows.FullTrustApplication">',
+        '          <uap3:AppExecutionAlias>',
+        '            <desktop:ExecutionAlias Alias="' + commandName + '.exe"/>',
+        '          </uap3:AppExecutionAlias>',
+        '        </uap3:Extension>',
+        '      </Extensions>',
         '    </Application>',
         '  </Applications>',
         '  <Capabilities>',
@@ -2052,21 +2184,42 @@ function buildMacAppBundle(stagingDir, exeFilename, info, destDir) {
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
         '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
         '<plist version="1.0"><dict>',
-        '  <key>CFBundleIdentifier</key>        <string>' + bundleId     + '</string>',
-        '  <key>CFBundleName</key>              <string>' + title        + '</string>',
-        '  <key>CFBundleDisplayName</key>       <string>' + title        + '</string>',
-        '  <key>CFBundleVersion</key>           <string>' + version      + '</string>',
-        '  <key>CFBundleShortVersionString</key><string>' + version      + '</string>',
-        '  <key>CFBundleExecutable</key>        <string>' + launcherName + '</string>',
+        '  <key>CFBundleIdentifier</key>        <string>' + xmlEscapeSimple(bundleId)     + '</string>',
+        '  <key>CFBundleName</key>              <string>' + xmlEscapeSimple(title)        + '</string>',
+        '  <key>CFBundleDisplayName</key>       <string>' + xmlEscapeSimple(title)        + '</string>',
+        '  <key>CFBundleVersion</key>           <string>' + xmlEscapeSimple(version)      + '</string>',
+        '  <key>CFBundleShortVersionString</key><string>' + xmlEscapeSimple(version)      + '</string>',
+        '  <key>CFBundleExecutable</key>        <string>' + xmlEscapeSimple(launcherName) + '</string>',
         '  <key>CFBundlePackageType</key>       <string>APPL</string>',
         '  <key>NSPrincipalClass</key>          <string>NSApplication</string>',
         '  <key>NSHighResolutionCapable</key>   <true/>',
         '  <key>LSMinimumSystemVersion</key>    <string>10.15</string>',
-        '  <key>NSHumanReadableCopyright</key>  <string>' + copyright    + '</string>',
+        '  <key>NSHumanReadableCopyright</key>  <string>' + xmlEscapeSimple(copyright)    + '</string>',
         ...nsKeys,
         '</dict></plist>',
     ].join('\n');
     fs.writeFileSync(path.join(contentsDir, 'Info.plist'), plist, 'utf8');
+
+    // Generate entitlements.plist for permissions that have real macOS sandbox entitlement keys.
+    // Note: notifications are controlled by Info.plist usage description + signing context; there
+    // is no direct entitlement equivalent to "notifications: true" for this local-notification flow.
+    const entitlements_keys = [];
+    if (perms.geolocation)     entitlements_keys.push('  <key>com.apple.security.personal-information.location</key>', '  <true/>');
+    if (perms.media_devices)   entitlements_keys.push('  <key>com.apple.security.device.microphone</key>', '  <true/>', '  <key>com.apple.security.device.camera</key>', '  <true/>');
+    
+    if (entitlements_keys.length > 0) {
+        const entitlements = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"',
+            '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            '  <key>com.apple.security.app-sandbox</key>',
+            '  <false/>',
+            ...entitlements_keys,
+            '</dict></plist>',
+        ].join('\n');
+        fs.writeFileSync(path.join(contentsDir, 'entitlements.plist'), entitlements, 'utf8');
+    }
 
     return appBundle;
 }
@@ -2378,7 +2531,7 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilena
     const masComponentPkg = outFile.replace(/\.pkg$/, '-component.pkg');
     const masCompR = spawnSync('pkgbuild', [
         '--component',        appBundle,
-        '--install-location', '~/Applications',
+        '--install-location', '/Applications',
         '--identifier',       masBundleId,
         '--version',          masVersion,
         masComponentPkg,
@@ -2391,7 +2544,15 @@ function buildMacAppStorePackage(opts, info, stagingDir, arch, outDir, exeFilena
             `  <title>${xmlEscapeSimple(info.title || 'App')}</title>`,
             fs.existsSync(masLicSrc) ? `  <license file="LICENSE"/>` : '',
             fs.existsSync(masBgPkgSrc) ? `  <background file="bk_pkg.png" mime-type="image/png" alignment="center" scaling="proportional"/>` : '',
-            '  <options customize="never" require-scripts="false"/>',
+            (() => {
+                const hostArch = arch === 'universal' ? 'arm64,x86_64'
+                    : arch === 'arm64'  ? 'arm64'
+                    : arch === 'x86_64' ? 'x86_64'
+                    : null;
+                return hostArch
+                    ? `  <options customize="never" require-scripts="false" hostArchitectures="${hostArch}"/>`
+                    : '  <options customize="never" require-scripts="false"/>';
+            })(),
             '  <choices-outline>',
             '    <line choice="default"/>',
             '  </choices-outline>',

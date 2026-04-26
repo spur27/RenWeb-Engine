@@ -48,6 +48,7 @@
 
 #if defined(_WIN32)
     #include <windows.h>
+    #include <shobjidl.h>
     #include <urlmon.h>
     #include <shellapi.h>
     #include <shlwapi.h>
@@ -252,6 +253,15 @@ namespace WebView2Helper {
 }
 
 namespace WindowHelper {
+    static std::wstring Utf8ToWide(const std::string& input) {
+        if (input.empty()) return std::wstring();
+        int size = MultiByteToWideChar(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), nullptr, 0);
+        if (size <= 0) return std::wstring();
+        std::wstring output(static_cast<size_t>(size), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), output.data(), size);
+        return output;
+    }
+
     static std::string WideToUtf8(const std::wstring& input) {
         if (input.empty()) return std::string();
         int size = WideCharToMultiByte(CP_UTF8, 0, input.data(), static_cast<int>(input.size()), nullptr, 0, nullptr, nullptr);
@@ -628,7 +638,35 @@ WF* WF::setGetSets() {
             json::object obj = this->getSingleParameter(req).as_object();
             int64_t width = obj.at("width").as_int64();
             int64_t height = obj.at("height").as_int64();
+        #if defined(__APPLE__)
+            if (width <= 0 || height <= 0) {
+                this->logger->warn("[function] Ignoring invalid window size request on macOS: " +
+                                   std::to_string(width) + "x" + std::to_string(height));
+                return;
+            }
+
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            if (!nsWindow) {
+                this->logger->warn("[function] Cannot set window size on macOS: NSWindow unavailable");
+                return;
+            }
+
+            auto apply_size = ^{
+                const BOOL was_visible = [nsWindow isVisible];
+                [nsWindow setContentSize:NSMakeSize((CGFloat)width, (CGFloat)height)];
+                if (!was_visible) {
+                    [nsWindow orderOut:nil];
+                }
+            };
+
+            if ([NSThread isMainThread]) {
+                apply_size();
+            } else {
+                dispatch_sync(dispatch_get_main_queue(), apply_size);
+            }
+        #else
             this->app->w->set_size(width, height);
+        #endif
         })
     ))
 // -----------------------------------------
@@ -722,6 +760,11 @@ WF* WF::setGetSets() {
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
+            if (this->saved_states.find("window_visible") != this->saved_states.end() &&
+                this->saved_states["window_visible"].is_bool() &&
+                !this->saved_states["window_visible"].as_bool()) {
+                return;
+            }
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
             NSUInteger styleMask = [nsWindow styleMask];
             if (has_titlebar) {
@@ -735,6 +778,11 @@ WF* WF::setGetSets() {
                 [nsWindow orderOut:nil];
             }
         #elif defined(__linux__)
+            if (this->saved_states.find("window_visible") != this->saved_states.end() &&
+                this->saved_states["window_visible"].is_bool() &&
+                !this->saved_states["window_visible"].as_bool()) {
+                return;
+            }
             auto window_widget = this->app->w->window().value();
             auto apply_titlebar = [&](GtkWidget* w) {
                 if (has_titlebar) {
@@ -979,6 +1027,10 @@ WF* WF::setGetSets() {
     ->add("fullscreen", std::make_pair(
         std::function<json::value()>([this]() -> json::value {
         #if defined(_WIN32)
+            if (this->saved_states.find("fullscreen_active") != this->saved_states.end() &&
+                this->saved_states["fullscreen_active"].is_bool()) {
+                return this->saved_states["fullscreen_active"];
+            }
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
@@ -1009,18 +1061,106 @@ WF* WF::setGetSets() {
             if (window_result.has_value()) {
                 HWND hwnd = static_cast<HWND>(window_result.value());
                 if (fullscreen) {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP);
-                    if (IsWindowVisible(hwnd)) {
-                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    if (this->saved_states.find("fullscreen_prev_style") == this->saved_states.end() ||
+                        !this->saved_states["fullscreen_prev_style"].is_int64()) {
+                        const LONG_PTR prev_style = GetWindowLongPtr(hwnd, GWL_STYLE);
+                        this->saved_states["fullscreen_prev_style"] = json::value(static_cast<int64_t>(prev_style));
+
+                        WINDOWPLACEMENT wp = { sizeof(WINDOWPLACEMENT) };
+                        if (GetWindowPlacement(hwnd, &wp)) {
+                            this->saved_states["fullscreen_prev_show_cmd"] = json::value(static_cast<int64_t>(wp.showCmd));
+                            this->saved_states["fullscreen_prev_left"] = json::value(static_cast<int64_t>(wp.rcNormalPosition.left));
+                            this->saved_states["fullscreen_prev_top"] = json::value(static_cast<int64_t>(wp.rcNormalPosition.top));
+                            this->saved_states["fullscreen_prev_right"] = json::value(static_cast<int64_t>(wp.rcNormalPosition.right));
+                            this->saved_states["fullscreen_prev_bottom"] = json::value(static_cast<int64_t>(wp.rcNormalPosition.bottom));
+                        }
                     }
+
+                    HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                    MONITORINFO monitor_info = { sizeof(MONITORINFO) };
+                    if (!GetMonitorInfo(monitor, &monitor_info)) {
+                        this->logger->error("[function] Failed to get monitor info for fullscreen");
+                        return;
+                    }
+
+                    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_STYLE);
+                    style &= ~(WS_CAPTION | WS_THICKFRAME);
+                    SetWindowLongPtr(hwnd, GWL_STYLE, style);
+
+                    SetWindowPos(
+                        hwnd,
+                        HWND_TOP,
+                        monitor_info.rcMonitor.left,
+                        monitor_info.rcMonitor.top,
+                        monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                        monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+                        SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                    );
+                    ShowWindow(hwnd, SW_SHOW);
+                    this->saved_states["fullscreen_active"] = json::value(true);
                 } else {
-                    SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
-                    if (IsWindowVisible(hwnd) && (IsZoomed(hwnd) || IsIconic(hwnd))) {
+                    if (this->saved_states.find("fullscreen_active") == this->saved_states.end() ||
+                        !this->saved_states["fullscreen_active"].is_bool() ||
+                        !this->saved_states["fullscreen_active"].as_bool()) {
+                        return;
+                    }
+
+                    LONG_PTR restore_style = GetWindowLongPtr(hwnd, GWL_STYLE);
+
+                    if (this->saved_states.find("fullscreen_prev_style") != this->saved_states.end() &&
+                        this->saved_states["fullscreen_prev_style"].is_int64()) {
+                        restore_style = static_cast<LONG_PTR>(this->saved_states["fullscreen_prev_style"].as_int64());
+                    }
+
+                    SetWindowLongPtr(hwnd, GWL_STYLE, restore_style);
+
+                    LONG left = 100;
+                    LONG top = 100;
+                    LONG right = 1280;
+                    LONG bottom = 840;
+                    if (this->saved_states.find("fullscreen_prev_left") != this->saved_states.end() && this->saved_states["fullscreen_prev_left"].is_int64()) {
+                        left = static_cast<LONG>(this->saved_states["fullscreen_prev_left"].as_int64());
+                    }
+                    if (this->saved_states.find("fullscreen_prev_top") != this->saved_states.end() && this->saved_states["fullscreen_prev_top"].is_int64()) {
+                        top = static_cast<LONG>(this->saved_states["fullscreen_prev_top"].as_int64());
+                    }
+                    if (this->saved_states.find("fullscreen_prev_right") != this->saved_states.end() && this->saved_states["fullscreen_prev_right"].is_int64()) {
+                        right = static_cast<LONG>(this->saved_states["fullscreen_prev_right"].as_int64());
+                    }
+                    if (this->saved_states.find("fullscreen_prev_bottom") != this->saved_states.end() && this->saved_states["fullscreen_prev_bottom"].is_int64()) {
+                        bottom = static_cast<LONG>(this->saved_states["fullscreen_prev_bottom"].as_int64());
+                    }
+
+                    SetWindowPos(
+                        hwnd,
+                        nullptr,
+                        left,
+                        top,
+                        right - left,
+                        bottom - top,
+                        SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                    );
+
+                    UINT show_cmd = SW_SHOWNORMAL;
+                    if (this->saved_states.find("fullscreen_prev_show_cmd") != this->saved_states.end() &&
+                        this->saved_states["fullscreen_prev_show_cmd"].is_int64()) {
+                        show_cmd = static_cast<UINT>(this->saved_states["fullscreen_prev_show_cmd"].as_int64());
+                    }
+                    if (show_cmd == SW_SHOWMAXIMIZED || show_cmd == SW_MAXIMIZE) {
+                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    } else {
                         ShowWindow(hwnd, SW_RESTORE);
                     }
+                    ShowWindow(hwnd, SW_SHOW);
+
+                    this->saved_states.erase("fullscreen_prev_style");
+                    this->saved_states.erase("fullscreen_prev_show_cmd");
+                    this->saved_states.erase("fullscreen_prev_left");
+                    this->saved_states.erase("fullscreen_prev_top");
+                    this->saved_states.erase("fullscreen_prev_right");
+                    this->saved_states.erase("fullscreen_prev_bottom");
+                    this->saved_states["fullscreen_active"] = json::value(false);
                 }
-                SetWindowPos(hwnd, NULL, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         #elif defined(__APPLE__)
             NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
@@ -1164,6 +1304,61 @@ WF* WF::setWindowCallbacks() {
             auto window_widget = this->app->w->window().value();
             return json::value(gtk_window_has_toplevel_focus(GTK_WINDOW(window_widget)));
         #endif
+    }))->add("is_shown",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+        (void)req;
+        #if defined(_WIN32)
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                return json::value(IsWindowVisible(hwnd) != FALSE);
+            }
+            return json::value(false);
+        #elif defined(__APPLE__)
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            return json::value([nsWindow isVisible] == YES);
+        #elif defined(__linux__)
+            auto window_widget = this->app->w->window().value();
+            return json::value(gtk_widget_get_visible(GTK_WIDGET(window_widget)) != FALSE);
+        #endif
+    }))->add("focus",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+        (void)req;
+        #if defined(_WIN32)
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                HWND hwnd = static_cast<HWND>(window_result.value());
+                if (hwnd) {
+                    if (IsIconic(hwnd)) {
+                        ShowWindow(hwnd, SW_RESTORE);
+                    } else {
+                        ShowWindow(hwnd, SW_SHOW);
+                    }
+                    // Force a z-order promotion pass on Windows because
+                    // SetForegroundWindow may be denied depending on focus rules.
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+                    BringWindowToTop(hwnd);
+                    SetForegroundWindow(hwnd);
+                    SetFocus(hwnd);
+                }
+            }
+        #elif defined(__APPLE__)
+            NSWindow* nsWindow = (NSWindow*)this->app->w->window().value();
+            if (nsWindow) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [NSApp activateIgnoringOtherApps:YES];
+                    [nsWindow makeKeyAndOrderFront:nil];
+                });
+            }
+        #elif defined(__linux__)
+            auto window_widget = this->app->w->window().value();
+            gtk_window_present(GTK_WINDOW(window_widget));
+        #endif
+            return json::value(nullptr);
     }))->add("show",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const bool show_window = this->getSingleParameter(req).as_bool();
@@ -1237,11 +1432,18 @@ WF* WF::setWindowCallbacks() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            auto webview_widget = this->app->w->widget();
             if (show_window) {
-                gtk_widget_show_all(GTK_WIDGET(window_widget));
+                gtk_widget_show(GTK_WIDGET(window_widget));
+                if (webview_widget.has_value() && webview_widget.value()) {
+                    GtkWidget* wk_widget = GTK_WIDGET(webview_widget.value());
+                    gtk_widget_show(wk_widget);
+                    gtk_widget_queue_draw(wk_widget);
+                }
+                gtk_widget_queue_draw(GTK_WIDGET(window_widget));
             } else {
-                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
-                    gtk_widget_realize(GTK_WIDGET(window_widget));
+                if (webview_widget.has_value() && webview_widget.value()) {
+                    gtk_widget_hide(GTK_WIDGET(webview_widget.value()));
                 }
                 gtk_widget_hide(GTK_WIDGET(window_widget));
             }
@@ -1573,6 +1775,7 @@ WF* WF::setWindowCallbacks() {
     }))->add("find_in_page",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             const std::string search_text = this->getSingleParameter(req).as_string().c_str();
+            this->saved_states["find_text"] = json::value(search_text);
         #if defined(_WIN32)
             // Use window.find() - most reliable cross-version approach
             // Escape single quotes in search text
@@ -1623,12 +1826,24 @@ WF* WF::setWindowCallbacks() {
     }))->add("find_next",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
+            if (this->saved_states.find("find_text") == this->saved_states.end() ||
+                !this->saved_states["find_text"].is_string()) {
+                this->logger->debug("[function] find_next called before find_in_page; ignoring");
+                return json::value(nullptr);
+            }
+            const std::string search_text = this->saved_states["find_text"].as_string().c_str();
+            std::string escaped_text = search_text;
+            size_t pos = 0;
+            while ((pos = escaped_text.find("'", pos)) != std::string::npos) {
+                escaped_text.replace(pos, 1, "\\'");
+                pos += 2;
+            }
         #if defined(_WIN32)
-            // Use window.find() with forward direction
-            std::string js = "window.find('', false, false, false, false, true, false);";
+            std::string js = "window.find('" + escaped_text + "', false, false, true, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->debug("[function] apple doesn't have bindings for this findNext");
+            std::string js = "window.find('" + escaped_text + "', false, false, true, false, true, false);";
+            this->app->w->eval(js);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1638,12 +1853,24 @@ WF* WF::setWindowCallbacks() {
     }))->add("find_previous",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
+            if (this->saved_states.find("find_text") == this->saved_states.end() ||
+                !this->saved_states["find_text"].is_string()) {
+                this->logger->debug("[function] find_previous called before find_in_page; ignoring");
+                return json::value(nullptr);
+            }
+            const std::string search_text = this->saved_states["find_text"].as_string().c_str();
+            std::string escaped_text = search_text;
+            size_t pos = 0;
+            while ((pos = escaped_text.find("'", pos)) != std::string::npos) {
+                escaped_text.replace(pos, 1, "\\'");
+                pos += 2;
+            }
         #if defined(_WIN32)
-            // Use window.find() with backward direction
-            std::string js = "window.find('', false, true, false, false, true, false);";
+            std::string js = "window.find('" + escaped_text + "', false, true, true, false, true, false);";
             this->app->w->eval(js);
         #elif defined(__APPLE__)
-            this->logger->debug("[function] apple doesn't have bindings for this findPrevious");
+            std::string js = "window.find('" + escaped_text + "', false, true, true, false, true, false);";
+            this->app->w->eval(js);
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
@@ -1662,7 +1889,31 @@ WF* WF::setWindowCallbacks() {
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
                 if (webview) {
-                    [webview findString:@"" withConfiguration:nil completionHandler:nil];
+                    if ([webview respondsToSelector:@selector(findString:withConfiguration:completionHandler:)]) {
+                        // Use a sentinel string that won't match any real content to dismiss
+                        // the native find overlay and clear WKFindConfiguration highlights.
+                        NSString* noMatchSentinel = @"\uffff";
+                        id config = [[NSClassFromString(@"WKFindConfiguration") alloc] init];
+
+                        void (^completionHandler)(id) = ^(id result) {
+                            (void)result;
+                        };
+
+                        SEL selector = @selector(findString:withConfiguration:completionHandler:);
+                        NSMethodSignature* signature = [webview methodSignatureForSelector:selector];
+                        if (signature) {
+                            NSInvocation* invocation = [NSInvocation invocationWithMethodSignature:signature];
+                            [invocation setTarget:webview];
+                            [invocation setSelector:selector];
+                            [invocation setArgument:&noMatchSentinel atIndex:2];
+                            [invocation setArgument:&config atIndex:3];
+                            [invocation setArgument:&completionHandler atIndex:4];
+                            [invocation invoke];
+                        }
+                    }
+                    // Always clear JS-based selection (from find_next / find_previous).
+                    std::string js = "if (window.getSelection) { window.getSelection().removeAllRanges(); }";
+                    this->app->w->eval(js);
                 }
             }
         #elif defined(__linux__)
@@ -1670,6 +1921,7 @@ WF* WF::setWindowCallbacks() {
             WebKitFindController* find_controller = webkit_web_view_get_find_controller(WEBKIT_WEB_VIEW(webview_widget));
             webkit_find_controller_search_finish(find_controller);
         #endif
+            this->saved_states.erase("find_text");
             return json::value(nullptr);
     }));
     return this;
@@ -1754,7 +2006,7 @@ WF* WF::setFileSystemCallbacks() {
             
             
             std::filesystem::path parent_path = path.parent_path();
-            if (!std::filesystem::exists(parent_path)) {
+            if (!parent_path.empty() && !std::filesystem::exists(parent_path)) {
                 std::error_code ec;
                 std::filesystem::create_directories(parent_path, ec);
                 if (ec) {
@@ -1851,10 +2103,10 @@ WF* WF::setFileSystemCallbacks() {
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
                 this->logger->error("[function] Can't rename path that doesn't exist: " + orig_path.string());
-                return json::value(nullptr);
+                return json::value(false);
             } else if (std::filesystem::exists(new_path) && !overwrite) {
                 this->logger->error("[function] Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
-                return json::value(nullptr);
+                return json::value(false);
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
                     std::filesystem::remove_all(new_path, ec);
@@ -1866,8 +2118,9 @@ WF* WF::setFileSystemCallbacks() {
                     return json::value(false);
                 }
             }
-            if (!std::filesystem::exists(new_path.parent_path())) {
-                std::filesystem::create_directories(new_path.parent_path(), ec);
+            const std::filesystem::path new_parent = new_path.parent_path();
+            if (!new_parent.empty() && !std::filesystem::exists(new_parent)) {
+                std::filesystem::create_directories(new_parent, ec);
                 if (ec) {
                     this->logger->error("[function] " + ec.message());
                     return json::value(false);
@@ -1908,10 +2161,10 @@ WF* WF::setFileSystemCallbacks() {
             std::error_code ec;
             if (!std::filesystem::exists(orig_path)) {
                 this->logger->error("[function] Can't copy path that doesn't exist: " + orig_path.string());
-                return json::value(nullptr);
+                return json::value(false);
             } else if (std::filesystem::exists(new_path) && !overwrite) {
                 this->logger->error("[function] Can't overwrite already-existing new path if settings.overwrite is false: " + new_path.string());
-                return json::value(nullptr);
+                return json::value(false);
             } else if (std::filesystem::exists(new_path)) {
                 if (std::filesystem::is_directory(new_path)) {
                     std::filesystem::remove_all(new_path, ec);
@@ -1923,8 +2176,9 @@ WF* WF::setFileSystemCallbacks() {
                     return json::value(false);
                 }
             }
-            if (!std::filesystem::exists(new_path.parent_path())) {
-                std::filesystem::create_directories(new_path.parent_path(), ec);
+            const std::filesystem::path new_parent = new_path.parent_path();
+            if (!new_parent.empty() && !std::filesystem::exists(new_parent)) {
+                std::filesystem::create_directories(new_parent, ec);
                 if (ec) {
                     this->logger->error("[function] " + ec.message());
                     return json::value(false);
@@ -1959,32 +2213,398 @@ WF* WF::setFileSystemCallbacks() {
                 }
             }
             return json::value(tmp_path.string());
-    }))->add("download_uri",
+    }))->add("choose_files",
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
-            const std::string uri = this->getSingleParameter(req).as_string().c_str();
-        #if defined(_WIN32)
-            // Navigate to URI - WebView2 will automatically prompt download for non-HTML content
-            std::wstring wuri(uri.begin(), uri.end());
-            this->app->w->navigate(uri);
-            this->logger->info("[function] Initiated download for: " + uri);
-        #elif defined(__APPLE__)
-            auto window_result = this->app->w->window();
-            if (window_result.has_value()) {
-                id webview = getWKWebViewFromWindow(window_result.value());
-                if (webview) {
-                    NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
-                    NSURL* url = [NSURL URLWithString:urlString];
-                    NSURLRequest* request = [NSURLRequest requestWithURL:url];
-                    if ([webview respondsToSelector:@selector(startDownloadUsingRequest:completionHandler:)]) {
-                        [webview performSelector:@selector(startDownloadUsingRequest:completionHandler:) withObject:request withObject:nil];
-                    } else {
-                        this->logger->warn("[function] WKWebView download not available on this macOS version");
+            bool multiple = false;
+            bool directories = false;
+            std::vector<std::string> extensions;
+
+            json::value param = this->getSingleParameter(req);
+            if (param.is_object()) {
+                const json::object& options = param.as_object();
+                if (options.contains("multiple") && options.at("multiple").is_bool()) {
+                    multiple = options.at("multiple").as_bool();
+                }
+                if (options.contains("directories") && options.at("directories").is_bool()) {
+                    directories = options.at("directories").as_bool();
+                }
+                if (options.contains("extensions") && options.at("extensions").is_array()) {
+                    const json::array& extension_values = options.at("extensions").as_array();
+                    for (const json::value& extension_value : extension_values) {
+                        if (!extension_value.is_string()) {
+                            continue;
+                        }
+
+                        std::string extension = extension_value.as_string().c_str();
+                        const size_t first_non_whitespace = extension.find_first_not_of(" \t\r\n");
+                        if (first_non_whitespace == std::string::npos) {
+                            continue;
+                        }
+                        extension.erase(0, first_non_whitespace);
+                        extension.erase(extension.find_last_not_of(" \t\r\n") + 1);
+                        if (extension.empty()) {
+                            continue;
+                        }
+                        if (extension == "*" || extension == "*.*") {
+                            extensions.clear();
+                            break;
+                        }
+                        if (startsWith(extension, "*.")) {
+                            extension.erase(0, 2);
+                        } else if (!extension.empty() && extension.front() == '.') {
+                            extension.erase(0, 1);
+                        }
+                        if (extension.empty()) {
+                            continue;
+                        }
+                        if (std::find(extensions.begin(), extensions.end(), extension) == extensions.end()) {
+                            extensions.push_back(extension);
+                        }
                     }
                 }
             }
+
+            const bool use_extension_filter = !directories && !extensions.empty();
+
+            auto format_paths = [multiple](const std::vector<std::string>& paths) -> json::value {
+                if (paths.empty()) {
+                    return json::value(nullptr);
+                }
+                if (!multiple) {
+                    return json::value(paths.front());
+                }
+                json::array output;
+                for (const auto& path : paths) {
+                    output.push_back(json::value(path));
+                }
+                return output;
+            };
+
+        #if defined(_WIN32)
+            HRESULT init_hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            const bool did_init_com = SUCCEEDED(init_hr) || init_hr == S_FALSE;
+
+            IFileOpenDialog* dialog = nullptr;
+            HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+            if (FAILED(hr) || !dialog) {
+                if (did_init_com) {
+                    CoUninitialize();
+                }
+                this->logger->error("[function] Failed to create Windows file dialog. HRESULT=" + std::to_string(static_cast<long>(hr)));
+                return json::value(nullptr);
+            }
+
+            DWORD options = 0;
+            dialog->GetOptions(&options);
+            options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST;
+            if (multiple) {
+                options |= FOS_ALLOWMULTISELECT;
+            }
+            if (directories) {
+                options |= FOS_PICKFOLDERS;
+            } else {
+                options |= FOS_FILEMUSTEXIST;
+            }
+            dialog->SetOptions(options);
+
+            std::vector<std::wstring> filter_names;
+            std::vector<std::wstring> filter_patterns;
+            std::vector<COMDLG_FILTERSPEC> filter_specs;
+            std::wstring default_extension;
+            if (use_extension_filter) {
+                std::wstring allowed_patterns;
+                for (size_t index = 0; index < extensions.size(); ++index) {
+                    if (!allowed_patterns.empty()) {
+                        allowed_patterns += L";";
+                    }
+                    allowed_patterns += L"*.";
+                    allowed_patterns += WindowHelper::Utf8ToWide(extensions[index]);
+                }
+
+                filter_names.push_back(L"Allowed Files");
+                filter_patterns.push_back(allowed_patterns);
+                filter_names.push_back(L"All Files");
+                filter_patterns.push_back(L"*.*");
+
+                for (size_t index = 0; index < filter_names.size(); ++index) {
+                    filter_specs.push_back(COMDLG_FILTERSPEC{
+                        filter_names[index].c_str(),
+                        filter_patterns[index].c_str()
+                    });
+                }
+
+                default_extension = WindowHelper::Utf8ToWide(extensions.front());
+                dialog->SetFileTypes(static_cast<UINT>(filter_specs.size()), filter_specs.data());
+                dialog->SetFileTypeIndex(1);
+                dialog->SetDefaultExtension(default_extension.c_str());
+            }
+
+            hr = dialog->Show(WindowHelper::GetHWND(this->app));
+            if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+                dialog->Release();
+                if (did_init_com) {
+                    CoUninitialize();
+                }
+                return json::value(nullptr);
+            }
+            if (FAILED(hr)) {
+                dialog->Release();
+                if (did_init_com) {
+                    CoUninitialize();
+                }
+                this->logger->error("[function] Windows file dialog failed to show. HRESULT=" + std::to_string(static_cast<long>(hr)));
+                return json::value(nullptr);
+            }
+
+            std::vector<std::string> paths;
+            if (multiple) {
+                IShellItemArray* items = nullptr;
+                hr = dialog->GetResults(&items);
+                if (SUCCEEDED(hr) && items) {
+                    DWORD count = 0;
+                    items->GetCount(&count);
+                    for (DWORD index = 0; index < count; ++index) {
+                        IShellItem* item = nullptr;
+                        if (SUCCEEDED(items->GetItemAt(index, &item)) && item) {
+                            PWSTR raw_path = nullptr;
+                            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw_path)) && raw_path) {
+                                paths.push_back(WindowHelper::WideToUtf8(raw_path));
+                                CoTaskMemFree(raw_path);
+                            }
+                            item->Release();
+                        }
+                    }
+                    items->Release();
+                }
+            } else {
+                IShellItem* item = nullptr;
+                hr = dialog->GetResult(&item);
+                if (SUCCEEDED(hr) && item) {
+                    PWSTR raw_path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw_path)) && raw_path) {
+                        paths.push_back(WindowHelper::WideToUtf8(raw_path));
+                        CoTaskMemFree(raw_path);
+                    }
+                    item->Release();
+                }
+            }
+
+            dialog->Release();
+            if (did_init_com) {
+                CoUninitialize();
+            }
+            return format_paths(paths);
+        #elif defined(__APPLE__)
+            NSOpenPanel* panel = [NSOpenPanel openPanel];
+            [panel setCanChooseFiles:directories ? NO : YES];
+            [panel setCanChooseDirectories:directories ? YES : NO];
+            [panel setAllowsMultipleSelection:multiple ? YES : NO];
+            [panel setResolvesAliases:YES];
+            if (use_extension_filter) {
+                NSMutableArray<NSString*>* allowed_file_types = [NSMutableArray arrayWithCapacity:extensions.size()];
+                for (const std::string& extension : extensions) {
+                    [allowed_file_types addObject:[NSString stringWithUTF8String:extension.c_str()]];
+                }
+                [panel setAllowedFileTypes:allowed_file_types];
+                [panel setAllowsOtherFileTypes:NO];
+            }
+
+            NSInteger response = [panel runModal];
+            if (response != NSModalResponseOK) {
+                return json::value(nullptr);
+            }
+
+            std::vector<std::string> paths;
+            for (NSURL* url in [panel URLs]) {
+                NSString* path = [url path];
+                if (path) {
+                    paths.push_back(std::string([path UTF8String]));
+                }
+            }
+            return format_paths(paths);
+        #elif defined(__linux__)
+            GtkFileChooserAction action = directories
+                ? GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER
+                : GTK_FILE_CHOOSER_ACTION_OPEN;
+            GtkWindow* parent = nullptr;
+            auto window_result = this->app->w->window();
+            if (window_result.has_value()) {
+                parent = GTK_WINDOW(window_result.value());
+            }
+
+            GtkFileChooserNative* dialog = gtk_file_chooser_native_new(
+                directories ? "Choose Directories" : "Choose Files",
+                parent,
+                action,
+                directories ? "Select" : "Open",
+                "Cancel"
+            );
+            gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), multiple ? TRUE : FALSE);
+            if (use_extension_filter) {
+                GtkFileFilter* allowed_filter = gtk_file_filter_new();
+                gtk_file_filter_set_name(allowed_filter, "Allowed files");
+                for (const std::string& extension : extensions) {
+                    const std::string pattern = "*." + extension;
+                    gtk_file_filter_add_pattern(allowed_filter, pattern.c_str());
+                }
+                gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), allowed_filter);
+                gtk_file_chooser_set_filter(GTK_FILE_CHOOSER(dialog), allowed_filter);
+
+                GtkFileFilter* all_filter = gtk_file_filter_new();
+                gtk_file_filter_set_name(all_filter, "All files");
+                gtk_file_filter_add_pattern(all_filter, "*");
+                gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), all_filter);
+            }
+
+            gint response = gtk_native_dialog_run(GTK_NATIVE_DIALOG(dialog));
+            if (response != GTK_RESPONSE_ACCEPT) {
+                g_object_unref(dialog);
+                return json::value(nullptr);
+            }
+
+            std::vector<std::string> paths;
+            if (multiple) {
+                GSList* filenames = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog));
+                for (GSList* current = filenames; current != nullptr; current = current->next) {
+                    if (current->data) {
+                        paths.push_back(static_cast<const char*>(current->data));
+                    }
+                }
+                g_slist_free_full(filenames, g_free);
+            } else {
+                gchar* filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+                if (filename) {
+                    paths.push_back(filename);
+                    g_free(filename);
+                }
+            }
+
+            g_object_unref(dialog);
+            return format_paths(paths);
+        #endif
+    }))->add("download_uri",
+        std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
+            std::string uri;
+            std::string destination_path;
+
+            if (req.is_array()) {
+                const json::array& params = req.as_array();
+                if (!params.empty() && params[0].is_string()) {
+                    uri = params[0].as_string().c_str();
+                }
+                if (params.size() > 1 && params[1].is_string()) {
+                    destination_path = params[1].as_string().c_str();
+                }
+            } else if (req.is_string()) {
+                uri = req.as_string().c_str();
+            }
+
+            if (uri.empty()) {
+                this->logger->error("[function] downloadUri requires a non-empty URI");
+                return json::value(nullptr);
+            }
+        #if defined(_WIN32)
+            if (!destination_path.empty()) {
+                const HRESULT hr = URLDownloadToFileA(nullptr, uri.c_str(), destination_path.c_str(), 0, nullptr);
+                if (SUCCEEDED(hr)) {
+                    this->logger->info("[function] Downloaded URI to path: " + destination_path);
+                } else {
+                    this->logger->error("[function] Failed to download URI to path. HRESULT=" + std::to_string(static_cast<long>(hr)) + " URI=" + uri + " PATH=" + destination_path);
+                }
+            } else {
+                this->app->w->navigate(uri);
+                this->logger->info("[function] Initiated download for: " + uri);
+            }
+        #elif defined(__APPLE__)
+            NSString* urlString = [NSString stringWithUTF8String:uri.c_str()];
+            NSURL* url = [NSURL URLWithString:urlString];
+            if (!url) {
+                this->logger->error("[function] Invalid URI for download on macOS: " + uri);
+                return json::value(nullptr);
+            }
+
+            std::filesystem::path output_path;
+            if (!destination_path.empty()) {
+                output_path = std::filesystem::path(destination_path);
+            } else {
+                NSArray<NSString*>* downloads_dirs = NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory, NSUserDomainMask, YES);
+                NSString* downloads_dir = ([downloads_dirs count] > 0) ? downloads_dirs[0] : [NSHomeDirectory() stringByAppendingPathComponent:@"Downloads"];
+                NSString* filename = [[url path] lastPathComponent];
+                if (!filename || [filename length] == 0) {
+                    filename = @"download.bin";
+                }
+                output_path = std::filesystem::path([downloads_dir UTF8String]) / std::string([filename UTF8String]);
+            }
+
+            std::error_code ec;
+            output_path = std::filesystem::absolute(output_path, ec);
+            if (ec) {
+                this->logger->error("[function] Failed to resolve destination path on macOS: " + ec.message());
+                return json::value(nullptr);
+            }
+
+            const std::filesystem::path output_parent = output_path.parent_path();
+            if (!output_parent.empty() && !std::filesystem::exists(output_parent)) {
+                std::filesystem::create_directories(output_parent, ec);
+                if (ec) {
+                    this->logger->error("[function] Failed to create destination directory on macOS: " + ec.message());
+                    return json::value(nullptr);
+                }
+            }
+
+            NSError* readError = nil;
+            NSData* data = [NSData dataWithContentsOfURL:url options:0 error:&readError];
+            if (!data) {
+                const std::string errMsg = readError ? std::string([[readError localizedDescription] UTF8String]) : std::string("unknown");
+                this->logger->error("[function] Failed to download URI on macOS: " + errMsg + " URI=" + uri);
+                return json::value(nullptr);
+            }
+
+            NSString* outputPathNs = [NSString stringWithUTF8String:output_path.string().c_str()];
+            NSError* writeError = nil;
+            if (![data writeToFile:outputPathNs options:NSDataWritingAtomic error:&writeError]) {
+                const std::string errMsg = writeError ? std::string([[writeError localizedDescription] UTF8String]) : std::string("unknown");
+                this->logger->error("[function] Failed to write downloaded file on macOS: " + errMsg + " PATH=" + output_path.string());
+                return json::value(nullptr);
+            }
+
+            this->logger->info("[function] Downloaded URI to path: " + output_path.string());
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();
-            webkit_web_view_download_uri(WEBKIT_WEB_VIEW(webview_widget), uri.c_str());
+            WebKitDownload* download = webkit_web_view_download_uri(WEBKIT_WEB_VIEW(webview_widget), uri.c_str());
+            if (!download) {
+                this->logger->error("[function] Failed to initiate download on Linux for URI: " + uri);
+                return json::value(nullptr);
+            }
+
+            if (!destination_path.empty()) {
+                std::error_code ec;
+                std::filesystem::path output_path(destination_path);
+                output_path = std::filesystem::absolute(output_path, ec);
+                if (ec) {
+                    this->logger->error("[function] Failed to resolve destination path on Linux: " + ec.message());
+                    return json::value(nullptr);
+                }
+
+                const std::filesystem::path output_parent = output_path.parent_path();
+                if (!output_parent.empty() && !std::filesystem::exists(output_parent)) {
+                    std::filesystem::create_directories(output_parent, ec);
+                    if (ec) {
+                        this->logger->error("[function] Failed to create destination directory on Linux: " + ec.message());
+                        return json::value(nullptr);
+                    }
+                }
+
+                gchar* dest_uri = g_filename_to_uri(output_path.string().c_str(), nullptr, nullptr);
+                if (!dest_uri) {
+                    this->logger->error("[function] Failed to convert destination path to file URI on Linux: " + output_path.string());
+                    return json::value(nullptr);
+                }
+
+                webkit_download_set_destination(download, dest_uri);
+                g_free(dest_uri);
+                this->logger->info("[function] Download destination set to: " + output_path.string());
+            }
         #endif
             return json::value(nullptr);
     }));
@@ -2271,15 +2891,35 @@ WF* WF::setDebugCallbacks() {
         std::function<json::value(const json::value&)>([this](const json::value& req) -> json::value {
             (void)req;
         #if defined(_WIN32)
-            this->logger->error("[function] Can't close devtools programmatically on windows.");
+            this->logger->warn("[function] close_devtools is best-effort on Windows and is not supported by WebView2.");
         #elif defined(__APPLE__)
-            // macOS WKWebView inspector close
+            // macOS WKWebView inspector close via private API is best-effort only.
             auto window_result = this->app->w->window();
             if (window_result.has_value()) {
                 id webview = getWKWebViewFromWindow(window_result.value());
                 if (webview) {
-                    [(id)[webview performSelector:@selector(_inspector)] performSelector:@selector(close)];
+                    @try {
+                        id inspector = nil;
+                        if ([webview respondsToSelector:@selector(_inspector)]) {
+                            inspector = [webview performSelector:@selector(_inspector)];
+                        }
+
+                        if (inspector && [inspector respondsToSelector:@selector(close)]) {
+                            [inspector performSelector:@selector(close)];
+                        } else if (inspector && [inspector respondsToSelector:@selector(hide)]) {
+                            [inspector performSelector:@selector(hide)];
+                        } else {
+                            this->logger->debug("[function] close_devtools inspector handle unavailable on macOS; ignoring");
+                        }
+                    } @catch (NSException* exception) {
+                        this->logger->warn(std::string("[function] close_devtools best-effort close failed on macOS: ") +
+                                           [[exception reason] UTF8String]);
+                    }
+                } else {
+                    this->logger->debug("[function] close_devtools webview unavailable on macOS; ignoring");
                 }
+            } else {
+                this->logger->debug("[function] close_devtools window unavailable on macOS; ignoring");
             }
         #elif defined(__linux__)
             auto webview_widget = this->app->w->widget().value();

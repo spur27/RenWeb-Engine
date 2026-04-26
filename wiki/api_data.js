@@ -80,6 +80,8 @@ window.apiData = {
     ],
     'Window': [
         {name: 'isFocus', signature: 'isFocus()', description: 'Returns: Promise<boolean>'},
+        {name: 'isShown', signature: 'isShown()', description: 'Returns: Promise<boolean>'},
+        {name: 'focus', signature: 'focus()', description: 'Returns: Promise<void>'},
         {name: 'show', signature: 'show(is_window_shown?)', description: 'Returns: Promise<void>'},
         {name: 'changeTitle', signature: 'changeTitle(title)', description: 'Returns: Promise<string>'},
         {name: 'resetTitle', signature: 'resetTitle()', description: 'Returns: Promise<string>'},
@@ -122,6 +124,7 @@ window.apiData = {
         {name: 'copy', signature: 'copy(orig_path, new_path, settings = { overwrite: false })', description: 'Returns: Promise<boolean>'},
         {name: 'getApplicationDirPath', signature: 'getApplicationDirPath()', description: 'Returns: Promise<string>'},
         {name: 'getTmpDirPath', signature: 'getTmpDirPath(options = { create: false })', description: 'Returns: Promise<string>'},
+        {name: 'chooseFiles', signature: 'chooseFiles(options = { multiple: false, directories: false, extensions: [] })', description: 'Returns: Promise<string | string[] | null>'},
         {name: 'downloadUri', signature: 'downloadUri(uri, path)', description: 'Returns: Promise<void>'}
     ],
     'Config': [

@@ -23,13 +23,57 @@ const ui = require('../shared/ui');
 const { prompt } = ui;
 
 function isDirectoryNonEmpty(dirPath) {
-    return fs.existsSync(dirPath) && fs.readdirSync(dirPath).length > 0;
+    if (!fs.existsSync(dirPath)) return false;
+    const entries = fs.readdirSync(dirPath);
+    return entries.some((entry) => !entry.startsWith('.'));
+}
+
+function appendGitignoreEntries(projectDir, entries, sectionLabel = 'RenWeb') {
+    const giPath = path.join(projectDir, '.gitignore');
+    const existing = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
+    const toAdd = entries.filter((entry) => !existing.includes(entry));
+    if (toAdd.length === 0) return;
+    fs.appendFileSync(giPath, `\n# ${sectionLabel}\n${toAdd.join('\n')}\n`, 'utf8');
+}
+
+function mergeGitignoreFiles(srcPath, destPath) {
+    if (!fs.existsSync(srcPath)) return;
+    if (!fs.existsSync(destPath)) {
+        fs.renameSync(srcPath, destPath);
+        return;
+    }
+
+    const srcLines = fs.readFileSync(srcPath, 'utf8').split(/\r?\n/);
+    const destText = fs.readFileSync(destPath, 'utf8');
+    const toAdd = srcLines
+        .map((line) => line.trim())
+        .filter((line) => line && !destText.includes(line));
+
+    if (toAdd.length) {
+        fs.appendFileSync(destPath, `\n# Existing scaffold\n${toAdd.join('\n')}\n`, 'utf8');
+    }
+
+    fs.unlinkSync(srcPath);
 }
 
 function moveDirectoryContents(srcDir, destDir) {
     fs.mkdirSync(destDir, { recursive: true });
     for (const entry of fs.readdirSync(srcDir)) {
-        fs.renameSync(path.join(srcDir, entry), path.join(destDir, entry));
+        const srcPath = path.join(srcDir, entry);
+        const destPath = path.join(destDir, entry);
+
+        if (entry === '.gitignore') {
+            mergeGitignoreFiles(srcPath, destPath);
+            continue;
+        }
+
+        // Preserve user/system dotfiles already present in destination.
+        if (entry.startsWith('.') && fs.existsSync(destPath)) {
+            fs.rmSync(srcPath, { recursive: true, force: true });
+            continue;
+        }
+
+        fs.renameSync(srcPath, destPath);
     }
     fs.rmdirSync(srcDir);
 }
@@ -46,6 +90,109 @@ function relativeFromCwdOrAbsolute(targetPath) {
     const cwd = getCwdSafe();
     if (!cwd) return targetPath;
     return path.relative(cwd, targetPath) || '.';
+}
+
+function getTailText(buf) {
+    const s = (buf || '').toString().trim();
+    if (!s) return '';
+    return s.split('\n').slice(-8).join('\n');
+}
+
+function showScaffoldFailure(prefix, result, fallbackExitCode = 1) {
+    if (result.error) {
+        ui.error(`${prefix} failed: ${result.error.message}`);
+    } else {
+        ui.error(`${prefix} command failed.`);
+    }
+
+    const stderr = getTailText(result.stderr);
+    const stdout = getTailText(result.stdout);
+    if (stderr) ui.dim(stderr);
+    else if (stdout) ui.dim(stdout);
+
+    process.exit(result.status ?? fallbackExitCode);
+}
+
+function ensureNpmAvailable(npmCmd) {
+    const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
+    if (check.error?.code === 'ENOENT') {
+        ui.error('npm is not installed or not on PATH.');
+        ui.dim('Install Node.js from https://nodejs.org and try again.');
+        process.exit(1);
+    }
+}
+
+function installNpmPackages(projectDir, npmCmd) {
+    ui.step('Installing packages…');
+    const install = runNpmWithWindowsFallback(projectDir, npmCmd, ['install']);
+
+    if (install.error) {
+        ui.warn(`npm install failed — ${install.error.message}`);
+        const stderr = getTailText(install.stderr);
+        const stdout = getTailText(install.stdout);
+        if (stderr) ui.dim(stderr);
+        else if (stdout) ui.dim(stdout);
+        ui.warn('Run `npm install` manually in the project directory.');
+        return;
+    }
+
+    if (install.status !== 0) {
+        ui.warn('npm install failed — run it manually');
+        const stderr = getTailText(install.stderr);
+        const stdout = getTailText(install.stdout);
+        if (stderr) ui.dim(stderr);
+        else if (stdout) ui.dim(stdout);
+        return;
+    }
+
+    ui.ok('packages installed');
+}
+
+function normalizeScaffoldPaths(projectDir) {
+    const parent = path.dirname(projectDir);
+    const name = path.basename(projectDir);
+    const safeBaseName = toKebab(name) || 'renweb-app';
+    const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
+    const targetExists = fs.existsSync(projectDir);
+    const scaffoldName = (targetExists || safeBaseName !== name) ? tempScaffoldName : name;
+    return {
+        parent,
+        name,
+        scaffoldName,
+        scaffoldProjectDir: path.join(parent, scaffoldName),
+    };
+}
+
+function quoteForCmd(arg) {
+    const s = String(arg);
+    if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
+    return `"${s.replace(/(["^])/g, '^$1')}"`;
+}
+
+function runNpmWithWindowsFallback(parentDir, npmCmd, args) {
+    const options = { cwd: parentDir, stdio: 'pipe', maxBuffer: 10 * 1024 * 1024 };
+    let result = spawnSync(npmCmd, args, options);
+
+    if (result.error && process.platform === 'win32') {
+        const cmd = `${npmCmd} ${args.map(quoteForCmd).join(' ')}`;
+        result = spawnSync('cmd.exe', ['/d', '/s', '/c', cmd], options);
+    }
+
+    return result;
+}
+
+function runViteScaffold(parentDir, npmCmd, scaffoldName, template) {
+    const npmCreateArgs = ['--yes', 'create', 'vite@5', scaffoldName, '--', '--template', template];
+    return runNpmWithWindowsFallback(parentDir, npmCmd, npmCreateArgs);
+}
+
+function runAngularScaffold(parentDir, npmCmd, scaffoldName) {
+    const npmExecArgs = [
+        'exec', '--yes', '--package', '@angular/cli@latest',
+        'ng', 'new', scaffoldName,
+        '--routing=false', '--style=css', '--ssr=false', '--defaults', '--skip-install',
+    ];
+    return runNpmWithWindowsFallback(parentDir, npmCmd, npmExecArgs);
 }
 
 function setupPluginBoostSubmodule(projectDir) {
@@ -382,7 +529,7 @@ async function createFrontend(projectDir, info) {
     fs.writeFileSync(path.join(buildDir, 'info.json'),   infoText,   'utf8');
     fetchEngineExecutable(buildDir);
 
-    const ignoreEntries = [
+    appendGitignoreEntries(projectDir, [
         'build/',
         'package/',
         'release/',
@@ -393,10 +540,7 @@ async function createFrontend(projectDir, info) {
         '.env',
         '*.log',
         '.rw/',
-        '',
-    ];
-    const giPath = path.join(projectDir, '.gitignore');
-    if (!fs.existsSync(giPath)) fs.writeFileSync(giPath, ignoreEntries.join('\n'), 'utf8');
+    ]);
 }
 
 
@@ -408,12 +552,7 @@ async function createFramework(projectDir, info, type) {
     const template  = fw.template;
     const npmCmd    = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-    const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
-    if (check.error?.code === 'ENOENT') {
-        ui.error('npm is not installed or not on PATH.');
-        ui.dim('Install Node.js from https://nodejs.org and try again.');
-        process.exit(1);
-    }
+    ensureNpmAvailable(npmCmd);
 
     if (isDirectoryNonEmpty(projectDir)) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
@@ -421,21 +560,15 @@ async function createFramework(projectDir, info, type) {
         process.exit(1);
     }
 
-    const parent = path.dirname(projectDir);
-    const name   = path.basename(projectDir);
-    const safeBaseName = toKebab(name) || 'renweb-app';
-    const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
-    const scaffoldName = (safeBaseName !== name) ? tempScaffoldName : name;
-    const scaffoldProjectDir = path.join(parent, scaffoldName);
+    const { parent, scaffoldName, scaffoldProjectDir } = normalizeScaffoldPaths(projectDir);
     fs.mkdirSync(parent, { recursive: true });
 
     ui.step(`Scaffolding ${type} project via Vite…`);
-    const npxCmd  = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-    const scaffold = spawnSync(
-        npxCmd,
-        ['--yes', 'create-vite@5', scaffoldName, '--template', template],
-        { cwd: parent, stdio: 'pipe' },
-    );
+    const scaffold = runViteScaffold(parent, npmCmd, scaffoldName, template);
+
+    if (scaffold.error || scaffold.status !== 0) {
+        showScaffoldFailure('Vite scaffolding', scaffold);
+    }
 
     const scaffoldPkgPath = path.join(scaffoldProjectDir, 'package.json');
     if (scaffoldProjectDir !== projectDir && fs.existsSync(scaffoldPkgPath)) {
@@ -445,10 +578,10 @@ async function createFramework(projectDir, info, type) {
     const pkgPath = path.join(projectDir, 'package.json');
     if (!fs.existsSync(pkgPath)) {
         ui.error('Vite scaffolding failed — package.json not found.');
-        const stderr = (scaffold.stderr || '').toString().trim();
-        const stdout = (scaffold.stdout || '').toString().trim();
-        if (stderr) ui.dim(stderr.split('\n').slice(-8).join('\n'));
-        else if (stdout) ui.dim(stdout.split('\n').slice(-8).join('\n'));
+        const stderr = getTailText(scaffold.stderr);
+        const stdout = getTailText(scaffold.stdout);
+        if (stderr) ui.dim(stderr);
+        else if (stdout) ui.dim(stdout);
         process.exit(scaffold.status ?? 1);
     }
     const pkg  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
@@ -497,30 +630,17 @@ export default defineConfig({
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    const giPath       = path.join(projectDir, '.gitignore');
-    const giExisting   = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
-    const giAppend     = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
-        .filter(e => !giExisting.includes(e));
-    if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
+    appendGitignoreEntries(projectDir, ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']);
 
-    ui.step('Installing packages…');
-    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
-    if (install.status !== 0) ui.warn('npm install failed — run it manually');
-    else ui.ok('packages installed');
+    installNpmPackages(projectDir, npmCmd);
 }
 
 
 async function createAngular(projectDir, info) {
     const pageName = 'main';
     const npmCmd   = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const npxCmd   = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
-    const check = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
-    if (check.error?.code === 'ENOENT') {
-        ui.error('npm is not installed or not on PATH.');
-        ui.dim('Install Node.js from https://nodejs.org and try again.');
-        process.exit(1);
-    }
+    ensureNpmAvailable(npmCmd);
 
     if (isDirectoryNonEmpty(projectDir)) {
         ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
@@ -528,21 +648,16 @@ async function createAngular(projectDir, info) {
         process.exit(1);
     }
 
-    const parent = path.dirname(projectDir);
-    const name   = path.basename(projectDir);
-    const safeBaseName = toKebab(name) || 'renweb-app';
-    const tempScaffoldName = `${safeBaseName}-rwtmp-${Date.now()}`;
-    const scaffoldName = (safeBaseName !== name) ? tempScaffoldName : name;
-    const scaffoldProjectDir = path.join(parent, scaffoldName);
+    const { parent, name, scaffoldName, scaffoldProjectDir } = normalizeScaffoldPaths(projectDir);
     fs.mkdirSync(parent, { recursive: true });
 
     ui.step('Scaffolding Angular project…');
-    const scaffold = spawnSync(
-        npxCmd,
-        ['--yes', '@angular/cli@latest', 'new', scaffoldName,
-         '--routing=false', '--style=css', '--ssr=false', '--defaults', '--skip-install'],
-        { cwd: parent, stdio: 'pipe' },
-    );
+    const scaffold = runAngularScaffold(parent, npmCmd, scaffoldName);
+
+    if (scaffold.error || scaffold.status !== 0) {
+        showScaffoldFailure('Angular scaffolding', scaffold);
+    }
+
     const scaffoldAngJsonPath = path.join(scaffoldProjectDir, 'angular.json');
     if (scaffoldProjectDir !== projectDir && fs.existsSync(scaffoldAngJsonPath)) {
         moveDirectoryContents(scaffoldProjectDir, projectDir);
@@ -551,10 +666,10 @@ async function createAngular(projectDir, info) {
     const angJsonPath = path.join(projectDir, 'angular.json');
     if (!fs.existsSync(angJsonPath)) {
         ui.error('Angular scaffolding failed — angular.json not found.');
-        const stderr = (scaffold.stderr || '').toString().trim();
-        const stdout = (scaffold.stdout || '').toString().trim();
-        if (stderr) ui.dim(stderr.split('\n').slice(-8).join('\n'));
-        else if (stdout) ui.dim(stdout.split('\n').slice(-8).join('\n'));
+        const stderr = getTailText(scaffold.stderr);
+        const stdout = getTailText(scaffold.stdout);
+        if (stderr) ui.dim(stderr);
+        else if (stdout) ui.dim(stdout);
         process.exit(scaffold.status ?? 1);
     }
 
@@ -600,16 +715,9 @@ async function createAngular(projectDir, info) {
     ui.step('Fetching credentials template…');
     fetchGitHubDirectory('credentials', path.join(projectDir, 'credentials'));
 
-    const giPath     = path.join(projectDir, '.gitignore');
-    const giExisting = fs.existsSync(giPath) ? fs.readFileSync(giPath, 'utf8') : '';
-    const giAppend   = ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']
-        .filter(e => !giExisting.includes(e));
-    if (giAppend.length) fs.appendFileSync(giPath, '\n# RenWeb\n' + giAppend.join('\n') + '\n', 'utf8');
+    appendGitignoreEntries(projectDir, ['build/', 'credentials/', '.env', 'Thumbs.db', '.rw/']);
 
-    ui.step('Installing packages…');
-    const install = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'pipe' });
-    if (install.status !== 0) ui.warn('npm install failed — run it manually');
-    else ui.ok('packages installed');
+    installNpmPackages(projectDir, npmCmd);
 }
 
 async function createPlugin(projectDir, info, skipSubmodules = false) {
@@ -650,8 +758,11 @@ async function createPlugin(projectDir, info, skipSubmodules = false) {
     fs.writeFileSync(path.join(projectDir, 'README.md'),
         makePluginReadme(info, pluginName), 'utf8');
 
-    fs.writeFileSync(path.join(projectDir, '.gitignore'),
-        makePluginGitignore(), 'utf8');
+    const pluginGitignore = makePluginGitignore()
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'));
+    appendGitignoreEntries(projectDir, pluginGitignore, 'RenWeb Plugin');
 
     fs.writeFileSync(path.join(projectDir, '.github', 'workflows', 'build.yml'),
         makePluginWorkflow(pluginName), 'utf8');
@@ -689,15 +800,31 @@ function createEngine(projectDir, skipSubmodules) {
     const gitOk = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
     if (!gitOk) { ui.error('git is required for `rw create engine`'); process.exit(1); }
 
-    const parent    = path.dirname(projectDir);
-    const name      = path.basename(projectDir);
-    const repoUrl   = resolveEngineRepo();
+    if (isDirectoryNonEmpty(projectDir)) {
+        ui.error(`Directory '${path.basename(projectDir)}' already exists and is not empty.`);
+        process.exit(1);
+    }
+
+    // Ensure an empty directory exists for cloning into.
+    // We clear contents rather than deleting the directory itself so that any
+    // shell process whose CWD is projectDir doesn't end up with an invalid CWD.
+    if (fs.existsSync(projectDir)) {
+        for (const entry of fs.readdirSync(projectDir)) {
+            fs.rmSync(path.join(projectDir, entry), { recursive: true, force: true });
+        }
+    } else {
+        fs.mkdirSync(projectDir, { recursive: true });
+    }
+
+    const name    = path.basename(projectDir);
+    const repoUrl = resolveEngineRepo();
+    // Clone into '.' (the now-empty projectDir) rather than creating a child directory.
     const cloneArgs = skipSubmodules
-        ? ['clone', repoUrl, name]
-        : ['clone', '--recurse-submodules', repoUrl, name];
+        ? ['clone', repoUrl, '.']
+        : ['clone', '--recurse-submodules', repoUrl, '.'];
 
     ui.step(`Cloning RenWeb Engine repository into ${name}/…${skipSubmodules ? '' : ' (including submodules)'}`);
-    const r = spawnSync('git', cloneArgs, { cwd: parent, stdio: 'inherit' });
+    const r = spawnSync('git', cloneArgs, { cwd: projectDir, stdio: 'inherit' });
     if (r.status !== 0) { ui.error('git clone failed'); process.exit(r.status); }
 }
 
@@ -738,7 +865,13 @@ async function run(args) {
         type = await promptType(rl);
     }
 
-    const projectDir = path.resolve(dir || getCwdSafe() || '.');
+    const cwd = dir || getCwdSafe();
+    if (!cwd) {
+        ui.error('Cannot determine working directory. Please run from a valid directory or pass --dir.');
+        if (rl) rl.close();
+        process.exit(1);
+    }
+    const projectDir = path.resolve(cwd);
 
     // ── Engine clone: no further prompts needed ───────────────────────────────
     if (type === 'engine') {

@@ -1330,6 +1330,8 @@ function formatSignature(name, details) {
         },
         'Window': {
             'isFocus': { params: [], returns: 'Promise<boolean>' },
+            'isShown': { params: [], returns: 'Promise<boolean>' },
+            'focus': { params: [], returns: 'Promise<void>' },
             'show': { params: [{name: 'is_window_shown', type: 'boolean?'}], returns: 'Promise<void>' },
             'changeTitle': { params: [{name: 'title', type: 'string'}], returns: 'Promise<string>' },
             'resetTitle': { params: [], returns: 'Promise<string>' },
@@ -1372,6 +1374,7 @@ function formatSignature(name, details) {
             'copy': { params: [{name: 'orig_path', type: 'string'}, {name: 'new_path', type: 'string'}, {name: 'settings?', type: '{ overwrite: boolean }', defaultValue: '{ overwrite: false }'}], returns: 'Promise<boolean>' },
             'getApplicationDirPath': { params: [], returns: 'Promise<string>' },
             'getTmpDirPath': { params: [{name: "options", type: "{ create: boolean }", defaultValue: '{ create: false }'}], returns: 'Promise<string>' },
+            'chooseFiles': { params: [{name: 'options?', type: '{ multiple: boolean, directories: boolean, extensions: string[] }', defaultValue: '{ multiple: false, directories: false, extensions: [] }'}], returns: 'Promise<string | string[] | null>' },
             'downloadUri': { params: [{name: 'uri', type: 'string'}, {name: 'path', type: 'string'}], returns: 'Promise<void>' }
         },
         'Config': {
@@ -1447,9 +1450,9 @@ function formatSignature(name, details) {
     
     const apiTreeData = {
         'Properties': ['getSize', 'setSize', 'getPosition', 'setPosition', 'getTitleBar', 'setTitleBar', 'getResizable', 'setResizable', 'getKeepAbove', 'setKeepAbove', 'getMinimize', 'setMinimize', 'getMaximize', 'setMaximize', 'getFullscreen', 'setFullscreen', 'getTaskbarShow', 'setTaskbarShow', 'getOpacity', 'setOpacity'],
-        'Window': ['isFocus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
+        'Window': ['isFocus', 'isShown', 'focus', 'show', 'changeTitle', 'resetTitle', 'currentTitle', 'resetPage', 'currentPage', 'initialPage', 'reloadPage', 'navigatePage', 'terminate', 'startWindowDrag', 'printPage', 'zoomIn', 'zoomOut', 'zoomReset', 'getZoomLevel', 'setZoomLevel', 'findInPage', 'findNext', 'findPrevious', 'clearFind'],
         'Log': ['trace', 'debug', 'info', 'warn', 'error', 'critical'],
-        'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'downloadUri'],
+        'FS': ['readFile', 'writeFile', 'exists', 'isDir', 'mkDir', 'rm', 'ls', 'rename', 'copy', 'getApplicationDirPath', 'getTmpDirPath', 'chooseFiles', 'downloadUri'],
         'Config': ['getConfig', 'getInfo', 'getDefaults', 'getState', 'loadState', 'saveConfig', 'setConfigProperty', 'resetToDefaults'],
         'System': ['getPID', 'getOS', 'getCPUArchitecture'],
         'Process': {

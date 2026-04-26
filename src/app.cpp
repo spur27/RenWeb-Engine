@@ -247,6 +247,14 @@ void App::run() {
         } else {
             effective_state = current_state;
         }
+        const bool initially_shown =
+            effective_state.contains("initially_shown") &&
+            effective_state.at("initially_shown").is_bool()
+                ? effective_state.at("initially_shown").as_bool()
+                : true;
+        if (!initially_shown) {
+            this->fns->window_callbacks->run("show", json::array({json::value(false)}));
+        }
         this->fns->setState(effective_state);
         this->fns->setup(effective_state);
         this->fns->window_callbacks->run("navigate_page", json::value(this->config->current_page));

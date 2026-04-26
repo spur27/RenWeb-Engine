@@ -10,6 +10,30 @@ const { FRAMEWORK_TYPES }         = require('../shared/constants');
 const { makeConfigJson, makeInfoJson } = require('../shared/templates/project');
 const { fetchWebApi, fetchEngineExecutable, fetchGitHubDirectory } = require('../shared/fetchers');
 
+function quoteForCmd(arg) {
+    const s = String(arg);
+    if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
+    return `"${s.replace(/(["^])/g, '^$1')}"`;
+}
+
+function runWithWindowsCmdFallback(bin, args, cwd, stdio = 'inherit') {
+    const options = { cwd, stdio };
+    let result = spawnSync(bin, args, options);
+
+    if (result.error && process.platform === 'win32') {
+        const cmd = `${bin} ${args.map(quoteForCmd).join(' ')}`;
+        result = spawnSync('cmd.exe', ['/d', '/s', '/c', cmd], options);
+    }
+
+    return result;
+}
+
+function getTailText(buf) {
+    const s = (buf || '').toString().trim();
+    if (!s) return '';
+    return s.split('\n').slice(-8).join('\n');
+}
+
 // ─── Framework → npm dep name ────────────────────────────────────────────────
 
 const FRAMEWORK_DEP = {
@@ -347,13 +371,25 @@ async function run(args) {
     if (type === 'angular' || isViteBased || type === 'node-vanilla') {
         const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
         ui.step('Installing npm packages…');
-        const r = spawnSync(npmCmd, ['install'], { cwd: projectDir, stdio: 'inherit' });
-        if (r.status !== 0) ui.warn('npm install failed — run it manually');
+        const r = runWithWindowsCmdFallback(npmCmd, ['install'], projectDir, 'pipe');
+        if (r.status !== 0) {
+            ui.warn('npm install failed — run it manually');
+            const stderr = getTailText(r.stderr);
+            const stdout = getTailText(r.stdout);
+            if (stderr) ui.dim(stderr);
+            else if (stdout) ui.dim(stdout);
+        }
         else ui.ok('npm packages installed');
     } else if (type === 'deno') {
         ui.step('Running deno install…');
-        const r = spawnSync('deno', ['install'], { cwd: projectDir, stdio: 'inherit' });
-        if (r.status !== 0) ui.warn('deno install failed — run it manually');
+        const r = spawnSync('deno', ['install'], { cwd: projectDir, stdio: 'pipe' });
+        if (r.status !== 0) {
+            ui.warn('deno install failed — run it manually');
+            const stderr = getTailText(r.stderr);
+            const stdout = getTailText(r.stdout);
+            if (stderr) ui.dim(stderr);
+            else if (stdout) ui.dim(stdout);
+        }
         else ui.ok('deno packages installed');
     }
 

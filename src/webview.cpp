@@ -329,6 +329,7 @@ Webview::Webview(bool debug, void* window,
 #endif
 {
 #if defined(__linux__)
+    (void)logger;
     if (!app_id.empty())
         g_set_prgname(app_id.c_str());
     webview_impl = std::make_unique<webview::webview>(debug, window);
@@ -425,15 +426,21 @@ void Webview::addWindowCallbacks() {
         "  if (typeof window.renweb.onRenderProcessTerminated === 'undefined') window.renweb.onRenderProcessTerminated = undefined;"
         "  if (typeof window.renweb.onCertificateError === 'undefined') window.renweb.onCertificateError = undefined;"
 
-        "  window.addEventListener('load', function() {"
-        "    setTimeout(function() {"
-        "      _ready = true;"
-        "      if (typeof _fn === 'function') {"
-        "        (async function() { await _fn(); })()"
-        "          .catch(function(e) { console.error('[renweb] onReady error:', e); });"
-        "      }"
-        "    }, 0);"
-        "  });"
+        "  function _markReady() {"
+        "    if (_ready) return;"
+        "    _ready = true;"
+        "    if (typeof _fn === 'function') {"
+        "      (async function() { await _fn(); })()"
+        "        .catch(function(e) { console.error('[renweb] onReady error:', e); });"
+        "    }"
+        "  }"
+        "  if (document.readyState === 'interactive' || document.readyState === 'complete') {"
+        "    _markReady();"
+        "  } else {"
+        "    document.addEventListener('DOMContentLoaded', function() {"
+        "      _markReady();"
+        "    }, { once: true });"
+        "  }"
         "})();"
     );
 

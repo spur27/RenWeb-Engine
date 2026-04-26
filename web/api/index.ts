@@ -414,6 +414,20 @@ export namespace Window {
      */
     export async function isFocus(): Promise<boolean> 
         { return await BIND_is_focus(null); }
+
+    /**
+     * Checks if the window is currently visible.
+     * @returns Promise that resolves to true if window is shown
+     */
+    export async function isShown(): Promise<boolean>
+        { return await BIND_is_shown(null); }
+
+    /**
+     * Requests focus for the current window.
+     * @returns Promise that resolves when the focus request has been issued
+     */
+    export async function focus(): Promise<void>
+        { await BIND_focus(null); }
     
     /**
      * Shows or hides the window.
@@ -722,6 +736,16 @@ export namespace FS {
      */
     export async function getTmpDirPath(options: { create?: boolean } = { create: false }): Promise<string> 
         { return decode(await BIND_get_tmp_dir_path(encode(options))); }
+
+    /**
+     * Opens the native file chooser and returns absolute selected path(s).
+     * @param options - Picker options
+     * @param options.multiple - Whether multiple selections are allowed (default: false)
+     * @param options.directories - Whether to select directories only (default: false)
+     * @returns Promise that resolves to a single path, an array of paths, or null if cancelled
+     */
+    export async function chooseFiles(options: { multiple?: boolean, directories?: boolean } = {}): Promise<string | string[] | null>
+        { return decode(await BIND_choose_files(encode(options))); }
     
     /**
      * Downloads a file from a URI to a local path.
@@ -729,7 +753,7 @@ export namespace FS {
      * @param path - Local path to save the file
      * @returns Promise that resolves when download is complete
      */
-    export async function downloadUri(uri: string, path: string): Promise<void> 
+    export async function downloadUri(uri: string, path?: string): Promise<void> 
         { await BIND_download_uri(encode(uri), encode(path)); }
 }
 
@@ -1560,6 +1584,8 @@ declare const BIND_get_opacity: (...args: any[]) => Promise<any>;
 declare const BIND_set_opacity: (...args: any[]) => Promise<any>;
 
 declare const BIND_is_focus: (...args: any[]) => Promise<any>;
+declare const BIND_is_shown: (...args: any[]) => Promise<any>;
+declare const BIND_focus: (...args: any[]) => Promise<any>;
 declare const BIND_show: (...args: any[]) => Promise<any>;
 declare const BIND_change_title: (...args: any[]) => Promise<any>;
 declare const BIND_reset_title: (...args: any[]) => Promise<any>;
@@ -1600,6 +1626,7 @@ declare const BIND_rename: (...args: any[]) => Promise<any>;
 declare const BIND_copy: (...args: any[]) => Promise<any>;
 declare const BIND_get_application_dir_path: (...args: any[]) => Promise<any>;
 declare const BIND_get_tmp_dir_path: (...args: any[]) => Promise<any>;
+declare const BIND_choose_files: (...args: any[]) => Promise<any>;
 declare const BIND_download_uri: (...args: any[]) => Promise<any>;
 
 declare const BIND_get_config: (...args: any[]) => Promise<any>;
