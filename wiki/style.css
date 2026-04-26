@@ -2324,6 +2324,203 @@ body.iframe-page .footer {
 }
 
 /* ===========================================
+   Global Wiki Mobile Layout
+   =========================================== */
+@media (max-width: 960px) {
+    body.iframe-page .container {
+        padding: var(--spacing-lg);
+    }
+
+    .namespace-methods-toc ul {
+        grid-template-columns: 1fr;
+    }
+
+    .method-tags {
+        margin-left: 0;
+    }
+
+    .api-method h3 {
+        font-size: 1.25rem;
+    }
+
+    .api-tree-card {
+        padding: var(--spacing-lg);
+    }
+}
+
+@media (max-width: 768px) {
+    html {
+        overflow-y: auto;
+    }
+
+    body.iframe-page .container {
+        padding: var(--spacing-md);
+    }
+
+    .card {
+        padding: var(--spacing-lg);
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    h3 {
+        font-size: 1.25rem;
+    }
+
+    .intro-text,
+    .namespace-description,
+    .method-description {
+        font-size: 1rem;
+    }
+
+    .architecture-diagram {
+        gap: var(--spacing-sm);
+    }
+
+    .arch-layer {
+        padding: var(--spacing-md);
+    }
+
+    .version-selector-container {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--spacing-sm);
+    }
+
+    .version-selector,
+    .version-select-input {
+        width: 100%;
+    }
+
+    .arch-grid {
+        gap: var(--spacing-sm);
+    }
+
+    .arch-item {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .dependency-grid,
+    .feature-grid,
+    .resource-grid,
+    .contact-grid,
+    .key-points,
+    .download-grid,
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dep-meta {
+        flex-wrap: wrap;
+    }
+
+    table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    th,
+    td {
+        min-width: 140px;
+    }
+
+    .comparison-table {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    pre {
+        padding: var(--spacing-md);
+        font-size: 0.85rem;
+    }
+
+    pre code,
+    code {
+        font-size: 0.85rem;
+    }
+
+    .method-signature {
+        padding: var(--spacing-md);
+    }
+
+    .method-params li {
+        align-items: flex-start;
+    }
+
+    .api-method {
+        padding: var(--spacing-lg);
+    }
+
+    .api-function,
+    .resource-card,
+    .feature-card,
+    .download-card,
+    .contact-card,
+    .key-point,
+    .requirement-card,
+    .dependency-card {
+        padding: var(--spacing-lg);
+    }
+
+    .hero-section,
+    .footer-cta {
+        padding: var(--spacing-xl) var(--spacing-md);
+    }
+
+    .hero-logo {
+        max-width: min(100%, 360px);
+    }
+
+    .quick-links,
+    .platform-badges,
+    .cta-links {
+        gap: var(--spacing-sm);
+    }
+
+    .quick-link,
+    .platform-badge,
+    .cta-link {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    body.iframe-page .container {
+        padding: var(--spacing-sm);
+    }
+
+    .card,
+    .api-method,
+    .api-function,
+    .resource-card,
+    .feature-card,
+    .download-card,
+    .contact-card,
+    .key-point {
+        padding: var(--spacing-md);
+    }
+
+    .hero-title {
+        font-size: 1.65rem;
+    }
+
+    .hero-tagline {
+        font-size: 1rem;
+    }
+
+    .search-dropdown {
+        width: min(100vw - 24px, 360px);
+        right: 12px;
+    }
+}
+
+/* ===========================================
    Print Styles
    =========================================== */
 @media print {
@@ -2520,13 +2717,19 @@ body.iframe-page .footer {
     align-items: center;
     /* gap: 2rem; */
     margin-bottom: 2rem;
+    width: 100%;
+    min-width: 0;
 }
 
 .hero-logo {
+    width: min(100%, 500px);
     max-width: 500px;
     height: auto;
     /* margin: 0 auto 1.5rem; */
     display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    object-fit: contain;
     filter: drop-shadow(0 4px 16px rgba(139, 92, 246, 0.4));
 }
 
