@@ -28,13 +28,25 @@
 // DEALINGS IN THE SOFTWARE.
 #include "../include/args.hpp"
 #include <memory>
+#include <clocale>
 
 #if defined (_WIN32)
 #include <windows.h>
 #include <shellapi.h>
 #include <io.h>
 #include <fcntl.h>
-#include <clocale>
+#endif
+
+#if defined(_WIN32) || defined(__APPLE__)
+static void configureProcessUtf8Locale() {
+#if defined(_WIN32)
+    std::setlocale(LC_ALL, ".UTF-8");
+#elif defined(__APPLE__)
+    if (!std::setlocale(LC_ALL, "C.UTF-8")) {
+        std::setlocale(LC_ALL, "");
+    }
+#endif
+}
 #endif
 
 #if defined(_WIN32)
@@ -45,7 +57,6 @@ static void configureWindowsConsoleUtf8() {
         SetConsoleOutputCP(CP_UTF8);
         SetConsoleCP(CP_UTF8);
         SetConsoleMode(hOut, outMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-        std::setlocale(LC_ALL, ".UTF-8");
     }
 }
 
@@ -89,10 +100,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR lpCmdLine, int nC
         freopen_s(&f, "CONIN$", "r", stdin);
         syncWindowsStdHandlesWithConsole();
     }
+    configureProcessUtf8Locale();
     configureWindowsConsoleUtf8();
     auto args = std::make_unique<RenWeb::Args>(__argc, __argv);
 #else
 int main(int argc, char** argv) {
+#if defined(__APPLE__)
+    configureProcessUtf8Locale();
+#endif
 #if defined(__linux__)
     unsetenv("WEBKIT_DEBUG");
 #endif

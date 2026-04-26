@@ -11,6 +11,7 @@
 - Added chooseFiles function to FS for choosing files with full paths
 - Added focus function to Window for forcing window focus
 - Added isShown function to Window for checking window visibility
+- Added UTF-8 locale enforcement on linux and macos
 
 ## 0.0.7 - 2026-04-23
 - Added example plugin
