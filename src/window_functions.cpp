@@ -1387,11 +1387,18 @@ WF* WF::setWindowCallbacks() {
             }
         #elif defined(__linux__)
             auto window_widget = this->app->w->window().value();
+            auto webview_widget = this->app->w->widget();
             if (show_window) {
-                gtk_widget_show_all(GTK_WIDGET(window_widget));
+                gtk_widget_show(GTK_WIDGET(window_widget));
+                if (webview_widget.has_value() && webview_widget.value()) {
+                    GtkWidget* wk_widget = GTK_WIDGET(webview_widget.value());
+                    gtk_widget_show(wk_widget);
+                    gtk_widget_queue_draw(wk_widget);
+                }
+                gtk_widget_queue_draw(GTK_WIDGET(window_widget));
             } else {
-                if (!gtk_widget_get_realized(GTK_WIDGET(window_widget))) {
-                    gtk_widget_realize(GTK_WIDGET(window_widget));
+                if (webview_widget.has_value() && webview_widget.value()) {
+                    gtk_widget_hide(GTK_WIDGET(webview_widget.value()));
                 }
                 gtk_widget_hide(GTK_WIDGET(window_widget));
             }
