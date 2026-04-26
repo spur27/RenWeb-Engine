@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name('rw')
   .description('RenWeb CLI — create, develop, and package RenWeb projects')
-  .option('-V, --version', 'Display version')
+  .option('-v, --version', 'Display version')
   .on('option:version', () => {
     ui.renwebBanner(version);
     process.exit(0);

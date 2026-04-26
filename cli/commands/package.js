@@ -221,8 +221,33 @@ function packageCommandName(info) {
     return toKebab((info && info.title) || 'app');
 }
 
+function windowsStableExeName(info) {
+    return packageCommandName(info) + '.exe';
+}
+
 function generateWindowsCommandShim(title, exeName) {
-    return `@echo off\r\n"%LOCALAPPDATA%\\${title}\\${exeName}" %*\r\n`;
+    return [
+        '@echo off',
+        'setlocal EnableExtensions',
+        `set "_RW_HOME=%LOCALAPPDATA%\\${title}"`,
+        `set "_RW_TARGET=%_RW_HOME%\\${exeName}"`,
+        'if not exist "%_RW_TARGET%" (',
+        '    set "_RW_TARGET="',
+        '    for /f "delims=" %%F in (\'dir /b /a:-d "%_RW_HOME%\\renweb-*-windows-*.exe" 2^>nul\') do set "_RW_TARGET=%_RW_HOME%\\%%F"',
+        ')',
+        'if not exist "%_RW_TARGET%" (',
+        '    for /f "delims=" %%F in (\'dir /b /a:-d "%_RW_HOME%\\*.exe" 2^>nul\') do (',
+        '        if /I not "%%~nxF"=="Uninstall.exe" set "_RW_TARGET=%_RW_HOME%\\%%F"',
+        '    )',
+        ')',
+        'if not exist "%_RW_TARGET%" (',
+        '    echo error: no executable found under "%_RW_HOME%" 1>&2',
+        '    exit /b 1',
+        ')',
+        '"%_RW_TARGET%" %*',
+        'endlocal',
+        '',
+    ].join('\r\n');
 }
 
 function generateMacCommandWrapper(title, launcherName) {
@@ -755,6 +780,15 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
     if (targetOs === 'windows' || targetOs === 'win') {
         const winExe = path.join(stagingDir, engineAsset.filename);
         if (fs.existsSync(winExe)) patchWindowsExe(winExe, info);
+
+        // Create a stable executable name for shortcuts so GUI launch stays
+        // version-agnostic while still launching directly (no cmd shim).
+        const stableWinExeName = windowsStableExeName(info);
+        if (path.basename(engineAsset.filename).toLowerCase() !== stableWinExeName.toLowerCase()) {
+            const stableWinExe = path.join(stagingDir, stableWinExeName);
+            fs.copyFileSync(winExe, stableWinExe);
+            makeExecutable(stableWinExe);
+        }
     }
 
     // Archive outputs
@@ -785,8 +819,9 @@ function buildPackageForTarget(opts, buildSrc, pluginDirs, engineAsset, info, pk
 
     if (targetOs === 'windows' || targetOs === 'win') {
         const nsisOut = path.join(outDir, `${stem}-setup.exe`);
-        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut);
-        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`));
+        const shortcutExeName = windowsStableExeName(info);
+        buildNsisInstaller(opts, info, stagingDir, targetArch, nsisOut, engineAsset.filename, shortcutExeName);
+        buildMsiInstaller(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msi`), engineAsset.filename, shortcutExeName);
         const msixExeFile = engineAsset.filename;
         buildMsixPackage(opts, info, stagingDir, targetArch, path.join(outDir, `${stem}.msix`), msixExeFile);
         buildChocoPackage(opts, info, targetArch, nsisOut, outDir);
@@ -1337,7 +1372,7 @@ function xbpsSign(opts, filePath) {
  * Build a .nsi NSIS installer via makensis. String concatenation is used for NSIS lines to avoid
  * ambiguity between JS template-literal ${} and NSIS $VAR syntax.
  */
-function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
+function buildNsisInstaller(opts, info, stagingDir, arch, outPath, exeFilename = '', shortcutExeName = '') {
     if (opts.exts.size > 0 && !opts.exts.has('exe') && !opts.exts.has('choco') && !opts.exts.has('nuget') && !opts.exts.has('winget')) return;
 
     if (spawnSync('which', ['makensis'], { encoding: 'utf8' }).status !== 0) {
@@ -1355,7 +1390,8 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     const website = info.repository  || '';
     const copyright = info.copyright || ('Copyright (C) ' + author);
     const winVer  = version.replace(/[^\d.]/g,'').split('.').concat(['0','0','0','0']).slice(0,4).join('.');
-    const exeName = exeId + '-' + version + '-windows-' + arch + '.exe';
+    const exeName = exeFilename || (exeId + '-' + version + '-windows-' + arch + '.exe');
+    const shortcutTarget = shortcutExeName || exeName;
     const windowsShim = generateWindowsCommandShim(title, exeName);
     const nsisWindowsShim = windowsShim
         .replace(/\\/g, '\\\\')
@@ -1452,12 +1488,12 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
     L('  WriteRegStr HKCU "Software\\' + regId + '" "InstallDir" "$INSTDIR"');
     L('  WriteUninstaller "$INSTDIR\\Uninstall.exe"');
     L('  CreateDirectory "$SMPROGRAMS\\' + title + '"');
-    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+    L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '" "" "$INSTDIR\\' + exeName + '" 0');
     L('  CreateShortCut "$SMPROGRAMS\\' + title + '\\Uninstall ' + title + '.lnk" "$INSTDIR\\Uninstall.exe"');
     if (iconPath)
-        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '" "" "$INSTDIR\\' + exeName + '" 0');
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '" "" "$INSTDIR\\' + exeName + '" 0');
     else
-        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + exeName + '"');
+        L('  CreateShortCut "$DESKTOP\\' + title + '.lnk" "$INSTDIR\\' + shortcutTarget + '"');
     L('  WriteRegStr HKCU "' + ukey + '" "DisplayName"    "' + title   + '"');
     L('  WriteRegStr HKCU "' + ukey + '" "UninstallString" "$INSTDIR\\Uninstall.exe"');
     L('  WriteRegStr HKCU "' + ukey + '" "DisplayVersion"  "' + version + '"');
@@ -1513,7 +1549,7 @@ function buildNsisInstaller(opts, info, stagingDir, arch, outPath) {
 }
 
 /** Build a .msi installer via wixl (msitools). No Wine needed. */
-function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
+function buildMsiInstaller(opts, info, stagingDir, arch, outPath, exeFilename = '', shortcutExeName = '') {
     if (opts.exts.size > 0 && !opts.exts.has('msi')) return;
     if (!findBin('wixl')) {
         ui.warn('wixl not found \u2014 skipping MSI'); return;
@@ -1528,7 +1564,8 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
     const exeId       = toKebab(info.title || 'app');
     const author      = info.author   || title;
     const website     = info.repository || '';
-    const exeName     = exeId + '-' + version + '-windows-' + arch + '.exe';
+    const exeName     = exeFilename || (exeId + '-' + version + '-windows-' + arch + '.exe');
+    const shortcutTarget = shortcutExeName || exeName;
     const productCode = hashToUuid(pkgId + '-product-' + version);
     const upgradeCode = hashToUuid(pkgId + '-upgrade');
     const tmpBase     = path.join(path.dirname(outPath), '_msi-' + pkgId + '-' + arch);
@@ -1596,14 +1633,14 @@ function buildMsiInstaller(opts, info, stagingDir, arch, outPath) {
         '                  Directory="ProgramMenuDir"',
         '                  Name="' + xmlEscape(title) + '"',
         '                  Description="' + xmlEscape(desc) + '"',
-        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(shortcutTarget) + '"',
         ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
         '                  WorkingDirectory="APPDIR"/>',
         '        <Shortcut Id="DesktopShortcut"',
         '                  Directory="DesktopFolder"',
         '                  Name="' + xmlEscape(title) + '"',
         '                  Description="' + xmlEscape(desc) + '"',
-        '                  Target="[APPDIR]' + xmlEscape(exeName) + '"',
+        '                  Target="[APPDIR]' + xmlEscape(shortcutTarget) + '"',
         ...(iconPath ? ['                  Icon="AppIcon" IconIndex="0"'] : []),
         '                  WorkingDirectory="APPDIR"/>',
         '        <RemoveFolder Id="ProgramMenuDir" On="uninstall"/>',

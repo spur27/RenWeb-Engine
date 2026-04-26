@@ -460,6 +460,14 @@ document.querySelector(".is_focus").onclick = async () => {
     }
 };
 
+document.querySelector(".test_focus").onclick = async () => {
+    await Log.debug(`Focusing window after 5 seconds...`);
+    setTimeout(async () => {
+        await Log.debug(`Focusing window now...`);
+        await Window.focus();
+    }, 5000);
+};
+
 document.querySelector(".test_hide").onclick = async () => {
     await Log.debug(`Hiding for 5 seconds...`);
     await Window.show(false);

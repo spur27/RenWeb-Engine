@@ -1071,6 +1071,12 @@ WF* WF::setGetSets() {
                     ShowWindow(hwnd, SW_SHOW);
                     this->saved_states["fullscreen_active"] = json::value(true);
                 } else {
+                    if (this->saved_states.find("fullscreen_active") == this->saved_states.end() ||
+                        !this->saved_states["fullscreen_active"].is_bool() ||
+                        !this->saved_states["fullscreen_active"].as_bool()) {
+                        return;
+                    }
+
                     LONG_PTR restore_style = GetWindowLongPtr(hwnd, GWL_STYLE);
 
                     if (this->saved_states.find("fullscreen_prev_style") != this->saved_states.end() &&
@@ -1283,6 +1289,13 @@ WF* WF::setWindowCallbacks() {
                     } else {
                         ShowWindow(hwnd, SW_SHOW);
                     }
+                    // Force a z-order promotion pass on Windows because
+                    // SetForegroundWindow may be denied depending on focus rules.
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
                     BringWindowToTop(hwnd);
                     SetForegroundWindow(hwnd);
                     SetFocus(hwnd);
